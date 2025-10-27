@@ -1,3 +1,8 @@
+---
+name: "daily-command-center"
+description: "Generates comprehensive daily briefings by gathering calendar events, emails, and tasks from multiple sources (Google Calendar, Gmail, Smartsheet). Use this skill when the user wants to start their day, get a daily overview, or needs an executive briefing of their schedule, communications, and priorities."
+---
+
 # Daily Command Center Skill v1.0
 **Status**: Ready for Testing
 **Last Updated**: October 27, 2025
