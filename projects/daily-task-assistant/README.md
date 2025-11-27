@@ -14,6 +14,11 @@ A companion service that regularly pulls prioritized tasks from the Task Managem
 3. **Change Detection**: Emit events when new tasks arrive, deadlines change, or blockers are added. These events kick off downstream automation.
 4. **Security**: Store Smartsheet credentials in `.env` / secret manager; never commit.
 
+### Secrets & Environment
+- Cursor web secret `Smartsheet` should be injected as the runtime token (e.g., export `SMARTSHEET_API_TOKEN=$(cursor secrets get Smartsheet)` before running jobs).
+- Local `.env` entries should reference `SMARTSHEET_API_TOKEN` only; never persist raw tokens in repo files.
+- When running in CI or other environments, configure the same `Smartsheet` secret or equivalent secure store entry with least-privilege scope.
+
 ## Core Capability Roadmap
 - **Intake Pipeline**: Background worker that syncs every 5 minutes and tags tasks needing attention.
 - **Prioritization Engine**: Heuristics (deadline proximity, status stalled > 48h, blocker notes) combined with optional LLM scoring for ambiguity.
