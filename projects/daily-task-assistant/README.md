@@ -51,6 +51,11 @@ The repository now includes a starter CLI (`projects/daily-task-assistant/cli.py
    ```
 3. Run the CLI:
    ```bash
-   python projects/daily-task-assistant/cli.py list --limit 2
+   python3 projects/daily-task-assistant/cli.py list --limit 2
    ```
-   The command prints a small table of stubbed tasks plus confirmation that the token/environment resolved. As we wire up the real Smartsheet sync, this command will show live data. Use `python projects/daily-task-assistant/cli.py check-token` to verify configuration without listing tasks.
+   The command prints a small table of stubbed tasks plus confirmation that the token/environment resolved. Switch to live data (once `config/smartsheet.yml` has real column IDs) via `--source live`. Use `python3 projects/daily-task-assistant/cli.py check-token` to verify configuration without listing tasks.
+4. Inspect schema readiness:
+   ```bash
+   python3 projects/daily-task-assistant/cli.py schema
+   ```
+   This highlights any columns that still rely on placeholder IDs so you know what to grab from the Smartsheet Describe Sheet endpoint. Install PyYAML (`pip install pyyaml`) if the CLI prompts you when loading the schema config.

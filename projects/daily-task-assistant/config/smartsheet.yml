@@ -1,0 +1,109 @@
+sheet:
+  id: 4543936291884932
+  name: Task Management Master
+  description: |
+    Canonical sheet for Daily Task Assistant automations. Column IDs
+    must be updated once retrieved from the Smartsheet metadata API.
+
+required_fields: &required_fields
+  - task
+  - project
+  - due_date
+  - priority
+  - status
+  - assigned_to
+  - estimated_hours
+
+priority_values:
+  ordered: &priority_list
+    - Critical
+    - Urgent
+    - Important
+    - Standard
+    - Low
+  default: Standard
+
+project_values: &project_list
+  - Around The House
+  - Church Tasks
+  - Family Time
+  - Shopping
+  - Sm. Projects & Tasks
+  - Zendesk Ticket
+
+columns:
+  task:
+    column_id: TODO_TASK_COLUMN_ID
+    type: text
+    description: Actionable task name (singular verb + outcome).
+  project:
+    column_id: TODO_PROJECT_COLUMN_ID
+    type: picklist
+    allowed_values: *project_list
+    fallback: "Sm. Projects & Tasks"
+    description: Validated project grouping for reporting.
+  due_date:
+    column_id: TODO_DUE_DATE_COLUMN_ID
+    type: date
+    description: Target completion date (not necessarily hard deadline).
+  priority:
+    column_id: TODO_PRIORITY_COLUMN_ID
+    type: picklist
+    allowed_values: *priority_list
+    default: Standard
+    description: Enforced urgency level; maps to automation urgency.
+  status:
+    column_id: TODO_STATUS_COLUMN_ID
+    type: picklist
+    default: Scheduled
+    allowed_values:
+      - Scheduled
+      - In Progress
+      - Blocked
+      - Waiting
+      - Complete
+    description: Workflow state (independent of Done checkbox).
+  assigned_to:
+    column_id: TODO_ASSIGNED_COLUMN_ID
+    type: contact
+    default: "david.a.royes@gmail.com"
+    description: Primary owner for follow-ups.
+  estimated_hours:
+    column_id: TODO_EST_HOURS_COLUMN_ID
+    type: picklist
+    description: Rough effort sizing chosen from Smartsheet list.
+  number:
+    column_id: TODO_NUMBER_COLUMN_ID
+    label: "#"
+    type: int
+    description: Daily ordering field; assistant may reorder to reprioritize.
+  done:
+    column_id: TODO_DONE_COLUMN_ID
+    type: checkbox
+    description: User-controlled completion marker (never auto-toggle without confirmation).
+  notes:
+    column_id: TODO_NOTES_COLUMN_ID
+    type: text
+    optional: true
+  contact:
+    column_id: TODO_CONTACT_COLUMN_ID
+    type: text
+    optional: true
+  deadline:
+    column_id: TODO_DEADLINE_COLUMN_ID
+    type: date
+    optional: true
+  recurring:
+    column_id: TODO_RECURRING_COLUMN_ID
+    type: checkbox
+    optional: true
+
+validation:
+  enforce_picklists: true
+  enforce_required_fields: true
+  reject_blank_due_dates: true
+  reject_missing_priority: true
+
+notes:
+  - Populate each TODO_* placeholder with the actual column ID from the Smartsheet Describe Sheet endpoint before enabling write operations.
+  - Automations may reorder the `number` column but must not set `done` to checked unless explicitly confirmed by the user.
