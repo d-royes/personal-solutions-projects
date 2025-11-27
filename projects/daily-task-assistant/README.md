@@ -40,3 +40,17 @@ A companion service that regularly pulls prioritized tasks from the Task Managem
 4. Add integration tests that mock Smartsheet responses to validate the sync + prioritization pipeline.
 
 This README will evolve as components land; the first milestone is establishing reliable Smartsheet ingestion plus a CLI prototype that proves out automated assistance on real tasks.
+
+## Running the CLI Stub
+The repository now includes a starter CLI (`projects/daily-task-assistant/cli.py`) that exercises configuration loading and prints placeholder tasks. It is intentionally simple so new capabilities can be layered in without refactoring.
+
+1. Make sure Python 3.10+ is available.
+2. Export the Smartsheet token (Cursor will inject the `Smartsheet` secret automatically):
+   ```bash
+   export SMARTSHEET_API_TOKEN=$(cursor secrets get Smartsheet)
+   ```
+3. Run the CLI:
+   ```bash
+   python projects/daily-task-assistant/cli.py list --limit 2
+   ```
+   The command prints a small table of stubbed tasks plus confirmation that the token/environment resolved. As we wire up the real Smartsheet sync, this command will show live data. Use `python projects/daily-task-assistant/cli.py check-token` to verify configuration without listing tasks.
