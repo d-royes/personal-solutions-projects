@@ -1,0 +1,4 @@
+- Batch related work in the {project} stream to avoid context switching.
+- {notes}
+- If the effort is {estimated_hours} consider pairing it with a focus block or automation assist to reduce calendar drag.
+

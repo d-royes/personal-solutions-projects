@@ -4,13 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
 
 from .config import Settings
-from .tasks import TaskSummary, fetch_stubbed_tasks
+from .tasks import TaskDetail, fetch_stubbed_tasks
 
 try:  # Optional dependency
     import yaml
@@ -121,14 +121,16 @@ class SmartsheetClient:
         self.schema = load_schema(schema_path)
         self.timeout_seconds = timeout_seconds
         self._last_fetch_used_live = False
+        self._row_errors: List[str] = []
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def list_tasks(self, *, limit: int = 50, fallback_to_stub: bool = True) -> List[TaskSummary]:
-        """Return TaskSummary rows, pulling live data when schema is ready."""
+    def list_tasks(self, *, limit: int = 50, fallback_to_stub: bool = True) -> List[TaskDetail]:
+        """Return TaskDetail rows, pulling live data when schema is ready."""
 
         self._last_fetch_used_live = False
+        self._row_errors = []
         if not self.schema.ready_for_live:
             if fallback_to_stub:
                 return fetch_stubbed_tasks(limit=limit)
@@ -146,42 +148,79 @@ class SmartsheetClient:
             self._last_fetch_used_live = True
         except SmartsheetAPIError:
             if fallback_to_stub:
+                self._row_errors = []
                 return fetch_stubbed_tasks(limit=limit)
             raise
 
-        return self._rows_to_summaries(payload.get("rows", []), limit=limit)
+        details, errors = self._rows_to_details(payload.get("rows", []), limit=limit)
+        self._row_errors = errors
+        return details
+
+    def post_comment(self, row_id: str, text: str) -> None:
+        """Create a discussion comment on a row."""
+
+        payload = {
+            "comment": {"text": text},
+        }
+        try:
+            self._request(
+                "POST",
+                f"/sheets/{self.schema.sheet_id}/rows/{row_id}/discussions",
+                body=payload,
+            )
+        except SmartsheetAPIError as exc:
+            raise SmartsheetAPIError(f"Failed to post comment: {exc}") from exc
 
     @property
     def last_fetch_used_live(self) -> bool:
         return self._last_fetch_used_live
 
+    @property
+    def row_errors(self) -> List[str]:
+        return self._row_errors
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _rows_to_summaries(self, rows: Iterable[Dict[str, Any]], *, limit: int) -> List[TaskSummary]:
-        summaries: List[TaskSummary] = []
+    def _rows_to_details(
+        self, rows: Iterable[Dict[str, Any]], *, limit: int
+    ) -> Tuple[List[TaskDetail], List[str]]:
+        summaries: List[TaskDetail] = []
+        errors: List[str] = []
         for row in rows:
             cell_map = self._cells_by_column(row.get("cells", []))
             try:
-                summary = TaskSummary(
+                summary = TaskDetail(
                     row_id=str(row.get("id")),
                     title=self._cell_value(cell_map, "task"),
                     status=self._cell_value(cell_map, "status"),
                     due=self._parse_due_date(self._cell_value(cell_map, "due_date")),
-                    next_step=self._cell_value(cell_map, "notes", allow_optional=True)
-                    or "Review notes",  # fallback placeholder
+                    priority=self._cell_value(cell_map, "priority"),
+                    project=self._cell_value(cell_map, "project"),
+                    assigned_to=self._cell_value(
+                        cell_map, "assigned_to", allow_optional=True
+                    ),
+                    estimated_hours=self._coerce_estimated_hours(
+                        self._cell_value(cell_map, "estimated_hours", allow_optional=True)
+                    ),
+                    notes=self._cell_value(cell_map, "notes", allow_optional=True),
+                    next_step=self._cell_value(
+                        cell_map, "notes", allow_optional=True
+                    )
+                    or "Review notes",
                     automation_hint=self._derive_hint(cell_map),
                 )
             except (KeyError, ValueError) as exc:
-                raise SchemaError(
-                    f"Failed to map row {row.get('id')} to TaskSummary: {exc}"
-                ) from exc
+                errors.append(
+                    f"Row {row.get('id')} skipped: {exc}. Check schema and sheet data."
+                )
+                continue
 
             summaries.append(summary)
             if len(summaries) >= limit:
                 break
 
-        return summaries
+        return summaries, errors
 
     def _cells_by_column(self, cells: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         lookup: Dict[str, Any] = {}
@@ -190,7 +229,9 @@ class SmartsheetClient:
             lookup[column_id] = cell.get("displayValue") or cell.get("value")
         return lookup
 
-    def _cell_value(self, cell_map: Dict[str, Any], field_name: str, *, allow_optional: bool = False) -> Any:
+    def _cell_value(
+        self, cell_map: Dict[str, Any], field_name: str, *, allow_optional: bool = False
+    ) -> Any:
         column = self.schema.columns.get(field_name)
         if not column:
             raise SchemaError(f"Field '{field_name}' missing from schema config.")
@@ -229,6 +270,33 @@ class SmartsheetClient:
         status = self._cell_value(cell_map, "status")
         project = self._cell_value(cell_map, "project")
         return f"{priority} {project} task currently {status.lower()}"
+
+    def _coerce_estimated_hours(self, value: Any) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip()
+        if not text:
+            return None
+        # Handle ranges like "1-2" by averaging.
+        if "-" in text:
+            bounds = [b for b in text.split("-") if b.strip()]
+            numbers = []
+            for bound in bounds:
+                try:
+                    numbers.append(float(bound))
+                except ValueError:
+                    continue
+            if numbers:
+                return sum(numbers) / len(numbers)
+        # Handle "<1" or "0.5+" styles
+        digits = "".join(ch for ch in text if (ch.isdigit() or ch == "." or ch == ","))
+        digits = digits.replace(",", "")
+        try:
+            return float(digits)
+        except ValueError:
+            return None
 
     def _request(
         self,
