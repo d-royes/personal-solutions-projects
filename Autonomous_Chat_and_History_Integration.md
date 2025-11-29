@@ -5,6 +5,12 @@
 - Assistant persona: problem solver, project manager, motivational partner.
 - Future action expansion (email today, Chrome/other automations tomorrow).
 
+## Primary Use Case
+- **Owner:** David Royes, juggling Personal, Church, and Work deliverables.
+- **Assistant expectation:** DATA proactively surfaces the most important open tasks, highlights blockers/context, and proposes next best actions.
+- **Collaboration loop:** David reviews the surfaced insight, iterates on the plan via chat (refine, shorten, add detail), and delegates assists (email drafting/sending today, broader automations tomorrow).
+- **Execution + learning:** DATA executes what it can, logs activity/smartsheet comments, and retains the conversation so future sessions get smarter until the task is closed or reopened.
+
 ## Backend Plan
 1. Extend POST /assist/{rowId} to accept user instructions and a conversationId/history payload.
 2. Add GET /assist/{rowId}/history to fetch stored conversation turns.
@@ -68,3 +74,8 @@
 - **Known gaps surfaced**  
   - Template-based assist responses ignore user instructions until Anthropic API is enabled.  
   - Conversation UI shows assistant bubbles; upcoming work should expose user bubbles inline for easier visual trace.
+
+- **2025-12-01 UX refresh**  
+  - Task list now filters out completed work, badges Personal/Church/Work domains, and exposes quick attention filters.  
+  - Assistant panel reorganized into context → plan → actions → conversation, with “refine” hooks that pre-fill the chat composer.  
+  - Admin drawer gained tabbed navigation plus scrollable activity detail rows, laying groundwork for richer history inspection.

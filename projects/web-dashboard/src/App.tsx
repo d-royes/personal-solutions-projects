@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { TaskList } from './components/TaskList'
 import { AssistPanel } from './components/AssistPanel'
@@ -50,6 +50,12 @@ function App() {
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuView, setMenuView] = useState<'auth' | 'activity'>('auth')
+  const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
+
+  const handleQuickAction = useCallback((action: { type: string; content: string }) => {
+    console.debug('Quick action', action)
+  }, [])
 
   const selectedTask =
     tasks.find((task) => task.rowId === selectedTaskId) ?? null
@@ -80,16 +86,18 @@ function App() {
     try {
       const response = await fetchTasks(authConfig, apiBase, {
         source: dataSource,
-        limit: 8,
       })
-      setTasks(response.tasks)
+      const activeTasks = response.tasks.filter(
+        (task) => task.status?.toLowerCase() !== 'completed',
+      )
+      setTasks(activeTasks)
       setLiveTasks(response.liveTasks)
       setTasksWarning(response.warning ?? null)
       if (response.environment) {
         setEnvironmentName(response.environment.toUpperCase())
       }
-      if (!selectedTaskId && response.tasks.length > 0) {
-        setSelectedTaskId(response.tasks[0].rowId)
+      if (!selectedTaskId && activeTasks.length > 0) {
+        setSelectedTaskId(activeTasks[0].rowId)
       }
     } catch (error) {
       setTasksWarning((error as Error).message)
@@ -218,7 +226,10 @@ function App() {
           <button
             className="icon-button"
             aria-label="Open admin menu"
-            onClick={() => setMenuOpen(true)}
+            onClick={() => {
+              setMenuView('auth')
+              setMenuOpen(true)
+            }}
           >
             ☰
           </button>
@@ -227,35 +238,60 @@ function App() {
 
       {menuOpen && (
         <div className="menu-overlay" onClick={() => setMenuOpen(false)}>
-          <div className="menu-content" onClick={(e) => e.stopPropagation()}>
-            <AuthPanel onClose={() => setMenuOpen(false)} />
-            {authConfig && (
-              <ActivityFeed
-                entries={activityEntries}
-                onRefresh={refreshActivity}
-                error={activityError}
-                variant="inline"
-              />
-            )}
+          <div className="menu-shell" onClick={(e) => e.stopPropagation()}>
+            <nav className="menu-nav" aria-label="Admin menu">
+              <button
+                className={menuView === 'auth' ? 'active' : ''}
+                onClick={() => setMenuView('auth')}
+              >
+                Authentication
+              </button>
+              <button
+                className={menuView === 'activity' ? 'active' : ''}
+                onClick={() => setMenuView('activity')}
+                disabled={!authConfig}
+              >
+                Activity
+              </button>
+            </nav>
+            <div className="menu-view">
+              {menuView === 'auth' && <AuthPanel onClose={() => setMenuOpen(false)} />}
+              {menuView === 'activity' &&
+                (authConfig ? (
+                  <div className="menu-activity-wrapper">
+                    <ActivityFeed
+                      entries={activityEntries}
+                      onRefresh={refreshActivity}
+                      error={activityError}
+                      variant="inline"
+                    />
+                  </div>
+                ) : (
+                  <p className="subtle">Sign in to view activity.</p>
+                ))}
+            </div>
           </div>
         </div>
       )}
 
-      <main className="grid">
+      <main className={`grid ${taskPanelCollapsed ? 'task-collapsed' : ''}`}>
         {!authConfig ? (
           <section className="panel">
             <p>Please sign in to load tasks.</p>
           </section>
         ) : (
           <>
-            <TaskList
-              tasks={tasks}
-              selectedTaskId={selectedTaskId}
-              onSelect={setSelectedTaskId}
-              loading={tasksLoading}
-              liveTasks={liveTasks}
-              warning={tasksWarning}
-            />
+            {!taskPanelCollapsed && (
+              <TaskList
+                tasks={tasks}
+                selectedTaskId={selectedTaskId}
+                onSelect={setSelectedTaskId}
+                loading={tasksLoading}
+                liveTasks={liveTasks}
+                warning={tasksWarning}
+                onCollapse={() => setTaskPanelCollapsed(true)}
+              />
+            )}
 
             <AssistPanel
               selectedTask={selectedTask}
@@ -270,6 +306,10 @@ function App() {
               conversationLoading={conversationLoading}
               onSendMessage={handleSendMessage}
               sendingMessage={sendingMessage}
+              taskPanelCollapsed={taskPanelCollapsed}
+              onExpandTasks={() => setTaskPanelCollapsed(false)}
+              onCollapseTasks={() => setTaskPanelCollapsed(true)}
+              onQuickAction={handleQuickAction}
             />
           </>
         )}

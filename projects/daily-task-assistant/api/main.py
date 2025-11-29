@@ -134,11 +134,11 @@ def health_check() -> dict:
 @app.get("/tasks")
 def list_tasks(
     source: Literal["auto", "live", "stub"] = Query("auto"),
-    limit: int = Query(5, ge=1, le=50),
+    limit: Optional[int] = Query(None, ge=1, le=500),
     user: str = Depends(get_current_user),
 ) -> dict:
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-    limit=limit, source=source
+        limit=limit, source=source
     )
     return {
         "tasks": [serialize_task(task) for task in tasks],

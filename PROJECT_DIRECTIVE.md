@@ -1,8 +1,8 @@
 # Project Directive — Daily Task Assistant
 
-Version: 2025-11-28  
+Version: 2025-11-29  
 Owner: David Royes  
-AI Partner: GPT-5.1 Codex
+AI Partner: GPT-5.1 Codex → Claude Opus 4.5 (as of 2025-11-29 model switch)
 
 ---
 
@@ -11,6 +11,7 @@ AI Partner: GPT-5.1 Codex
 - **Mission**: AI-backed command center that ingests Smartsheet tasks, prioritizes them, recommends next actions, and executes assists (email drafting/sending, context logging) through a secure web experience.
 - **Security**: Secrets never committed. All live sends require explicit confirmation. Google OAuth protects the eventual web UI. Personal + church Gmail accounts run as separate OAuth clients.
 - **Deliverables**: Maintain a CLI + FastAPI backend + React web UI. Preserve traceability through Smartsheet comments and a local/cloud activity log.
+- **Primary Use Case**: DATA partners with David (across Personal / Church / Work domains) to surface the most important active tasks, collaborate on refining next steps, and execute assists while conversations accumulate intelligence. (See “Primary Use Case” in `Autonomous_Chat_and_History_Integration.md` for the full narrative.)
 
 ---
 
@@ -47,7 +48,9 @@ Upcoming: FastAPI service (Cloud Run) + React web dashboard (Firebase hosting or
 | 2025-11-30 Early | Web UI header rebuilt (auth status badge, admin menu, trimmed notes) to maximize working columns. |
 | 2025-11-30 Afternoon | Assistant chat + Firestore history shipped (per-task conversations with persona tuning). |
 | 2025-11-30 Evening | Manual chat validation (long notes, blocked task, multi-turn logging, persistence, reset). Findings logged in `Autonomous_Chat_and_History_Integration.md`. |
-| Next | Wire true Google Sign-In + deployment automation. |
+| 2025-12-01 | Task list + assistant UX refresh (domain-aware filters, concise plan layout, collapsible task rail, quick collaboration hooks). |
+| 2025-11-29 PM | **Model switch**: Codex encountered connectivity issues; David switched to Claude Opus 4.5. Restore point committed before handoff. |
+| Next | Enable live Anthropic responses, context-aware action picker, recipient-aware email drafting, feedback controls. |
 
 ---
 

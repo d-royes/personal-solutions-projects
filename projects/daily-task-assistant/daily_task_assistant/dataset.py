@@ -1,9 +1,9 @@
 """Shared dataset helpers."""
 from __future__ import annotations
 
-from collections import Counter
+from collections import defaultdict
 import re
-from typing import Tuple
+from typing import Optional, Tuple
 
 from .config import Settings, load_settings
 from .smartsheet_client import SchemaError, SmartsheetAPIError, SmartsheetClient
@@ -11,7 +11,7 @@ from .tasks import TaskDetail, fetch_stubbed_tasks
 
 
 def fetch_tasks(
-    *, limit: int, source: str
+    *, limit: Optional[int], source: str
 ) -> Tuple[list[TaskDetail], bool, Settings, str | None]:
     """Fetch tasks from Smartsheet or fallback stub."""
 
@@ -67,32 +67,47 @@ _MISSING_FIELD_RE = re.compile(r"Required field '([^']+)' missing", re.IGNORECAS
 _INVALID_VALUE_RE = re.compile(
     r"Field '([^']+)' has invalid value", re.IGNORECASE
 )
+_ROW_NUMBER_RE = re.compile(r"Row\s+(\d+)")
 
 
 def _summarize_row_errors(errors: list[str]) -> str:
     """Condense verbose row errors into a short dashboard-friendly summary."""
 
-    buckets: Counter[str] = Counter()
-    other = 0
-    for err in errors:
-        if match := _MISSING_FIELD_RE.search(err):
-            buckets[f"missing {match.group(1)}"] += 1
-        elif match := _INVALID_VALUE_RE.search(err):
-            buckets[f"invalid {match.group(1)}"] += 1
-        else:
-            other += 1
-
-    if other:
-        buckets["other issues"] += other
-
-    if not buckets:
+    if not errors:
         return "Skipped rows due to incomplete Smartsheet data."
 
-    parts = [f"{count}× {label}" for label, count in buckets.items()]
-    summary = ", ".join(parts[:3])
-    if len(parts) > 3:
-        summary += f", +{len(parts) - 3} more"
+    buckets = defaultdict(list)
+
+    for err in errors:
+        if match := _MISSING_FIELD_RE.search(err):
+            label = f"missing {match.group(1)}"
+        elif match := _INVALID_VALUE_RE.search(err):
+            label = f"invalid {match.group(1)}"
+        else:
+            label = "other issues"
+
+        row_label = "unknown row"
+        if row_match := _ROW_NUMBER_RE.search(err):
+            row_label = f"row {row_match.group(1)}"
+        elif "Row ID" in err:
+            row_label = err.split(":")[0]
+
+        buckets[label].append(row_label)
 
     total = len(errors)
+    parts = []
+    for label, rows in buckets.items():
+        unique_rows = []
+        for row in rows:
+            if row not in unique_rows:
+                unique_rows.append(row)
+        preview = ", ".join(unique_rows[:5])
+        extra = f", +{len(unique_rows) - 5} more" if len(unique_rows) > 5 else ""
+        if extra:
+            parts.append(f"{label} ({preview}{extra})")
+        else:
+            parts.append(f"{label} ({preview})")
+
+    summary = "; ".join(parts)
     return f"Skipped {total} row(s): {summary}. Fix Smartsheet fields and refresh."
 

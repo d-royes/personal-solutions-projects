@@ -126,7 +126,9 @@ class SmartsheetClient:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def list_tasks(self, *, limit: int = 50, fallback_to_stub: bool = True) -> List[TaskDetail]:
+    def list_tasks(
+        self, *, limit: Optional[int] = None, fallback_to_stub: bool = True
+    ) -> List[TaskDetail]:
         """Return TaskDetail rows, pulling live data when schema is ready."""
 
         self._last_fetch_used_live = False
@@ -143,7 +145,7 @@ class SmartsheetClient:
             payload = self._request(
                 "GET",
                 f"/sheets/{self.schema.sheet_id}",
-                params={"include": "objectValue"},
+                params={"include": "objectValue,rowNumbers,childIds"},
             )
             self._last_fetch_used_live = True
         except SmartsheetAPIError:
@@ -183,11 +185,13 @@ class SmartsheetClient:
     # Internal helpers
     # ------------------------------------------------------------------
     def _rows_to_details(
-        self, rows: Iterable[Dict[str, Any]], *, limit: int
+        self, rows: Iterable[Dict[str, Any]], *, limit: Optional[int]
     ) -> Tuple[List[TaskDetail], List[str]]:
         summaries: List[TaskDetail] = []
         errors: List[str] = []
         for row in rows:
+            if self._is_parent_row(row):
+                continue
             cell_map = self._cells_by_column(row.get("cells", []))
             try:
                 summary = TaskDetail(
@@ -211,16 +215,27 @@ class SmartsheetClient:
                     automation_hint=self._derive_hint(cell_map),
                 )
             except (KeyError, ValueError) as exc:
-                errors.append(
-                    f"Row {row.get('id')} skipped: {exc}. Check schema and sheet data."
-                )
+                errors.append(self._format_row_error(row, exc))
                 continue
 
             summaries.append(summary)
-            if len(summaries) >= limit:
+            if limit is not None and len(summaries) >= limit:
                 break
 
         return summaries, errors
+
+    def _is_parent_row(self, row: Dict[str, Any]) -> bool:
+        child_ids = row.get("childIds") or []
+        return bool(child_ids)
+
+    def _format_row_error(self, row: Dict[str, Any], exc: Exception) -> str:
+        row_number = row.get("rowNumber")
+        row_id = row.get("id")
+        if row_number:
+            label = f"Row {row_number}"
+        else:
+            label = f"Row ID {row_id}"
+        return f"{label}: {exc}. Check schema and sheet data."
 
     def _cells_by_column(self, cells: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         lookup: Dict[str, Any] = {}

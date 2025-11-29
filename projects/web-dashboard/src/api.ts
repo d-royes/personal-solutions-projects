@@ -25,7 +25,9 @@ export async function fetchTasks(
 ): Promise<TaskResponse> {
   const url = new URL('/tasks', baseUrl)
   url.searchParams.set('source', options.source ?? defaultSource)
-  url.searchParams.set('limit', String(options.limit ?? 5))
+  if (typeof options.limit === 'number') {
+    url.searchParams.set('limit', String(options.limit))
+  }
   const resp = await fetch(url, {
     headers: buildHeaders(auth),
   })

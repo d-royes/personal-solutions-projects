@@ -23,7 +23,7 @@ class TaskDetail:
     automation_hint: str
 
 
-def fetch_stubbed_tasks(*, limit: int = 5) -> List[TaskDetail]:
+def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:
     """Return a deterministic list of placeholder tasks."""
 
     now = datetime.utcnow()
@@ -69,6 +69,8 @@ def fetch_stubbed_tasks(*, limit: int = 5) -> List[TaskDetail]:
         ),
     ]
 
+    if limit is None:
+        return sample[:]
     return sample[:limit]
 
 
