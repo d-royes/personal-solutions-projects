@@ -408,6 +408,137 @@ def research_task_endpoint(
     }
 
 
+class TaskUpdateRequest(BaseModel):
+    """Request body for task update endpoint."""
+    action: Literal["mark_complete", "update_status", "update_priority", "update_due_date", "add_comment"]
+    status: Optional[str] = Field(None, description="New status value (for update_status)")
+    priority: Optional[str] = Field(None, description="New priority value (for update_priority)")
+    due_date: Optional[str] = Field(None, description="New due date in YYYY-MM-DD format (for update_due_date)")
+    comment: Optional[str] = Field(None, description="Comment text (for add_comment)")
+    confirmed: bool = Field(False, description="User has confirmed this action")
+
+
+# Valid values from smartsheet.yml
+VALID_STATUSES = [
+    "Scheduled", "In Progress", "Blocked", "Waiting", "Complete", "Recurring",
+    "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Create ZD Ticket",
+    "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"
+]
+VALID_PRIORITIES = ["Critical", "Urgent", "Important", "Standard", "Low"]
+
+
+@app.post("/assist/{task_id}/update")
+def update_task(
+    task_id: str,
+    request: TaskUpdateRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update a task in Smartsheet.
+    
+    Requires confirmation=True to execute. If not confirmed, returns a preview
+    of the proposed changes for user confirmation.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient, SmartsheetAPIError
+    from datetime import datetime as dt
+    
+    settings = _get_settings()
+    
+    # Validate the action and required fields
+    if request.action == "update_status":
+        if not request.status:
+            raise HTTPException(status_code=400, detail="status field required for update_status action")
+        if request.status not in VALID_STATUSES:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid status '{request.status}'. Valid: {VALID_STATUSES}"
+            )
+    elif request.action == "update_priority":
+        if not request.priority:
+            raise HTTPException(status_code=400, detail="priority field required for update_priority action")
+        if request.priority not in VALID_PRIORITIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid priority '{request.priority}'. Valid: {VALID_PRIORITIES}"
+            )
+    elif request.action == "update_due_date":
+        if not request.due_date:
+            raise HTTPException(status_code=400, detail="due_date field required for update_due_date action")
+        try:
+            dt.strptime(request.due_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="due_date must be in YYYY-MM-DD format")
+    elif request.action == "add_comment":
+        if not request.comment:
+            raise HTTPException(status_code=400, detail="comment field required for add_comment action")
+    
+    # Build preview of proposed changes
+    preview = {
+        "taskId": task_id,
+        "action": request.action,
+        "changes": {},
+    }
+    
+    if request.action == "mark_complete":
+        preview["changes"] = {"status": "Complete", "done": True}
+        preview["description"] = "Mark task as complete (Status → Complete, Done → checked)"
+    elif request.action == "update_status":
+        preview["changes"] = {"status": request.status}
+        preview["description"] = f"Update status to '{request.status}'"
+    elif request.action == "update_priority":
+        preview["changes"] = {"priority": request.priority}
+        preview["description"] = f"Update priority to '{request.priority}'"
+    elif request.action == "update_due_date":
+        preview["changes"] = {"due_date": request.due_date}
+        preview["description"] = f"Update due date to '{request.due_date}'"
+    elif request.action == "add_comment":
+        preview["changes"] = {"comment": request.comment}
+        preview["description"] = f"Add comment: '{request.comment[:50]}...'" if len(request.comment or "") > 50 else f"Add comment: '{request.comment}'"
+    
+    # If not confirmed, return preview for user confirmation
+    if not request.confirmed:
+        return {
+            "status": "pending_confirmation",
+            "preview": preview,
+            "message": "Please confirm this action before it is executed.",
+        }
+    
+    # Execute the update
+    try:
+        client = SmartsheetClient(settings)
+        
+        if request.action == "mark_complete":
+            client.mark_complete(task_id)
+        elif request.action == "update_status":
+            client.update_row(task_id, {"status": request.status})
+        elif request.action == "update_priority":
+            client.update_row(task_id, {"priority": request.priority})
+        elif request.action == "update_due_date":
+            client.update_row(task_id, {"due_date": request.due_date})
+        elif request.action == "add_comment":
+            client.post_comment(task_id, request.comment)
+        
+        # Log the action to conversation history
+        action_description = preview["description"]
+        log_assistant_message(
+            task_id,
+            content=f"✅ **Smartsheet updated**: {action_description}",
+            plan=None,
+            metadata={"source": "task_update", "action": request.action, "changes": preview["changes"]},
+        )
+        
+        return {
+            "status": "success",
+            "action": request.action,
+            "changes": preview["changes"],
+            "message": f"Task updated successfully: {action_description}",
+        }
+        
+    except SmartsheetAPIError as exc:
+        raise HTTPException(status_code=502, detail=f"Smartsheet API error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/activity")
 def activity_feed(
     limit: int = Query(50, ge=1, le=200),

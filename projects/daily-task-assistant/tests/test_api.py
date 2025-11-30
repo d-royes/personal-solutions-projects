@@ -83,3 +83,116 @@ def test_activity_endpoint(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["count"] >= 1
 
+
+class TestTaskUpdateEndpoint:
+    """Tests for the /assist/{task_id}/update endpoint."""
+
+    def test_mark_complete_requires_confirmation(self):
+        """Test that mark_complete returns preview when not confirmed."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "mark_complete", "confirmed": False},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "pending_confirmation"
+        assert body["preview"]["action"] == "mark_complete"
+        assert body["preview"]["changes"]["status"] == "Complete"
+        assert body["preview"]["changes"]["done"] is True
+
+    def test_update_status_requires_status_field(self):
+        """Test that update_status requires status field."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "update_status", "confirmed": True},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 400
+        assert "status field required" in resp.json()["detail"]
+
+    def test_update_status_validates_status_value(self):
+        """Test that invalid status values are rejected."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "update_status", "status": "InvalidStatus", "confirmed": True},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 400
+        assert "Invalid status" in resp.json()["detail"]
+
+    def test_update_status_preview(self):
+        """Test status update preview."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "update_status", "status": "Blocked", "confirmed": False},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "pending_confirmation"
+        assert body["preview"]["changes"]["status"] == "Blocked"
+
+    def test_update_priority_validates_value(self):
+        """Test that invalid priority values are rejected."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "update_priority", "priority": "Super High", "confirmed": True},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 400
+        assert "Invalid priority" in resp.json()["detail"]
+
+    def test_update_priority_preview(self):
+        """Test priority update preview."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "update_priority", "priority": "Urgent", "confirmed": False},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["preview"]["changes"]["priority"] == "Urgent"
+
+    def test_update_due_date_validates_format(self):
+        """Test that invalid date format is rejected."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "update_due_date", "due_date": "12/25/2025", "confirmed": True},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 400
+        assert "YYYY-MM-DD" in resp.json()["detail"]
+
+    def test_update_due_date_preview(self):
+        """Test due date update preview."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "update_due_date", "due_date": "2025-12-25", "confirmed": False},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["preview"]["changes"]["due_date"] == "2025-12-25"
+
+    def test_add_comment_requires_comment_field(self):
+        """Test that add_comment requires comment field."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "add_comment", "confirmed": True},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 400
+        assert "comment field required" in resp.json()["detail"]
+
+    def test_add_comment_preview(self):
+        """Test comment add preview."""
+        resp = client.post(
+            "/assist/1001/update",
+            json={"action": "add_comment", "comment": "Test comment", "confirmed": False},
+            headers=USER_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["preview"]["changes"]["comment"] == "Test comment"
+
