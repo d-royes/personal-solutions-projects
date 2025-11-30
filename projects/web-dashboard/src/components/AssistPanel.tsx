@@ -105,35 +105,6 @@ function formatActionLabel(action: string): string {
   return labels[action] || action.replace(/_/g, ' ')
 }
 
-// Format a contact card as markdown
-function formatContactCard(contact: ContactCard): string {
-  const lines: string[] = [`📇 **${contact.name}**`]
-  if (contact.email) {
-    lines.push(`📧 ${contact.email}`)
-  }
-  if (contact.phone) {
-    lines.push(`📱 ${contact.phone}`)
-  }
-  if (contact.title && contact.organization) {
-    lines.push(`🏢 ${contact.organization} - ${contact.title}`)
-  } else if (contact.organization) {
-    lines.push(`🏢 ${contact.organization}`)
-  } else if (contact.title) {
-    lines.push(`💼 ${contact.title}`)
-  }
-  if (contact.location) {
-    lines.push(`📍 ${contact.location}`)
-  }
-  
-  // Source and confidence
-  let sourceText = `Source: ${contact.source}`
-  if (contact.sourceUrl) {
-    sourceText = `Source: [${contact.source}](${contact.sourceUrl})`
-  }
-  lines.push(`🔗 ${sourceText} | Confidence: ${contact.confidence.charAt(0).toUpperCase() + contact.confidence.slice(1)}`)
-  
-  return lines.join('\n')
-}
 
 // Fixed action buttons that are always available
 const FIXED_ACTIONS = ['plan', 'research', 'summarize', 'contact', 'draft_email']
@@ -919,18 +890,6 @@ export function AssistPanel({
                 <div className="action-output-content">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('contact')}</h5>
-                    {contactResults && contactResults.length > 0 && (
-                      <button
-                        className="push-btn"
-                        onClick={() => {
-                          const contactMarkdown = contactResults.map(c => formatContactCard(c)).join('\n\n---\n\n')
-                          pushToWorkspace(contactMarkdown)
-                        }}
-                        title="Push to Workspace"
-                      >
-                        ➡️
-                      </button>
-                    )}
                   </div>
                   {contactRunning ? (
                     <div className="research-loading">
@@ -963,19 +922,8 @@ export function AssistPanel({
                       </div>
                     </div>
                   ) : contactResults && contactResults.length > 0 ? (
-                    <div className="contact-results">
-                      {contactResults.map((contact, index) => (
-                        <div key={index} className="contact-card">
-                          {renderMarkdown(formatContactCard(contact))}
-                        </div>
-                      ))}
-                      {onFeedbackSubmit && (
-                        <FeedbackControls
-                          context="chat"
-                          messageContent={contactResults.map(c => c.name).join(', ')}
-                          onSubmit={onFeedbackSubmit}
-                        />
-                      )}
+                    <div className="contact-status">
+                      <p className="success-message">✅ {contactResults.length} contact(s) added to workspace</p>
                     </div>
                   ) : contactResults && contactResults.length === 0 ? (
                     <p className="subtle">No contacts found in task details.</p>

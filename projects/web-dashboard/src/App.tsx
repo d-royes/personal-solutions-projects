@@ -330,9 +330,17 @@ function App() {
         setContactConfirmation(response)
         setContactResults(null)
       } else {
-        // Got results
+        // Got results - push each contact to workspace individually
         setContactResults(response.contacts)
         setContactConfirmation(null)
+        
+        // Auto-push contacts to workspace (additive)
+        if (response.contacts && response.contacts.length > 0) {
+          const contactCards = response.contacts.map(c => formatContactCardMarkdown(c))
+          // Add each contact as a separate workspace item
+          setWorkspaceItems(prev => [...prev, ...contactCards])
+        }
+        
         // Update conversation history
         if (response.history) {
           setConversation(response.history)
@@ -344,6 +352,25 @@ function App() {
     } finally {
       setContactRunning(false)
     }
+  }
+  
+  // Helper to format contact card as markdown
+  function formatContactCardMarkdown(contact: ContactCard): string {
+    const lines: string[] = [`📇 **${contact.name}**`]
+    if (contact.email) lines.push(`📧 ${contact.email}`)
+    if (contact.phone) lines.push(`📱 ${contact.phone}`)
+    if (contact.title && contact.organization) {
+      lines.push(`🏢 ${contact.organization} - ${contact.title}`)
+    } else if (contact.organization) {
+      lines.push(`🏢 ${contact.organization}`)
+    } else if (contact.title) {
+      lines.push(`💼 ${contact.title}`)
+    }
+    if (contact.location) lines.push(`📍 ${contact.location}`)
+    let sourceText = `Source: ${contact.source}`
+    if (contact.sourceUrl) sourceText = `Source: [${contact.source}](${contact.sourceUrl})`
+    lines.push(`🔗 ${sourceText} | Confidence: ${contact.confidence.charAt(0).toUpperCase() + contact.confidence.slice(1)}`)
+    return lines.join('\n')
   }
 
   async function handleAssist() {
