@@ -395,6 +395,213 @@ Help David accomplish this task. Be proactive - offer to draft communications, c
     return _extract_text(response)
 
 
+# Tool definition for task updates
+TASK_UPDATE_TOOL = {
+    "name": "update_task",
+    "description": "Update a task in Smartsheet when the user indicates they want to change the task status, mark it complete, change priority, update due date, or add a comment. Always use this tool when the user's intent is to modify the task.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["mark_complete", "update_status", "update_priority", "update_due_date", "add_comment"],
+                "description": "The type of update to perform"
+            },
+            "status": {
+                "type": "string",
+                "enum": ["Scheduled", "In Progress", "Blocked", "Waiting", "Complete", "Recurring", "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Cancelled", "Delegated"],
+                "description": "New status value (required for update_status)"
+            },
+            "priority": {
+                "type": "string",
+                "enum": ["Critical", "Urgent", "Important", "Standard", "Low"],
+                "description": "New priority value (required for update_priority)"
+            },
+            "due_date": {
+                "type": "string",
+                "description": "New due date in YYYY-MM-DD format (required for update_due_date)"
+            },
+            "comment": {
+                "type": "string",
+                "description": "Comment text to add (required for add_comment)"
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of why this update is being made"
+            }
+        },
+        "required": ["action", "reason"]
+    }
+}
+
+CHAT_WITH_TOOLS_SYSTEM_PROMPT = """You are DATA (Daily Autonomous Task Assistant), David's proactive AI chief of staff.
+
+Your role is to help David accomplish tasks efficiently. You are action-oriented and solution-focused.
+
+TASK MANAGEMENT:
+When David indicates he wants to update a task, use the update_task tool:
+- "done", "finished", "complete", "completed this" → use update_task with action="mark_complete"
+- "blocked", "stuck", "waiting on..." → use update_task with action="update_status" and appropriate status
+- "push to...", "change due date to...", "move to next week" → use update_task with action="update_due_date"
+- "make this urgent", "lower priority" → use update_task with action="update_priority"
+- "add note:", "note that...", "record that..." → use update_task with action="add_comment"
+
+ALWAYS confirm the action with David before executing. If you detect an update intent, use the tool to structure the request, then ask for confirmation.
+
+OTHER CAPABILITIES:
+- Draft emails, messages, and communications
+- Create action plans and checklists
+- Provide research summaries
+- Suggest specific next steps
+
+STYLE:
+- Be concise and actionable
+- Use tools when appropriate
+- Ask clarifying questions when needed
+"""
+
+
+@dataclass(slots=True)
+class TaskUpdateAction:
+    """Structured task update action detected from user intent."""
+    action: str
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = None
+    comment: Optional[str] = None
+    reason: str = ""
+
+
+@dataclass(slots=True)
+class ChatResponse:
+    """Response from chat_with_tools, may include a pending action."""
+    message: str
+    pending_action: Optional[TaskUpdateAction] = None
+
+
+def chat_with_tools(
+    task: TaskDetail,
+    user_message: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> ChatResponse:
+    """Chat with task update tool support.
+    
+    This function enables DATA to recognize task update intents and return
+    structured actions that can be confirmed and executed.
+    
+    Args:
+        task: The current task being discussed
+        user_message: The user's latest message
+        history: Previous conversation messages
+        client: Optional pre-built Anthropic client
+        config: Optional configuration override
+    
+    Returns:
+        ChatResponse with message and optional pending_action
+    """
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+
+    # Build task context
+    task_context = f"""Current Task:
+- Title: {task.title}
+- Status: {task.status}
+- Priority: {task.priority}
+- Due: {task.due.strftime("%Y-%m-%d")}
+- Project: {task.project}
+- Notes: {task.notes or "None"}"""
+
+    # Build messages
+    messages: List[Dict[str, Any]] = []
+    
+    # Task context as priming
+    messages.append({
+        "role": "user",
+        "content": [{"type": "text", "text": task_context}]
+    })
+    messages.append({
+        "role": "assistant",
+        "content": [{"type": "text", "text": "I'm ready to help with this task. What would you like to do?"}]
+    })
+
+    # Add history
+    if history:
+        for msg in history:
+            messages.append({
+                "role": msg["role"],
+                "content": [{"type": "text", "text": msg["content"]}]
+            })
+
+    # Add current message
+    messages.append({
+        "role": "user",
+        "content": [{"type": "text", "text": user_message}]
+    })
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=config.max_output_tokens,
+            temperature=0.5,
+            system=CHAT_WITH_TOOLS_SYSTEM_PROMPT,
+            messages=messages,
+            tools=[TASK_UPDATE_TOOL, WEB_SEARCH_TOOL],
+        )
+    except APIStatusError as exc:
+        raise AnthropicError(f"Anthropic API error: {exc}") from exc
+    except Exception as exc:
+        raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+
+    # Extract text and tool use from response
+    text_content = []
+    pending_action = None
+    
+    for block in getattr(response, "content", []):
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            text_content.append(getattr(block, "text", ""))
+        elif block_type == "tool_use":
+            tool_name = getattr(block, "name", "")
+            if tool_name == "update_task":
+                tool_input = getattr(block, "input", {})
+                pending_action = TaskUpdateAction(
+                    action=tool_input.get("action", ""),
+                    status=tool_input.get("status"),
+                    priority=tool_input.get("priority"),
+                    due_date=tool_input.get("due_date"),
+                    comment=tool_input.get("comment"),
+                    reason=tool_input.get("reason", ""),
+                )
+
+    message = "\n".join(text_content).strip()
+    
+    # If there's a pending action but no message, generate a confirmation message
+    if pending_action and not message:
+        action_desc = _describe_action(pending_action)
+        message = f"I'll {action_desc}. Should I proceed?"
+
+    return ChatResponse(message=message, pending_action=pending_action)
+
+
+def _describe_action(action: TaskUpdateAction) -> str:
+    """Generate a human-readable description of a task update action."""
+    if action.action == "mark_complete":
+        return "mark this task as complete"
+    elif action.action == "update_status":
+        return f"update the status to '{action.status}'"
+    elif action.action == "update_priority":
+        return f"change the priority to '{action.priority}'"
+    elif action.action == "update_due_date":
+        return f"update the due date to {action.due_date}"
+    elif action.action == "add_comment":
+        preview = (action.comment or "")[:50]
+        return f"add a comment: '{preview}...'" if len(action.comment or "") > 50 else f"add a comment: '{action.comment}'"
+    return f"perform action: {action.action}"
+
+
 RESEARCH_SYSTEM_PROMPT = """You are DATA, helping David research information for his tasks.
 
 FORMAT YOUR RESPONSE AS:

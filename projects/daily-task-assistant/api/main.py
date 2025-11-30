@@ -260,8 +260,12 @@ def chat_with_task(
     request: ChatRequest,
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Send a conversational message about a task and get a response from DATA."""
-    from daily_task_assistant.llm.anthropic_client import chat_with_context, AnthropicError
+    """Send a conversational message about a task and get a response from DATA.
+    
+    If DATA detects a task update intent, returns a pending_action that the
+    frontend can use to show a confirmation dialog.
+    """
+    from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
         limit=None, source=request.source
@@ -286,9 +290,9 @@ def chat_with_task(
         {"role": msg.role, "content": msg.content} for msg in history
     ]
 
-    # Call Anthropic for a conversational response
+    # Call Anthropic with tool support for task updates
     try:
-        response_text = chat_with_context(
+        chat_response = chat_with_tools(
             task=target,
             user_message=request.message,
             history=llm_history,
@@ -299,21 +303,39 @@ def chat_with_task(
     # Log the assistant response
     assistant_turn = log_assistant_message(
         task_id,
-        content=response_text,
+        content=chat_response.message,
         plan=None,  # No structured plan for chat responses
-        metadata={"source": "chat"},
+        metadata={
+            "source": "chat",
+            "has_pending_action": chat_response.pending_action is not None,
+        },
     )
 
     # Fetch updated history
     updated_history = fetch_conversation(task_id, limit=100)
 
-    return {
-        "response": response_text,
+    # Build response
+    response_data = {
+        "response": chat_response.message,
         "history": [
             ConversationMessageModel(**asdict(msg)).model_dump()
             for msg in updated_history
         ],
     }
+    
+    # Include pending action if DATA detected an update intent
+    if chat_response.pending_action:
+        action = chat_response.pending_action
+        response_data["pendingAction"] = {
+            "action": action.action,
+            "status": action.status,
+            "priority": action.priority,
+            "dueDate": action.due_date,
+            "comment": action.comment,
+            "reason": action.reason,
+        }
+
+    return response_data
 
 
 class ResearchRequest(BaseModel):
