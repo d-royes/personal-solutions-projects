@@ -1,0 +1,185 @@
+# Daily Task Assistant - Project Rules
+
+## Project Overview
+
+This is the **Daily Task Assistant (DATA)** project - a FastAPI backend + React frontend application that helps David manage tasks from Smartsheet with AI assistance.
+
+## Architecture
+
+```
+projects/
+├── daily-task-assistant/     # FastAPI backend
+│   ├── api/main.py           # API endpoints
+│   ├── daily_task_assistant/ # Core Python modules
+│   │   ├── llm/              # Anthropic integration
+│   │   ├── conversations/    # Chat history persistence
+│   │   ├── actions/          # Task planning logic
+│   │   └── services/         # Assist workflow orchestration
+│   ├── config/smartsheet.yml # Smartsheet schema
+│   ├── DATA_PREFERENCES.md   # DATA's behavioral guidelines
+│   └── tests/                # pytest tests
+│
+└── web-dashboard/            # React + Vite frontend
+    └── src/
+        ├── App.tsx           # Main application
+        ├── api.ts            # Backend API client
+        ├── components/       # React components
+        └── auth/             # Google OAuth integration
+```
+
+## Code Style
+
+### Python (Backend)
+- **Python 3.11+** with type hints everywhere
+- **Dataclasses with `slots=True`** for models
+- **Snake_case** for variables and functions
+- **Docstrings** on all public functions
+- **Pydantic v2** for API request/response models
+- Use `from __future__ import annotations` at top of files
+
+```python
+# ✅ Good
+@dataclass(slots=True)
+class TaskDetail:
+    """Represents a task from Smartsheet."""
+    row_id: str
+    title: str
+    status: str
+
+def fetch_tasks(limit: Optional[int] = None) -> List[TaskDetail]:
+    """Fetch tasks from Smartsheet."""
+    ...
+
+# ❌ Bad
+class TaskDetail:
+    def __init__(self, row_id, title, status):
+        self.row_id = row_id
+```
+
+### TypeScript (Frontend)
+- **Functional components with hooks**
+- **CamelCase** for variables, **PascalCase** for components
+- **Async/await** for API calls
+- **Types in `types.ts`**, API functions in `api.ts`
+
+```typescript
+// ✅ Good
+export async function fetchTasks(auth: AuthConfig): Promise<TaskResponse> {
+  const resp = await fetch(url, { headers: buildHeaders(auth) })
+  return resp.json()
+}
+
+// ❌ Bad
+export function fetchTasks(auth) {
+  return fetch(url).then(r => r.json())
+}
+```
+
+## Key Files to Know
+
+| File | Purpose |
+|------|---------|
+| `api/main.py` | All FastAPI endpoints |
+| `llm/anthropic_client.py` | Anthropic API integration, system prompts |
+| `smartsheet_client.py` | Smartsheet API wrapper |
+| `DATA_PREFERENCES.md` | DATA's behavioral guidelines - READ THIS |
+| `config/smartsheet.yml` | Column IDs and validation rules |
+| `App.tsx` | Main React component, state management |
+| `AssistPanel.tsx` | Assistant UI, chat interface |
+
+## Development Workflow
+
+### Starting Dev Servers
+```powershell
+cd projects/daily-task-assistant
+powershell -ExecutionPolicy Bypass -File .\scripts\start-dev.ps1
+```
+- Backend: http://localhost:8000
+- Frontend: http://localhost:5173
+
+### Running Tests
+```powershell
+cd projects/daily-task-assistant
+python -m pytest tests/ -v
+```
+
+### Environment Variables
+The `.env` file in `projects/daily-task-assistant/` contains:
+- `SMARTSHEET_API_TOKEN` - Smartsheet access
+- `ANTHROPIC_API_KEY` - Claude API
+- `GOOGLE_APPLICATION_CREDENTIALS` - Firestore access
+- Gmail OAuth credentials for church/personal accounts
+
+## Important Conventions
+
+### API Endpoints
+- `POST /assist/{task_id}` - Engage with a task (load context)
+- `POST /assist/{task_id}/plan` - Generate a plan
+- `POST /assist/{task_id}/chat` - Send chat message
+- `POST /assist/{task_id}/research` - Web research
+- `POST /assist/{task_id}/update` - Update Smartsheet
+
+### Conversation History
+- Stored in Firestore (production) or local JSON files (dev)
+- Set `DTA_CONVERSATION_FORCE_FILE=1` for local file storage
+- History is per-task, cleared when task is marked complete
+
+### Authentication
+- Production: Google OAuth with ID token verification
+- Development: Set `DTA_DEV_AUTH_BYPASS=1` and use `X-User-Email` header
+
+## Boundaries
+
+### ✅ Do
+- Write tests for new backend functionality
+- Run `npx tsc --noEmit` before committing frontend changes
+- Update `DATA_PREFERENCES.md` when changing DATA's behavior
+- Commit at logical checkpoints with descriptive messages
+
+### ⚠️ Ask First
+- Changes to Smartsheet schema (`config/smartsheet.yml`)
+- New API endpoints that modify external data
+- Changes to authentication flow
+
+### 🚫 Don't
+- Hardcode API keys or secrets
+- Skip tests for Smartsheet write operations
+- Change DATA's personality without updating preferences file
+- Deploy to production without user approval
+
+## Common Tasks
+
+### Adding a New DATA Capability
+1. Define the tool in `llm/anthropic_client.py`
+2. Add endpoint in `api/main.py`
+3. Add frontend API function in `api.ts`
+4. Update UI in `AssistPanel.tsx`
+5. Document in `DATA_PREFERENCES.md`
+6. Write tests
+
+### Fixing DATA's Response Behavior
+1. Check `DATA_PREFERENCES.md` for expected behavior
+2. Update system prompt in `anthropic_client.py`
+3. Add example to preferences file
+4. Test with real conversation
+
+### Adding Smartsheet Field Support
+1. Get column ID from Smartsheet API
+2. Add to `config/smartsheet.yml`
+3. Update `SmartsheetClient` if needed
+4. Add validation in API endpoint
+
+## Git Workflow
+
+- Branch: `Daily-Task-Assistant`
+- Commit messages: `type: description` (feat, fix, docs, test)
+- Push after each logical milestone
+- Create restore points before major changes
+
+## Resources
+
+- [Smartsheet API Docs](https://smartsheet.redoc.ly/)
+- [Anthropic API Docs](https://docs.anthropic.com/)
+- [FastAPI Docs](https://fastapi.tiangolo.com/)
+- GitHub: `d-royes/personal-solutions-projects`
+

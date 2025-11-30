@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:  # Optional dependency loaded via requirements.txt
@@ -18,6 +19,29 @@ except ModuleNotFoundError:  # pragma: no cover
     load_dotenv = None
 
 from ..tasks import TaskDetail
+
+
+# Load DATA preferences from markdown file
+def _load_data_preferences() -> str:
+    """Load DATA_PREFERENCES.md and extract relevant sections for prompts."""
+    preferences_path = Path(__file__).parent.parent.parent / "DATA_PREFERENCES.md"
+    if not preferences_path.exists():
+        return ""
+    
+    try:
+        content = preferences_path.read_text(encoding="utf-8")
+        # Extract content after the YAML frontmatter
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                content = parts[2].strip()
+        return content
+    except Exception:
+        return ""
+
+
+# Cache the preferences at module load
+_DATA_PREFERENCES = _load_data_preferences()
 
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 SYSTEM_PROMPT = """You are the Daily Task Assistant, a diligent chief of staff.
@@ -434,7 +458,9 @@ TASK_UPDATE_TOOL = {
     }
 }
 
-CHAT_WITH_TOOLS_SYSTEM_PROMPT = """You are DATA (Daily Autonomous Task Assistant), David's proactive AI chief of staff.
+def _build_chat_system_prompt() -> str:
+    """Build the chat system prompt, incorporating DATA preferences if available."""
+    base_prompt = """You are DATA (Daily Autonomous Task Assistant), David's proactive AI chief of staff.
 
 CRITICAL: When David indicates he wants to complete, close, finish, or update a task, you MUST use the update_task tool. Do NOT just describe what you would do - actually call the tool.
 
@@ -455,7 +481,7 @@ BAD RESPONSE (don't do this):
 "I can help you close this task! Here's a summary... Would you like me to update the status?"
 
 OTHER CAPABILITIES:
-- Draft emails and communications
+- Draft emails and communications (but NEVER email the task owner about their own task)
 - Create action plans
 - Research and summarize information
 
@@ -464,6 +490,15 @@ STYLE:
 - Use tools proactively
 - Keep responses under 3 sentences when executing an action
 """
+    
+    # Append preferences if loaded
+    if _DATA_PREFERENCES:
+        base_prompt += f"\n\n--- DATA PREFERENCES ---\n{_DATA_PREFERENCES[:4000]}"
+    
+    return base_prompt
+
+
+CHAT_WITH_TOOLS_SYSTEM_PROMPT = _build_chat_system_prompt()
 
 
 @dataclass(slots=True)
