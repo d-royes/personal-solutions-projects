@@ -30,7 +30,7 @@ def _sample_plan(tmp_path: Path) -> AssistPlan:
         reasons=[],
         next_steps=["Next"],
         efficiency_tips=["Tip"],
-        email_draft="Hello",
+        suggested_actions=["research", "draft_email"],
         generator="templates",
         generator_notes=[],
     )

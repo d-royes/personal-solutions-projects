@@ -286,8 +286,7 @@ def _print_assist_plan(
     for tip in plan.efficiency_tips:
         print(f" - {tip}")
 
-    print("\nEmail draft:\n")
-    print(plan.email_draft)
+    print("\nSuggested actions:", ", ".join(plan.suggested_actions) or "none")
 
     print("\nEnvironment:", environment, "| Token loaded:", "yes" if token_present else "no")
     print("Source:", "live" if live_tasks else "stub")
@@ -321,7 +320,8 @@ def _cmd_recommend(limit: int, source: str, anthropic_model: str | None) -> int:
             print(f"   Next: {plan.next_steps[0]}")
         if plan.automation_triggers:
             print("   Automation:", ", ".join(plan.automation_triggers))
-        print(f"   Email preview: {plan.email_draft.splitlines()[0]}")
+        if plan.suggested_actions:
+            print("   Actions:", ", ".join(plan.suggested_actions))
         print()
 
     print("Environment:", settings.environment, "| Token loaded:", "yes" if bool(settings.smartsheet_token) else "no")

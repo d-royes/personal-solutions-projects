@@ -29,7 +29,7 @@ class AssistPlan:
     reasons: List[str]
     next_steps: List[str]
     efficiency_tips: List[str]
-    email_draft: str
+    suggested_actions: List[str]
     generator: str = "templates"
     generator_notes: List[str] = field(default_factory=list)
 
@@ -40,12 +40,12 @@ def plan_assist(
     model_override: str | None = None,
     history: list[dict[str, str]] | None = None,
 ) -> AssistPlan:
-    """Generate draft actions (email, next steps, efficiency tips)."""
+    """Generate draft actions (next steps, efficiency tips, suggested actions)."""
 
     ranked = score_task(task)
     next_steps = suggest_next_steps(task)
     efficiency = efficiency_tips(task)
-    email = draft_email(task)
+    suggested_actions = _default_actions(task)
     summary = (
         f"{task.priority} task for {task.project}; "
         f"status {task.status.lower()} with due {task.due:%Y-%m-%d}."
@@ -68,8 +68,8 @@ def plan_assist(
             next_steps = llm_suggestion.next_steps
         if llm_suggestion.efficiency_tips:
             efficiency = llm_suggestion.efficiency_tips
-        if llm_suggestion.email_draft:
-            email = llm_suggestion.email_draft
+        if llm_suggestion.suggested_actions:
+            suggested_actions = llm_suggestion.suggested_actions
 
     return AssistPlan(
         task=task,
@@ -80,10 +80,22 @@ def plan_assist(
         reasons=list(ranked.reasons),
         next_steps=next_steps,
         efficiency_tips=efficiency,
-        email_draft=email,
+        suggested_actions=suggested_actions,
         generator=generator,
         generator_notes=generator_notes,
     )
+
+
+def _default_actions(task: TaskDetail) -> List[str]:
+    """Determine default suggested actions based on task context."""
+    actions = ["research", "review"]
+    
+    # Only suggest email if there's a clear external contact in the notes
+    notes_lower = (task.notes or "").lower()
+    if any(indicator in notes_lower for indicator in ["@", "email", "contact", "reply", "respond"]):
+        actions.append("draft_email")
+    
+    return actions
 
 
 def _maybe_call_llm(

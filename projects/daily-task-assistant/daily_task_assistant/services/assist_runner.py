@@ -43,17 +43,14 @@ def execute_assist(
     message_id: Optional[str] = None
     comment_posted = False
 
+    # Email sending is now triggered separately via the action picker
+    # The send_email_account parameter is kept for backward compatibility
+    # but email drafts must be explicitly requested first
     if send_email_account:
-        try:
-            account = load_account_from_env(send_email_account)
-            message_id = send_email(
-                account,
-                to_address=plan.task.assigned_to,
-                subject=plan.task.title,
-                body=plan.email_draft,
-            )
-        except GmailError as exc:
-            warnings.append(f"Gmail send failed: {exc}")
+        warnings.append(
+            "Email sending requires an explicit draft request. "
+            "Use the 'draft_email' action first, then send."
+        )
 
     if message_id:
         if live_tasks:

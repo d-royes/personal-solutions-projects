@@ -21,10 +21,10 @@ def _sample_task() -> TaskDetail:
     )
 
 
-def test_plan_assist_returns_email_and_recommendations():
+def test_plan_assist_returns_actions_and_recommendations():
     plan = plan_assist(_sample_task())
 
-    assert "Subject:" in plan.email_draft
+    assert plan.suggested_actions, "Suggested actions should not be empty"
     assert plan.next_steps, "Next steps should not be empty"
     assert plan.efficiency_tips, "Efficiency tips should not be empty"
     assert plan.score > 0

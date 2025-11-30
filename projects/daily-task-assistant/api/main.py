@@ -79,7 +79,7 @@ def serialize_plan(result: AssistExecutionResult) -> dict:
         "automationTriggers": plan.automation_triggers,
         "nextSteps": plan.next_steps,
         "efficiencyTips": plan.efficiency_tips,
-        "emailDraft": plan.email_draft,
+        "suggestedActions": plan.suggested_actions,
         "task": serialize_task(plan.task),
         "generator": plan.generator,
         "generatorNotes": plan.generator_notes,

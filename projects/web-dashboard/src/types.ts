@@ -28,7 +28,7 @@ export interface AssistPlan {
   automationTriggers: string[]
   nextSteps: string[]
   efficiencyTips: string[]
-  emailDraft: string
+  suggestedActions: string[]
   task: Task
   generator: string
   generatorNotes: string[]
@@ -46,7 +46,7 @@ export interface ConversationMessage {
     summary: string
     next_steps: string[]
     efficiency_tips: string[]
-    email_draft: string
+    suggested_actions: string[]
     labels?: string[]
   }
 }

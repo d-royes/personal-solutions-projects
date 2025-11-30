@@ -130,6 +130,7 @@ def build_plan_summary(plan: AssistPlan) -> str:
 
     next_steps = "\n".join(f"- {step}" for step in plan.next_steps)
     efficiency = "\n".join(f"- {tip}" for tip in plan.efficiency_tips)
+    actions = ", ".join(plan.suggested_actions) if plan.suggested_actions else "none"
     sections = [
         plan.summary,
         "",
@@ -139,8 +140,7 @@ def build_plan_summary(plan: AssistPlan) -> str:
         "Efficiency tips:",
         efficiency or "- No efficiency tips right now.",
         "",
-        "Email draft:",
-        plan.email_draft.strip(),
+        f"Available actions: {actions}",
     ]
     return "\n".join(section for section in sections if section is not None).strip()
 
@@ -167,7 +167,7 @@ def _plan_snapshot(plan: AssistPlan) -> Dict[str, Any]:
         "summary": plan.summary,
         "next_steps": plan.next_steps,
         "efficiency_tips": plan.efficiency_tips,
-        "email_draft": plan.email_draft,
+        "suggested_actions": plan.suggested_actions,
         "labels": plan.labels,
     }
 

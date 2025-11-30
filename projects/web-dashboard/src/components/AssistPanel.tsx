@@ -15,6 +15,18 @@ function truncateCopy(text?: string | null, limit = 320) {
   return `${text.slice(0, limit)}…`
 }
 
+function formatActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    research: '🔍 Research',
+    draft_email: '✉️ Draft Email',
+    review: '📋 Review',
+    schedule: '📅 Schedule',
+    follow_up: '📞 Follow Up',
+    delegate: '👥 Delegate',
+  }
+  return labels[action] || action.replace(/_/g, ' ')
+}
+
 interface AssistPanelProps {
   selectedTask: Task | null
   latestPlan: AssistPlan | null
@@ -200,12 +212,25 @@ export function AssistPanel({
                     )}
                   </div>
                 </div>
-                {latestPlan.emailDraft && (
-                  <details>
-                    <summary>Email draft</summary>
-                    <pre>{latestPlan.emailDraft}</pre>
-                  </details>
-                )}
+                {latestPlan.suggestedActions &&
+                  latestPlan.suggestedActions.length > 0 && (
+                    <div className="action-picker" role="group">
+                      {latestPlan.suggestedActions.map((action) => (
+                        <button
+                          key={action}
+                          className="action-button"
+                          onClick={() =>
+                            onQuickAction?.({
+                              type: action,
+                              content: `Help me with: ${action}`,
+                            })
+                          }
+                        >
+                          {formatActionLabel(action)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 {latestPlan.warnings && latestPlan.warnings.length > 0 && (
                   <div className="warning">
                     <p>Warnings:</p>

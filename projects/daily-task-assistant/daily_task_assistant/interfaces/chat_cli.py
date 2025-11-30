@@ -109,8 +109,7 @@ def _render_plan(plan) -> None:
     for tip in plan.efficiency_tips:
         print(f" - {tip}")
 
-    print("\nEmail draft:\n")
-    print(plan.email_draft)
+    print("\nSuggested actions:", ", ".join(plan.suggested_actions) or "none")
 
 
 if __name__ == "__main__":

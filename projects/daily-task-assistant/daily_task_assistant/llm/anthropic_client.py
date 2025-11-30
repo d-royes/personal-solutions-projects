@@ -19,7 +19,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from ..tasks import TaskDetail
 
-DEFAULT_MODEL = "claude-3-opus-20240229"
+DEFAULT_MODEL = "claude-sonnet-4-20250514"
 SYSTEM_PROMPT = """You are the Daily Task Assistant, a diligent chief of staff.
 Produce concise, actionable guidance and respect the user's time.
 Respond ONLY with compact JSON and no markdown."""
@@ -40,12 +40,27 @@ Outputs:
 1. summary: single sentence describing urgency + outcome.
 2. next_steps: array of 2-4 imperative bullet strings tailored to the task.
 3. efficiency_tips: array of 1-3 tips for accelerating execution.
-4. email_draft: short email or message the assistant could send.
+4. suggested_actions: array of 1-3 action types relevant to THIS task (e.g., "research", "draft_email", "schedule", "follow_up", "delegate"). Only suggest "draft_email" if there's a clear external recipient mentioned in the task or notes.
 
 Rules:
-- JSON only. Keys: summary, next_steps, efficiency_tips, email_draft.
+- JSON only. Keys: summary, next_steps, efficiency_tips, suggested_actions.
 - Steps and tips must be strings without numbering prefixes.
 - Reference provided context; do not invent data.
+- The assignee (david.a.royes@gmail.com or davidroyes@southpointsda.org) is the OWNER, not a recipient. Never suggest emailing the owner.
+"""
+
+EMAIL_DRAFT_PROMPT = """Based on this task, draft a professional email to help the owner complete it.
+
+Task: {title}
+Project: {project}
+Notes: {notes}
+Recipient: {recipient}
+
+Rules:
+- The email is FROM the owner (David), TO the recipient specified.
+- Be concise and professional.
+- If no recipient is specified, ask who should receive the email.
+- Return JSON with keys: subject, body, needs_recipient (boolean).
 """
 
 
@@ -69,7 +84,15 @@ class AnthropicSuggestion:
     summary: str
     next_steps: List[str]
     efficiency_tips: List[str]
-    email_draft: str
+    suggested_actions: List[str]
+    raw: str
+
+
+@dataclass(slots=True)
+class EmailDraftResult:
+    subject: str
+    body: str
+    needs_recipient: bool
     raw: str
 
 
@@ -163,7 +186,7 @@ def generate_assist_suggestion(
         summary=_coerce_string(data.get("summary")),
         next_steps=_coerce_list(data.get("next_steps")),
         efficiency_tips=_coerce_list(data.get("efficiency_tips")),
-        email_draft=_coerce_string(data.get("email_draft")),
+        suggested_actions=_coerce_list(data.get("suggested_actions")),
         raw=text,
     )
 
@@ -208,4 +231,47 @@ def _format_hours(value: float | None) -> str:
     if float(value).is_integer():
         return f"{int(value)}h"
     return f"{value:.1f}h"
+
+
+def generate_email_draft(
+    task: TaskDetail,
+    recipient: Optional[str] = None,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> EmailDraftResult:
+    """Generate an email draft for a specific task, targeting an external recipient."""
+
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+
+    prompt = EMAIL_DRAFT_PROMPT.format(
+        title=task.title,
+        project=task.project,
+        notes=task.notes or "No additional notes",
+        recipient=recipient or "Not specified - please ask who should receive this email",
+    )
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=config.max_output_tokens,
+            temperature=config.temperature,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+        )
+    except APIStatusError as exc:
+        raise AnthropicError(f"Anthropic API error: {exc}") from exc
+    except Exception as exc:
+        raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+
+    text = _extract_text(response)
+    data = _parse_json(text)
+
+    return EmailDraftResult(
+        subject=_coerce_string(data.get("subject")),
+        body=_coerce_string(data.get("body")),
+        needs_recipient=bool(data.get("needs_recipient", not recipient)),
+        raw=text,
+    )
 
