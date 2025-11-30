@@ -93,9 +93,19 @@ export async function fetchConversationHistory(
   return resp.json()
 }
 
+export interface PendingAction {
+  action: 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
+  status?: string
+  priority?: string
+  dueDate?: string
+  comment?: string
+  reason?: string
+}
+
 export interface ChatResponse {
   response: string
   history: ConversationMessage[]
+  pendingAction?: PendingAction
 }
 
 export async function sendChatMessage(
@@ -228,5 +238,61 @@ async function safeJson(resp: Response) {
   } catch {
     return null
   }
+}
+
+// Task Update Types and Functions
+export type TaskUpdateAction = 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
+
+export interface TaskUpdateRequest {
+  action: TaskUpdateAction
+  status?: string
+  priority?: string
+  dueDate?: string
+  comment?: string
+  confirmed: boolean
+}
+
+export interface TaskUpdatePreview {
+  taskId: string
+  action: TaskUpdateAction
+  changes: Record<string, unknown>
+  description: string
+}
+
+export interface TaskUpdateResponse {
+  status: 'pending_confirmation' | 'success'
+  preview?: TaskUpdatePreview
+  action?: TaskUpdateAction
+  changes?: Record<string, unknown>
+  message?: string
+}
+
+export async function updateTask(
+  taskId: string,
+  request: TaskUpdateRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<TaskUpdateResponse> {
+  const url = new URL(`/assist/${taskId}/update`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      action: request.action,
+      status: request.status,
+      priority: request.priority,
+      due_date: request.dueDate,
+      comment: request.comment,
+      confirmed: request.confirmed,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Task update failed: ${resp.statusText}`)
+  }
+  return resp.json()
 }
 
