@@ -135,7 +135,11 @@ def log_feedback(
     
     db = _get_firestore_client()
     if db is not None:
-        _log_to_firestore(db, entry)
+        try:
+            _log_to_firestore(db, entry)
+        except Exception as e:
+            print(f"[Feedback] Firestore write failed, falling back to local: {e}")
+            _log_to_file(entry)
     else:
         _log_to_file(entry)
     

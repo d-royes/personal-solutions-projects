@@ -198,6 +198,45 @@ export async function runResearch(
   return resp.json()
 }
 
+export interface SummarizeResponse {
+  summary: string
+  taskId: string
+  taskTitle: string
+  history?: ConversationMessage[]
+}
+
+export async function runSummarize(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: {
+    source?: DataSource
+    planSummary?: string
+    nextSteps?: string[]
+    efficiencyTips?: string[]
+  } = {},
+): Promise<SummarizeResponse> {
+  const url = new URL(`/assist/${taskId}/summarize`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: options.source ?? defaultSource,
+      planSummary: options.planSummary,
+      nextSteps: options.nextSteps,
+      efficiencyTips: options.efficiencyTips,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Summarize failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 export async function fetchActivity(
   auth: AuthConfig,
   baseUrl: string = defaultBase,
@@ -213,6 +252,69 @@ export async function fetchActivity(
   }
   const data = await resp.json()
   return data.entries ?? []
+}
+
+// --- Workspace API ---
+
+export interface WorkspaceResponse {
+  taskId: string
+  items: string[]
+  updatedAt: string
+}
+
+export async function loadWorkspace(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<WorkspaceResponse> {
+  const url = new URL(`/assist/${taskId}/workspace`, baseUrl)
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Load workspace failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function saveWorkspace(
+  taskId: string,
+  items: string[],
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<WorkspaceResponse> {
+  const url = new URL(`/assist/${taskId}/workspace`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ items }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Save workspace failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function clearWorkspace(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ taskId: string; cleared: boolean }> {
+  const url = new URL(`/assist/${taskId}/workspace`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Clear workspace failed: ${resp.statusText}`)
+  }
+  return resp.json()
 }
 
 function buildHeaders(auth: AuthConfig): HeadersInit {

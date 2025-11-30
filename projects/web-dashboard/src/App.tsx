@@ -9,8 +9,11 @@ import {
   fetchConversationHistory,
   fetchTasks,
   generatePlan,
+  loadWorkspace,
   runAssist,
   runResearch,
+  runSummarize,
+  saveWorkspace,
   sendChatMessage,
   submitFeedback,
   updateTask,
@@ -50,11 +53,17 @@ function App() {
   const [planGenerating, setPlanGenerating] = useState(false)
   const [researchRunning, setResearchRunning] = useState(false)
   const [researchResults, setResearchResults] = useState<string | null>(null)
+  const [summarizeRunning, setSummarizeRunning] = useState(false)
+  const [summarizeResults, setSummarizeResults] = useState<string | null>(null)
   const [assistError, setAssistError] = useState<string | null>(null)
   const [gmailAccount, setGmailAccount] = useState('')
 
   const [conversation, setConversation] = useState<ConversationMessage[]>([])
   const [conversationLoading, setConversationLoading] = useState(false)
+  
+  // Workspace persistence
+  const [workspaceItems, setWorkspaceItems] = useState<string[]>([])
+  const [workspaceSaveTimeout, setWorkspaceSaveTimeout] = useState<ReturnType<typeof setTimeout> | null>(null)
   const [sendingMessage, setSendingMessage] = useState(false)
   
   // Task update state
@@ -168,7 +177,7 @@ function App() {
   }
 
   async function engageTask() {
-    // Load task context and conversation history - NO plan generation
+    // Load task context, conversation history, and workspace - NO plan generation
     if (!selectedTask) return
     if (!authConfig) {
       setAssistError('Please sign in first.')
@@ -194,6 +203,15 @@ function App() {
         generatorNotes: [],
       })
       setConversation(response.history ?? [])
+      
+      // Load workspace content
+      try {
+        const workspace = await loadWorkspace(selectedTask.rowId, authConfig, apiBase)
+        setWorkspaceItems(workspace.items ?? [])
+      } catch {
+        // Workspace load failed - start with empty
+        setWorkspaceItems([])
+      }
     } catch (error) {
       setAssistError((error as Error).message)
     } finally {
@@ -252,11 +270,63 @@ function App() {
     }
   }
 
+  async function handleRunSummarize() {
+    // Generate a summary of task, plan, and conversation progress
+    if (!selectedTask) return
+    if (!authConfig) {
+      setAssistError('Please sign in first.')
+      return
+    }
+    setSummarizeRunning(true)
+    setSummarizeResults(null)
+    setAssistError(null)
+    try {
+      const response = await runSummarize(selectedTask.rowId, authConfig, apiBase, {
+        source: dataSource,
+        planSummary: assistPlan?.summary,
+        nextSteps: assistPlan?.nextSteps,
+        efficiencyTips: assistPlan?.efficiencyTips,
+      })
+      setSummarizeResults(response.summary)
+      // Update conversation history
+      if (response.history) {
+        setConversation(response.history)
+      }
+      void refreshActivity()
+    } catch (error) {
+      setAssistError((error as Error).message)
+    } finally {
+      setSummarizeRunning(false)
+    }
+  }
+
   async function handleAssist() {
     // Collapse task panel when engaging DATA
     setTaskPanelCollapsed(true)
     await engageTask()
   }
+
+  // Debounced workspace save
+  const handleWorkspaceChange = useCallback((items: string[]) => {
+    setWorkspaceItems(items)
+    
+    // Clear any pending save
+    if (workspaceSaveTimeout) {
+      clearTimeout(workspaceSaveTimeout)
+    }
+    
+    // Debounce save by 1 second
+    if (selectedTaskId && authConfig) {
+      const timeout = setTimeout(async () => {
+        try {
+          await saveWorkspace(selectedTaskId, items, authConfig, apiBase)
+        } catch (error) {
+          console.error('Failed to save workspace:', error)
+        }
+      }, 1000)
+      setWorkspaceSaveTimeout(timeout)
+    }
+  }, [selectedTaskId, authConfig, apiBase, workspaceSaveTimeout])
 
   async function handleSendMessage(message: string) {
     if (!selectedTaskId || !authConfig) return
@@ -490,11 +560,14 @@ function App() {
               planGenerating={planGenerating}
               researchRunning={researchRunning}
               researchResults={researchResults}
+              summarizeRunning={summarizeRunning}
+              summarizeResults={summarizeResults}
               gmailAccount={gmailAccount}
               onGmailChange={setGmailAccount}
               onRunAssist={handleAssist}
               onGeneratePlan={handleGeneratePlan}
               onRunResearch={handleRunResearch}
+              onRunSummarize={handleRunSummarize}
               gmailOptions={gmailAccounts}
               error={assistError}
               conversation={conversation}
@@ -510,6 +583,8 @@ function App() {
               onConfirmUpdate={handleConfirmUpdate}
               onCancelUpdate={handleCancelUpdate}
               onFeedbackSubmit={handleFeedbackSubmit}
+              initialWorkspaceItems={workspaceItems}
+              onWorkspaceChange={handleWorkspaceChange}
             />
           </>
         )}

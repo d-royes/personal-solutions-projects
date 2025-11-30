@@ -10,13 +10,10 @@ type OnFeedbackSubmit = (
   messageId?: string
 ) => Promise<void>
 
-// Workspace item pushed from conversation - editable text
+// Workspace item - simple editable text block
 interface WorkspaceItem {
   id: string
   content: string
-  source: 'chat' | 'research' | 'plan'
-  timestamp: Date
-  isEditing?: boolean
 }
 
 // Reusable feedback controls component
@@ -90,11 +87,6 @@ function notesPreview(notes?: string | null) {
   return `${notes.slice(0, NOTES_PREVIEW_LIMIT)}…`
 }
 
-function truncateCopy(text?: string | null, limit = 200) {
-  if (!text) return ''
-  if (text.length <= limit) return text
-  return `${text.slice(0, limit)}…`
-}
 
 function formatActionLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -239,11 +231,14 @@ interface AssistPanelProps {
   planGenerating: boolean
   researchRunning: boolean
   researchResults: string | null
+  summarizeRunning: boolean
+  summarizeResults: string | null
   gmailAccount: string
   onGmailChange: (account: string) => void
   onRunAssist: (options?: { sendEmailAccount?: string }) => void
   onGeneratePlan: () => void
   onRunResearch: () => void
+  onRunSummarize: () => void
   gmailOptions: string[]
   error?: string | null
   conversation: ConversationMessage[]
@@ -261,6 +256,9 @@ interface AssistPanelProps {
   onCancelUpdate?: () => void
   // Feedback callback
   onFeedbackSubmit?: OnFeedbackSubmit
+  // Workspace persistence
+  initialWorkspaceItems?: string[]
+  onWorkspaceChange?: (items: string[]) => void
 }
 
 // Draggable divider component
@@ -334,9 +332,12 @@ export function AssistPanel({
   planGenerating,
   researchRunning,
   researchResults,
+  summarizeRunning,
+  summarizeResults,
   onRunAssist,
   onGeneratePlan,
   onRunResearch,
+  onRunSummarize,
   error,
   conversation,
   conversationLoading,
@@ -350,6 +351,8 @@ export function AssistPanel({
   onConfirmUpdate,
   onCancelUpdate,
   onFeedbackSubmit,
+  initialWorkspaceItems,
+  onWorkspaceChange,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
@@ -360,17 +363,53 @@ export function AssistPanel({
   const [horizontalSplit, setHorizontalSplit] = useState(60) // % for top zones height
   const [conversationCollapsed, setConversationCollapsed] = useState(false)
   
-  // Workspace items (content pushed from chat)
-  const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([])
+  // Workspace items (content pushed from chat) - initialized from props
+  const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(() => {
+    if (initialWorkspaceItems && initialWorkspaceItems.length > 0) {
+      return initialWorkspaceItems.map((content, index) => ({
+        id: `ws-init-${index}`,
+        content,
+      }))
+    }
+    return []
+  })
   
   const containerRef = useRef<HTMLDivElement>(null)
+  
+  // Track if workspace has been modified by user (not just initialized)
+  const workspaceModifiedRef = useRef(false)
+
+  // Re-initialize workspace when initialWorkspaceItems changes (task switch)
+  useEffect(() => {
+    // Reset modified flag when loading new workspace data
+    workspaceModifiedRef.current = false
+    if (initialWorkspaceItems) {
+      setWorkspaceItems(
+        initialWorkspaceItems.map((content, index) => ({
+          id: `ws-init-${index}`,
+          content,
+        }))
+      )
+    } else {
+      setWorkspaceItems([])
+    }
+  }, [initialWorkspaceItems])
 
   useEffect(() => {
     setShowFullNotes(false)
     setMessage('')
     setActiveAction(null)
-    setWorkspaceItems([])
+    // Reset modified flag when task changes
+    workspaceModifiedRef.current = false
   }, [selectedTask?.rowId])
+  
+  // Notify parent when workspace changes (for persistence) - only if modified by user
+  useEffect(() => {
+    if (onWorkspaceChange && workspaceModifiedRef.current) {
+      const contents = workspaceItems.map(item => item.content)
+      onWorkspaceChange(contents)
+    }
+  }, [workspaceItems, onWorkspaceChange])
 
   const disableSend = sendingMessage || !message.trim()
   const hasPlan = !!latestPlan
@@ -382,8 +421,8 @@ export function AssistPanel({
     if (action === 'research') {
       onRunResearch()
     } else if (action === 'summarize') {
-      // Summarize will show in workspace, triggered via chat
-      onQuickAction?.({ type: 'summarize', content: 'Please provide a summary of this task, including the current plan and any progress made.' })
+      // Run the summarize action
+      onRunSummarize()
     } else if (action === 'contact') {
       // Contact search will show in workspace
       onQuickAction?.({ type: 'contact', content: 'Please find contact information for any people or organizations mentioned in this task.' })
@@ -452,12 +491,11 @@ export function AssistPanel({
   }
   
   // Push content to workspace
-  const pushToWorkspace = (content: string, source: 'chat' | 'research' | 'plan') => {
+  const pushToWorkspace = (content: string) => {
+    workspaceModifiedRef.current = true
     const newItem: WorkspaceItem = {
       id: `ws-${Date.now()}`,
       content,
-      source,
-      timestamp: new Date(),
     }
     setWorkspaceItems(prev => [...prev, newItem])
   }
@@ -486,24 +524,27 @@ export function AssistPanel({
     }
     
     const fullPlanContent = planParts.join('\n\n')
-    pushToWorkspace(fullPlanContent, 'plan')
-  }
-  
-  // Remove item from workspace
-  const removeFromWorkspace = (id: string) => {
-    setWorkspaceItems(prev => prev.filter(item => item.id !== id))
+    pushToWorkspace(fullPlanContent)
   }
   
   // Clear all workspace items
   const clearWorkspace = () => {
+    workspaceModifiedRef.current = true
     setWorkspaceItems([])
   }
   
   // Update workspace item content (for editing)
   const updateWorkspaceItem = (id: string, newContent: string) => {
+    workspaceModifiedRef.current = true
     setWorkspaceItems(prev => prev.map(item => 
       item.id === id ? { ...item, content: newContent } : item
     ))
+  }
+  
+  // Remove a single workspace item
+  const removeWorkspaceItem = (id: string) => {
+    workspaceModifiedRef.current = true
+    setWorkspaceItems(prev => prev.filter(item => item.id !== id))
   }
 
   // No task selected - prompt user
@@ -748,30 +789,28 @@ export function AssistPanel({
             </div>
             <div className="zone-content workspace-content">
               {workspaceItems.length > 0 ? (
-                workspaceItems.map((item, index) => (
-                  <div key={item.id} className="workspace-item-editable">
-                    {index > 0 && <div className="workspace-divider" />}
-                    <div className="workspace-item-toolbar">
-                      <span className="workspace-item-source">{item.source}</span>
-                      <span className="workspace-item-time">
-                        {item.timestamp.toLocaleTimeString()}
-                      </span>
-                      <button
-                        className="workspace-item-remove"
-                        onClick={() => removeFromWorkspace(item.id)}
-                        title="Remove"
-                      >
-                        ×
-                      </button>
+                <div className="workspace-items-container">
+                  {workspaceItems.map((item, index) => (
+                    <div key={item.id} className="workspace-item-simple">
+                      {index > 0 && <hr className="workspace-separator" />}
+                      <div className="workspace-item-wrapper">
+                        <textarea
+                          className="workspace-editor"
+                          value={item.content}
+                          onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
+                          placeholder="Edit content here..."
+                        />
+                        <button
+                          className="workspace-item-delete"
+                          onClick={() => removeWorkspaceItem(item.id)}
+                          title="Remove this section"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
-                    <textarea
-                      className="workspace-editor"
-                      value={item.content}
-                      onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
-                      placeholder="Edit content here..."
-                    />
-                  </div>
-                ))
+                  ))}
+                </div>
               ) : activeAction === 'research' ? (
                 <div className="action-output-content">
                   <div className="action-output-header">
@@ -779,7 +818,7 @@ export function AssistPanel({
                     {researchResults && (
                       <button
                         className="push-btn"
-                        onClick={() => pushToWorkspace(researchResults, 'research')}
+                        onClick={() => pushToWorkspace(researchResults)}
                         title="Push to Workspace"
                       >
                         ➡️
@@ -803,6 +842,39 @@ export function AssistPanel({
                     </div>
                   ) : (
                     <p className="subtle">Click Research to search for information.</p>
+                  )}
+                </div>
+              ) : activeAction === 'summarize' ? (
+                <div className="action-output-content">
+                  <div className="action-output-header">
+                    <h5>{formatActionLabel('summarize')}</h5>
+                    {summarizeResults && (
+                      <button
+                        className="push-btn"
+                        onClick={() => pushToWorkspace(summarizeResults)}
+                        title="Push to Workspace"
+                      >
+                        ➡️
+                      </button>
+                    )}
+                  </div>
+                  {summarizeRunning ? (
+                    <div className="research-loading">
+                      <p className="subtle">📄 Generating summary...</p>
+                    </div>
+                  ) : summarizeResults ? (
+                    <div className="research-results">
+                      {renderMarkdown(summarizeResults)}
+                      {onFeedbackSubmit && (
+                        <FeedbackControls
+                          context="chat"
+                          messageContent={summarizeResults}
+                          onSubmit={onFeedbackSubmit}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <p className="subtle">Click Summarize to generate a task summary.</p>
                   )}
                 </div>
               ) : (
@@ -854,7 +926,7 @@ export function AssistPanel({
                     {entry.role === 'assistant' && (
                       <button
                         className="push-btn-inline"
-                        onClick={() => pushToWorkspace(entry.content, 'chat')}
+                        onClick={() => pushToWorkspace(entry.content)}
                         title="Push to Workspace"
                       >
                         ➡️

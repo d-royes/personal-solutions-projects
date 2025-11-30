@@ -1803,54 +1803,26 @@ button:not(:disabled):hover {
   min-height: 0;
 }
 
-/* Editable workspace items */
-.workspace-item-editable {
+/* Simplified workspace items - no metadata, just editable text */
+.workspace-items-container {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-}
-
-.workspace-divider {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.3), transparent);
-  margin: 0.75rem 0;
-}
-
-.workspace-item-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.7rem;
-  padding: 0.25rem 0;
-}
-
-.workspace-item-source {
-  color: #c084fc;
-  text-transform: capitalize;
-  font-weight: 500;
-}
-
-.workspace-item-time {
-  color: rgba(148, 163, 184, 0.5);
   flex: 1;
+  min-height: 0;
 }
 
-.workspace-item-remove {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  background: transparent;
+.workspace-item-simple {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace-separator {
   border: none;
-  color: rgba(148, 163, 184, 0.5);
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  border-radius: 4px;
-}
-
-.workspace-item-remove:hover {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.4), transparent);
+  margin: 0.75rem 0;
 }
 
 /* Editable textarea for workspace content */
@@ -1876,6 +1848,36 @@ button:not(:disabled):hover {
 
 .workspace-editor::placeholder {
   color: rgba(148, 163, 184, 0.4);
+}
+
+/* Wrapper for workspace item with delete button */
+.workspace-item-wrapper {
+  position: relative;
+}
+
+.workspace-item-delete {
+  position: absolute;
+  top: 8px;
+  right: 18px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.3);
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.workspace-item-wrapper:hover .workspace-item-delete {
+  opacity: 1;
+}
+
+.workspace-item-delete:hover {
+  color: rgba(239, 68, 68, 0.8);
 }
 
 /* Legacy non-editable workspace item (keeping for reference) */

@@ -154,6 +154,7 @@ The `.env` file in `projects/daily-task-assistant/` contains:
 - Skip tests for Smartsheet write operations
 - Change DATA's personality without updating preferences file
 - Deploy to production without user approval
+- **Make assumptions about UI/UX changes** - Always present plans for approval before implementing
 
 ## Common Tasks
 

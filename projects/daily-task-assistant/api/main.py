@@ -457,6 +457,137 @@ def research_task_endpoint(
     }
 
 
+class SummarizeRequest(BaseModel):
+    """Request body for summarize endpoint."""
+    source: Literal["auto", "live", "stub"] = "auto"
+    plan_summary: Optional[str] = Field(None, alias="planSummary")
+    next_steps: Optional[List[str]] = Field(None, alias="nextSteps")
+    efficiency_tips: Optional[List[str]] = Field(None, alias="efficiencyTips")
+
+
+@app.post("/assist/{task_id}/summarize")
+def summarize_task_endpoint(
+    task_id: str,
+    request: SummarizeRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Generate a summary of the task, plan, and conversation progress.
+    
+    Reviews the task details, current plan, and conversation history to provide
+    a comprehensive summary of where things stand and recommendations for next steps.
+    """
+    from daily_task_assistant.llm.anthropic_client import summarize_task, AnthropicError
+
+    tasks, live_tasks, settings, warning = fetch_task_dataset(
+        limit=None, source=request.source
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    # Fetch conversation history
+    history = fetch_conversation(task_id, limit=100)
+    llm_history: List[Dict[str, str]] = [
+        {"role": msg.role, "content": msg.content} for msg in history
+    ]
+
+    try:
+        summary_results = summarize_task(
+            task=target,
+            plan_summary=request.plan_summary,
+            next_steps=request.next_steps,
+            efficiency_tips=request.efficiency_tips,
+            conversation_history=llm_history if llm_history else None,
+        )
+    except AnthropicError as exc:
+        raise HTTPException(status_code=502, detail=f"Summarize failed: {exc}")
+
+    # Log a brief note to the conversation history
+    log_assistant_message(
+        task_id,
+        content=f"📋 **Summary generated** - Review the summary in the workspace for current task status and recommendations.",
+        plan=None,
+        metadata={"source": "summarize"},
+    )
+
+    # Fetch updated history to return
+    updated_history = fetch_conversation(task_id, limit=100)
+
+    return {
+        "summary": summary_results,
+        "taskId": task_id,
+        "taskTitle": target.title,
+        "history": [
+            ConversationMessageModel(**asdict(msg)).model_dump()
+            for msg in updated_history
+        ],
+    }
+
+
+# --- Workspace endpoints ---
+
+class WorkspaceSaveRequest(BaseModel):
+    """Request body for saving workspace content."""
+    items: List[str] = Field(..., description="List of markdown text blocks")
+
+
+@app.get("/assist/{task_id}/workspace")
+def get_workspace(
+    task_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Load workspace content for a task.
+    
+    Returns the saved workspace items (markdown text blocks) for editing.
+    """
+    from daily_task_assistant.workspace import load_workspace
+    
+    data = load_workspace(task_id)
+    return {
+        "taskId": task_id,
+        "items": data.items,
+        "updatedAt": data.updated_at,
+    }
+
+
+@app.post("/assist/{task_id}/workspace")
+def save_workspace_endpoint(
+    task_id: str,
+    request: WorkspaceSaveRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Save workspace content for a task.
+    
+    Persists the workspace items so they survive across sessions.
+    """
+    from daily_task_assistant.workspace import save_workspace
+    
+    data = save_workspace(task_id, request.items)
+    return {
+        "taskId": task_id,
+        "items": data.items,
+        "updatedAt": data.updated_at,
+    }
+
+
+@app.delete("/assist/{task_id}/workspace")
+def clear_workspace_endpoint(
+    task_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Clear workspace content for a task.
+    
+    Typically called when a task is marked complete.
+    """
+    from daily_task_assistant.workspace import clear_workspace
+    
+    clear_workspace(task_id)
+    return {
+        "taskId": task_id,
+        "cleared": True,
+    }
+
+
 class TaskUpdateRequest(BaseModel):
     """Request body for task update endpoint."""
     action: Literal["mark_complete", "update_status", "update_priority", "update_due_date", "add_comment"]

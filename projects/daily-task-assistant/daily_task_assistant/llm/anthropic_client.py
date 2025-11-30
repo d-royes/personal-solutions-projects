@@ -740,3 +740,135 @@ Find: contact info, hours, procedures, requirements. Be concise - bullets only."
 
     return _extract_text(response)
 
+
+SUMMARIZE_SYSTEM_PROMPT = """You are DATA, David's task assistant. Create a concise summary of the current state of a task.
+
+FORMAT YOUR RESPONSE AS:
+
+## Task Overview
+- 1-2 sentences: What is this task about and its current status
+
+## Current Plan
+- Brief summary of the planned approach (if a plan exists)
+- Key next steps that are pending
+
+## Progress & Decisions
+- What has been discussed or decided
+- Any important context from the conversation
+- Note if task is blocked, waiting, or ready to proceed
+
+## Recommendations
+- 1-2 actionable recommendations for moving forward
+
+RULES:
+- Be CONCISE - use bullet points, not paragraphs
+- Focus on actionable information
+- If no plan or conversation exists, say so briefly
+- Highlight any blockers or urgent items
+- Keep the entire summary under 200 words
+"""
+
+
+def summarize_task(
+    task: TaskDetail,
+    plan_summary: Optional[str] = None,
+    next_steps: Optional[List[str]] = None,
+    efficiency_tips: Optional[List[str]] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> str:
+    """Generate a summary of the task, plan, and conversation progress.
+    
+    Args:
+        task: The task to summarize
+        plan_summary: The current plan summary (if any)
+        next_steps: List of next steps from the plan
+        efficiency_tips: List of efficiency tips from the plan
+        conversation_history: Previous conversation messages
+        client: Optional pre-built Anthropic client
+        config: Optional configuration override
+    
+    Returns:
+        Formatted summary as a string
+    """
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+
+    # Build task context
+    task_context = f"""**Task:** {task.title}
+**Status:** {task.status}
+**Priority:** {task.priority}
+**Due:** {task.due.strftime("%Y-%m-%d") if task.due else "Not set"}
+**Project:** {task.project}
+**Notes:** {task.notes or "None"}"""
+
+    # Build plan context
+    plan_context = ""
+    if plan_summary or next_steps:
+        plan_parts = []
+        if plan_summary:
+            plan_parts.append(f"**Plan Summary:** {plan_summary}")
+        if next_steps:
+            steps_text = "\n".join(f"  - {step}" for step in next_steps)
+            plan_parts.append(f"**Next Steps:**\n{steps_text}")
+        if efficiency_tips:
+            tips_text = "\n".join(f"  - {tip}" for tip in efficiency_tips)
+            plan_parts.append(f"**Efficiency Tips:**\n{tips_text}")
+        plan_context = "\n".join(plan_parts)
+    else:
+        plan_context = "No plan has been generated yet."
+
+    # Build conversation context
+    conversation_context = ""
+    if conversation_history and len(conversation_history) > 0:
+        # Get recent conversation (last 10 messages)
+        recent = conversation_history[-10:]
+        conv_parts = []
+        for msg in recent:
+            role = "David" if msg["role"] == "user" else "DATA"
+            # Truncate long messages
+            content = msg["content"][:200] + "..." if len(msg["content"]) > 200 else msg["content"]
+            conv_parts.append(f"**{role}:** {content}")
+        conversation_context = "\n\n".join(conv_parts)
+    else:
+        conversation_context = "No conversation history yet."
+
+    summarize_prompt = f"""Please summarize the current state of this task:
+
+{task_context}
+
+---
+CURRENT PLAN:
+{plan_context}
+
+---
+CONVERSATION HISTORY:
+{conversation_context}
+
+---
+Provide a concise summary following the format specified."""
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": summarize_prompt}]
+        }
+    ]
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=800,
+            temperature=0.3,
+            system=SUMMARIZE_SYSTEM_PROMPT,
+            messages=messages,
+        )
+    except APIStatusError as exc:
+        raise AnthropicError(f"Anthropic API error: {exc}") from exc
+    except Exception as exc:
+        raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+
+    return _extract_text(response)
+
