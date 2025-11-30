@@ -93,6 +93,101 @@ export async function fetchConversationHistory(
   return resp.json()
 }
 
+export interface ChatResponse {
+  response: string
+  history: ConversationMessage[]
+}
+
+export async function sendChatMessage(
+  taskId: string,
+  message: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  source: DataSource = 'auto',
+): Promise<ChatResponse> {
+  const url = new URL(`/assist/${taskId}/chat`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      message,
+      source,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Chat failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface PlanResponse {
+  plan: AssistResponse['plan']
+  environment: string
+  liveTasks: boolean
+  warning: string | null
+}
+
+export async function generatePlan(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: { source?: DataSource; anthropicModel?: string } = {},
+): Promise<PlanResponse> {
+  const url = new URL(`/assist/${taskId}/plan`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: options.source ?? defaultSource,
+      anthropicModel: options.anthropicModel,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Plan generation failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface ResearchResponse {
+  research: string
+  taskId: string
+  taskTitle: string
+  history?: ConversationMessage[]
+}
+
+export async function runResearch(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: { source?: DataSource; nextSteps?: string[] } = {},
+): Promise<ResearchResponse> {
+  const url = new URL(`/assist/${taskId}/research`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: options.source ?? defaultSource,
+      next_steps: options.nextSteps,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Research failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 export async function fetchActivity(
   auth: AuthConfig,
   baseUrl: string = defaultBase,

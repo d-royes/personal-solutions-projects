@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
 
-const NOTES_PREVIEW_LIMIT = 350
+const NOTES_PREVIEW_LIMIT = 200
 
 function notesPreview(notes?: string | null) {
   if (!notes) return null
@@ -9,7 +9,7 @@ function notesPreview(notes?: string | null) {
   return `${notes.slice(0, NOTES_PREVIEW_LIMIT)}…`
 }
 
-function truncateCopy(text?: string | null, limit = 320) {
+function truncateCopy(text?: string | null, limit = 200) {
   if (!text) return ''
   if (text.length <= limit) return text
   return `${text.slice(0, limit)}…`
@@ -17,23 +17,147 @@ function truncateCopy(text?: string | null, limit = 320) {
 
 function formatActionLabel(action: string): string {
   const labels: Record<string, string> = {
+    plan: '📋 Plan',
     research: '🔍 Research',
-    draft_email: '✉️ Draft Email',
-    review: '📋 Review',
+    draft_email: '✉️ Email',
+    review: '📝 Review',
     schedule: '📅 Schedule',
     follow_up: '📞 Follow Up',
     delegate: '👥 Delegate',
+    organize: '📁 Organize',
+    summarize: '📄 Summarize',
   }
   return labels[action] || action.replace(/_/g, ' ')
+}
+
+/**
+ * Simple markdown-like renderer for chat content.
+ * Handles headers, bold, bullet points, and links.
+ */
+function renderMarkdown(text: string): JSX.Element {
+  // Pre-process: fix bullets that are split across lines (e.g., "-\nContent" -> "- Content")
+  const preprocessed = text
+    .replace(/^-\s*\n+/gm, '- ')  // Fix "- \n" at start of line
+    .replace(/\n-\s*\n+/g, '\n- ') // Fix "\n-\n" patterns
+    .replace(/-\s*\n+(?=[A-Z])/g, '- ') // Fix "-\n" followed by capital letter
+  
+  const lines = preprocessed.split('\n')
+  const elements: JSX.Element[] = []
+  let listItems: string[] = []
+  let listKey = 0
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      elements.push(
+        <ul key={`list-${listKey++}`} className="chat-list">
+          {listItems.map((item, i) => (
+            <li key={i}>{formatInline(item)}</li>
+          ))}
+        </ul>
+      )
+      listItems = []
+    }
+  }
+
+  const formatInline = (line: string): JSX.Element | string => {
+    // Handle bold **text** and links
+    const parts: (string | JSX.Element)[] = []
+    let remaining = line
+    let partKey = 0
+
+    // Process bold
+    while (remaining.includes('**')) {
+      const start = remaining.indexOf('**')
+      if (start > 0) {
+        parts.push(remaining.slice(0, start))
+      }
+      remaining = remaining.slice(start + 2)
+      const end = remaining.indexOf('**')
+      if (end === -1) {
+        parts.push('**' + remaining)
+        remaining = ''
+        break
+      }
+      parts.push(<strong key={`bold-${partKey++}`}>{remaining.slice(0, end)}</strong>)
+      remaining = remaining.slice(end + 2)
+    }
+    if (remaining) {
+      parts.push(remaining)
+    }
+
+    return parts.length === 1 && typeof parts[0] === 'string' 
+      ? parts[0] 
+      : <>{parts}</>
+  }
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim()
+
+    // Headers
+    if (trimmed.startsWith('## ')) {
+      flushList()
+      elements.push(
+        <h4 key={`h-${index}`} className="chat-header">
+          {formatInline(trimmed.slice(3))}
+        </h4>
+      )
+    } else if (trimmed.startsWith('# ')) {
+      flushList()
+      elements.push(
+        <h3 key={`h-${index}`} className="chat-header">
+          {formatInline(trimmed.slice(2))}
+        </h3>
+      )
+    }
+    // Bullet points (-, *, •, or numbered)
+    else if (trimmed.match(/^[-*•]\s/) || trimmed.match(/^\d+\.\s/)) {
+      const content = trimmed.replace(/^[-*•]\s/, '').replace(/^\d+\.\s/, '')
+      if (content) {
+        listItems.push(content)
+      }
+    }
+    // Standalone bullet marker (edge case)
+    else if (trimmed === '-' || trimmed === '*' || trimmed === '•') {
+      // Skip standalone bullets, content should be on next line
+    }
+    // Empty line
+    else if (trimmed === '') {
+      flushList()
+      // Don't add excessive spacing
+    }
+    // Regular paragraph (but check if previous was a standalone bullet)
+    else {
+      // If we have pending list items or this looks like list content, add to list
+      if (listItems.length > 0 && !trimmed.startsWith('#')) {
+        // This might be continuation of a list item - skip it as it was likely joined
+      } else {
+        flushList()
+        elements.push(
+          <p key={`p-${index}`} className="chat-paragraph">
+            {formatInline(trimmed)}
+          </p>
+        )
+      }
+    }
+  })
+
+  flushList()
+
+  return <div className="chat-markdown">{elements}</div>
 }
 
 interface AssistPanelProps {
   selectedTask: Task | null
   latestPlan: AssistPlan | null
   running: boolean
+  planGenerating: boolean
+  researchRunning: boolean
+  researchResults: string | null
   gmailAccount: string
   onGmailChange: (account: string) => void
   onRunAssist: (options?: { sendEmailAccount?: string }) => void
+  onGeneratePlan: () => void
+  onRunResearch: () => void
   gmailOptions: string[]
   error?: string | null
   conversation: ConversationMessage[]
@@ -50,10 +174,12 @@ export function AssistPanel({
   selectedTask,
   latestPlan,
   running,
-  gmailAccount,
-  onGmailChange,
+  planGenerating,
+  researchRunning,
+  researchResults,
   onRunAssist,
-  gmailOptions,
+  onGeneratePlan,
+  onRunResearch,
   error,
   conversation,
   conversationLoading,
@@ -61,270 +187,278 @@ export function AssistPanel({
   sendingMessage,
   taskPanelCollapsed,
   onExpandTasks,
-  onCollapseTasks,
   onQuickAction,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
+  const [activeAction, setActiveAction] = useState<string | null>(null)
 
   useEffect(() => {
     setShowFullNotes(false)
     setMessage('')
+    setActiveAction(null)
   }, [selectedTask?.rowId])
 
   const disableSend = sendingMessage || !message.trim()
+  const hasPlan = !!latestPlan
 
-  const handleQuickInsert = (content: string, type: string) => {
-    if (!content) return
-    setMessage(content)
-    onQuickAction?.({ type, content })
+  const handleActionClick = (action: string) => {
+    setActiveAction(action)
+    
+    // Handle specific actions
+    if (action === 'research') {
+      onRunResearch()
+    } else {
+      onQuickAction?.({ type: action, content: `Help me with: ${action}` })
+    }
   }
 
-  return (
-    <section className="panel assist-panel scroll-panel">
-      <header>
-        <h2>Assistant</h2>
-        <div className="assist-header-controls">
-          {taskPanelCollapsed ? (
+  // No task selected - prompt user
+  if (!selectedTask) {
+    return (
+      <section className="panel assist-panel">
+        <header>
+          <h2>Assistant</h2>
+          <button className="secondary" onClick={onExpandTasks}>
+            Show tasks
+          </button>
+        </header>
+        <p>Select a task to view details.</p>
+      </section>
+    )
+  }
+
+  // Task selected but not engaged - show preview with Engage button
+  if (!hasPlan) {
+    return (
+      <section className="panel assist-panel">
+        <header>
+          <h2>Assistant</h2>
+          {taskPanelCollapsed && (
             <button className="secondary" onClick={onExpandTasks}>
               Show tasks
             </button>
-          ) : (
-            <button className="secondary" onClick={onCollapseTasks}>
-              Collapse tasks
-            </button>
+          )}
+        </header>
+        <div className="task-badges">
+          <span className="badge status">{selectedTask.status}</span>
+          {selectedTask.priority && (
+            <span className={`badge priority ${selectedTask.priority.toLowerCase()}`}>
+              {selectedTask.priority}
+            </span>
+          )}
+          <span className="badge due">{new Date(selectedTask.due).toLocaleString()}</span>
+        </div>
+        <div className="task-title-row">
+          <strong>{selectedTask.title}</strong>
+          <span className="project-name">{selectedTask.project}</span>
+          {selectedTask.assignedTo && (
+            <span className="owner">Owner: {selectedTask.assignedTo}</span>
           )}
         </div>
+        {selectedTask.notes && (
+          <p className="task-notes">{notesPreview(selectedTask.notes)}</p>
+        )}
+        <button
+          className="primary run-assist-btn"
+          disabled={running}
+          onClick={() => onRunAssist()}
+        >
+          {running ? 'Loading…' : 'Engage DATA'}
+        </button>
+        {error && <p className="warning">{error}</p>}
+      </section>
+    )
+  }
+
+  // After Run Assist - full collaboration view
+  return (
+    <section className="panel assist-panel-full">
+      {/* Header row */}
+      <header className="assist-header-compact">
+        <h2>Assistant</h2>
+        <button className="secondary compact" onClick={onExpandTasks}>
+          Show tasks
+        </button>
       </header>
-      {!selectedTask ? (
-        <p>Select a task to view details.</p>
-      ) : (
-        <>
-          <section className="assist-context">
-            <div className="task-signals">
-              <span className="badge status">{selectedTask.status}</span>
-              {selectedTask.priority && (
-                <span className={`badge priority ${selectedTask.priority.toLowerCase()}`}>
-                  {selectedTask.priority}
-                </span>
-              )}
-              <span className="badge due">
-                {new Date(selectedTask.due).toLocaleString()}
+
+      {/* Task info + Action buttons row */}
+      <div className="task-action-row">
+        <div className="task-info-compact">
+          <div className="task-badges-inline">
+            <span className="badge status">{selectedTask.status}</span>
+            {selectedTask.priority && (
+              <span className={`badge priority ${selectedTask.priority.toLowerCase()}`}>
+                {selectedTask.priority}
               </span>
-            </div>
-            <div className="task-context-meta">
-              <strong>{selectedTask.title}</strong>
-              <span>{selectedTask.project}</span>
-              {selectedTask.assignedTo && <span>Owner: {selectedTask.assignedTo}</span>}
-            </div>
-            <div className="notes">
-              <p>
-                {showFullNotes
-                  ? selectedTask.notes || 'No additional notes.'
-                  : notesPreview(selectedTask.notes) ||
-                    'No additional notes captured yet.'}
-              </p>
-              {selectedTask.notes &&
-                selectedTask.notes.length > NOTES_PREVIEW_LIMIT && (
-                  <button
-                    className="link-button"
-                    onClick={() => setShowFullNotes((prev) => !prev)}
-                  >
-                    {showFullNotes ? 'Show less' : 'Show full note'}
-                  </button>
-                )}
-            </div>
-          </section>
-
-          <section className="assist-plan">
-            <div className="assist-plan-header">
-              <h3>Current plan</h3>
-              {error && <p className="warning">{error}</p>}
-            </div>
-            {latestPlan ? (
-              <>
-                <p className="plan-summary">
-                  {truncateCopy(latestPlan.summary)}
-                  <button
-                    type="button"
-                    className="link-button inline"
-                    onClick={() =>
-                      handleQuickInsert(
-                        'Can you provide a tighter summary focusing on the first actionable step?',
-                        'refine-summary',
-                      )
-                    }
-                  >
-                    Shorten summary
-                  </button>
-                </p>
-                <div className="plan-columns">
-                  <div>
-                    <h4>Next steps</h4>
-                    {latestPlan.nextSteps.length ? (
-                      <ul>
-                        {latestPlan.nextSteps.slice(0, 5).map((step, index) => (
-                          <li key={index}>
-                            {step}
-                            <button
-                              type="button"
-                              className="link-button inline"
-                              onClick={() =>
-                                handleQuickInsert(
-                                  `Refine this next step: ${step}`,
-                                  'refine-step',
-                                )
-                              }
-                            >
-                              Refine
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="subtle">No next steps yet—run an assist to draft some.</p>
-                    )}
-                  </div>
-                  <div>
-                    <h4>Efficiency tips</h4>
-                    {latestPlan.efficiencyTips.length ? (
-                      <ul>
-                        {latestPlan.efficiencyTips.slice(0, 4).map((tip, index) => (
-                          <li key={index}>
-                            {tip}
-                            <button
-                              type="button"
-                              className="link-button inline"
-                              onClick={() =>
-                                handleQuickInsert(
-                                  `Adapt this efficiency tip: ${tip}`,
-                                  'refine-tip',
-                                )
-                              }
-                            >
-                              Apply
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="subtle">No efficiency tips for this task.</p>
-                    )}
-                  </div>
-                </div>
-                {latestPlan.suggestedActions &&
-                  latestPlan.suggestedActions.length > 0 && (
-                    <div className="action-picker" role="group">
-                      {latestPlan.suggestedActions.map((action) => (
-                        <button
-                          key={action}
-                          className="action-button"
-                          onClick={() =>
-                            onQuickAction?.({
-                              type: action,
-                              content: `Help me with: ${action}`,
-                            })
-                          }
-                        >
-                          {formatActionLabel(action)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                {latestPlan.warnings && latestPlan.warnings.length > 0 && (
-                  <div className="warning">
-                    <p>Warnings:</p>
-                    <ul>
-                      {latestPlan.warnings.map((warning, index) => (
-                        <li key={index}>{warning}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="subtle">Run an assist to generate a plan for this task.</p>
             )}
-          </section>
-
-          <section className="assist-actions">
-            <div className="field">
-              <label htmlFor="gmail-account">Send with Gmail account</label>
-              <select
-                id="gmail-account"
-                value={gmailAccount}
-                onChange={(e) => onGmailChange(e.target.value)}
+            <span className="badge due">{new Date(selectedTask.due).toLocaleString()}</span>
+          </div>
+          <strong className="task-title-compact">{selectedTask.title}</strong>
+          <span className="project-compact">{selectedTask.project}</span>
+        </div>
+        <div className="action-buttons-row">
+          <button
+            className={`action-btn plan-btn ${activeAction === 'plan' ? 'active' : ''}`}
+            onClick={onGeneratePlan}
+            disabled={planGenerating}
+          >
+            {planGenerating ? 'Planning…' : formatActionLabel('plan')}
+          </button>
+          {latestPlan.suggestedActions
+            ?.filter((action) => action !== 'plan')
+            .map((action) => (
+              <button
+                key={action}
+                className={`action-btn ${activeAction === action ? 'active' : ''}`}
+                onClick={() => handleActionClick(action)}
               >
-                <option value="">Do not send</option>
-                {gmailOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              className="primary"
-              disabled={running}
-              onClick={() =>
-                onRunAssist(gmailAccount ? { sendEmailAccount: gmailAccount } : undefined)
-              }
-            >
-              {running ? 'Running…' : 'Run Assist'}
-            </button>
-          </section>
+                {formatActionLabel(action)}
+              </button>
+            ))}
+        </div>
+      </div>
 
-          <section className="assistant-chat">
-            <h3>Conversation</h3>
-            <div className="chat-thread">
-              {conversationLoading ? (
-                <p className="subtle">Loading conversation…</p>
-              ) : conversation.length === 0 ? (
-                <p className="subtle">
-                  Start a conversation to collaborate on this task.
-                </p>
-              ) : (
-                conversation.map((entry, index) => (
-                  <div
-                    key={`${entry.ts}-${index}`}
-                    className={`chat-bubble ${entry.role}`}
+      {/* Notes if present */}
+      {selectedTask.notes && (
+        <p className="notes-compact">
+          {showFullNotes ? selectedTask.notes : notesPreview(selectedTask.notes)}
+          {selectedTask.notes.length > NOTES_PREVIEW_LIMIT && (
+            <button className="link-button" onClick={() => setShowFullNotes(!showFullNotes)}>
+              {showFullNotes ? 'less' : 'more'}
+            </button>
+          )}
+        </p>
+      )}
+
+      {/* Two-column: Plan (left) + Action Output (right) */}
+      <div className="plan-action-grid">
+        {/* Left column: Plan details */}
+        <div className="plan-column">
+          <div className="plan-section">
+            <h4>Current plan</h4>
+            <p className="plan-summary-text">{truncateCopy(latestPlan.summary, 150)}</p>
+          </div>
+
+          <div className="plan-section">
+            <h4>Next steps</h4>
+            <ul className="compact-list">
+              {latestPlan.nextSteps.slice(0, 4).map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="plan-section">
+            <h4>Efficiency tips</h4>
+            <ul className="compact-list">
+              {latestPlan.efficiencyTips.slice(0, 3).map((tip, i) => (
+                <li key={i}>{tip}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {/* Right column: Action output area */}
+        <div className="action-output-column">
+          {activeAction === 'research' ? (
+            <div className="action-output-content">
+              <div className="action-output-header">
+                <h4>{formatActionLabel('research')}</h4>
+                {researchResults && (
+                  <button
+                    className="copy-btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText(researchResults)
+                      // Could add a toast notification here
+                    }}
+                    title="Copy to clipboard"
                   >
-                    <div className="chat-meta">
-                      <span>{entry.role === 'assistant' ? 'Assistant' : 'You'}</span>
-                      <span>{new Date(entry.ts).toLocaleString()}</span>
-                    </div>
-                    <div className="chat-content">{entry.content}</div>
-                  </div>
-                ))
+                    📋 Copy
+                  </button>
+                )}
+              </div>
+              {researchRunning ? (
+                <div className="research-loading">
+                  <p className="subtle">🔍 Searching the web...</p>
+                  <p className="subtle">This may take a moment.</p>
+                </div>
+              ) : researchResults ? (
+                <div className="research-results">
+                  {renderMarkdown(researchResults)}
+                </div>
+              ) : (
+                <p className="subtle">Click Research to search for information about this task.</p>
               )}
             </div>
+          ) : activeAction ? (
+            <div className="action-output-content">
+              <h4>{formatActionLabel(activeAction)}</h4>
+              <p className="subtle">
+                {activeAction === 'draft_email' 
+                  ? 'Email drafting coming soon...'
+                  : `${formatActionLabel(activeAction)} functionality coming soon...`
+                }
+              </p>
+            </div>
+          ) : (
+            <div className="action-output-placeholder">
+              <p className="subtle">
+                Select an action above to see output here.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
 
-            <form
-              className="chat-input"
-              onSubmit={async (event) => {
-                event.preventDefault()
-                if (!message.trim()) return
-                const payload = message.trim()
-                setMessage('')
-                await onSendMessage(payload)
-              }}
-            >
-              <label htmlFor="assistant-chat" className="subtle">
-                Coach the assistant (e.g., “Ask for a shorter summary”)
-              </label>
-              <textarea
-                id="assistant-chat"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-              />
-              <button type="submit" disabled={disableSend}>
-                {sendingMessage ? 'Sending…' : 'Send'}
-              </button>
-            </form>
-          </section>
-        </>
-      )}
+      {/* Conversation section - takes most space */}
+      <div className="conversation-section">
+        <h4>Conversation</h4>
+        <div className="chat-thread-full">
+          {conversationLoading ? (
+            <p className="subtle">Loading...</p>
+          ) : conversation.length === 0 ? (
+            <p className="subtle">Start collaborating with DATA on this task.</p>
+          ) : (
+            conversation.map((entry, index) => (
+              <div key={`${entry.ts}-${index}`} className={`chat-bubble ${entry.role}`}>
+                <div className="chat-meta">
+                  <span>{entry.role === 'assistant' ? 'DATA' : 'You'}</span>
+                  <span>{new Date(entry.ts).toLocaleString()}</span>
+                </div>
+                <div className="chat-content">
+                  {entry.role === 'assistant' 
+                    ? renderMarkdown(entry.content)
+                    : entry.content
+                  }
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Chat input - pinned at bottom */}
+      <form
+        className="chat-input-bottom"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          if (!message.trim()) return
+          const payload = message.trim()
+          setMessage('')
+          await onSendMessage(payload)
+        }}
+      >
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Message DATA..."
+          rows={2}
+        />
+        <button type="submit" disabled={disableSend} className="send-btn">
+          {sendingMessage ? '...' : 'Send'}
+        </button>
+      </form>
     </section>
   )
 }
-

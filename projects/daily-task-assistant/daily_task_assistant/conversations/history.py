@@ -60,17 +60,17 @@ def log_assistant_message(
     task_id: str,
     *,
     content: str,
-    plan: AssistPlan,
+    plan: Optional[AssistPlan] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> ConversationMessage:
-    """Persist an assistant response, including a snapshot of the plan."""
+    """Persist an assistant response, optionally including a snapshot of the plan."""
 
     payload = ConversationMessage(
         role="assistant",
         content=content.strip(),
         ts=_now(),
         metadata=metadata or {},
-        plan=_plan_snapshot(plan),
+        plan=_plan_snapshot(plan) if plan else None,
     )
     _append_message(task_id, payload)
     return payload

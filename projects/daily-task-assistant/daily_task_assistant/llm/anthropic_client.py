@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 try:  # Optional dependency loaded via requirements.txt
     from anthropic import Anthropic, APIStatusError  # type: ignore
@@ -192,10 +192,14 @@ def generate_assist_suggestion(
 
 
 def _extract_text(response) -> str:
+    """Extract text content from Anthropic response, handling various block types."""
     chunks = []
     for block in getattr(response, "content", []):
-        if getattr(block, "type", None) == "text":
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
             chunks.append(getattr(block, "text", ""))
+        # Web search results are automatically incorporated into the text response
+        # by Anthropic, so we just need to extract the text blocks
     text = "\n".join(chunks).strip()
     if not text:
         raise AnthropicError("Anthropic response did not contain text content.")
@@ -274,4 +278,200 @@ def generate_email_draft(
         needs_recipient=bool(data.get("needs_recipient", not recipient)),
         raw=text,
     )
+
+
+CHAT_SYSTEM_PROMPT = """You are DATA (Daily Autonomous Task Assistant), David's proactive AI chief of staff.
+
+Your role is to help David accomplish tasks efficiently. You are action-oriented and solution-focused.
+
+CAPABILITIES:
+- Draft emails, messages, and communications
+- Create action plans and checklists
+- Provide research summaries based on your knowledge
+- Suggest specific next steps
+- Help organize and prioritize work
+
+CAPABILITIES:
+- You CAN search the web for current information when needed
+- You can draft emails, messages, and communications
+- You can create action plans and checklists
+
+LIMITATIONS:
+- You cannot make phone calls or send emails directly (but you can draft them)
+- You cannot access David's personal accounts or files
+
+STYLE:
+- Be concise and actionable
+- Use web search when you need current/specific information (contact details, business hours, etc.)
+- Offer to take the next concrete step (draft something, create a checklist, etc.)
+- Ask clarifying questions when needed to provide better help
+- When you search the web, summarize findings clearly with sources
+"""
+
+# Web search tool definition for Anthropic API
+WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 3,  # Limit searches per request to control costs
+}
+
+
+def chat_with_context(
+    task: TaskDetail,
+    user_message: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> str:
+    """Have a conversational exchange with context about the task.
+    
+    Args:
+        task: The current task being discussed
+        user_message: The user's latest message
+        history: Previous conversation messages [{"role": "user"|"assistant", "content": "..."}]
+        client: Optional pre-built Anthropic client
+        config: Optional configuration override
+    
+    Returns:
+        The assistant's response as a string
+    """
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+
+    # Build task context as the first message
+    task_context = f"""Current Task Context:
+- Title: {task.title}
+- Project: {task.project}
+- Status: {task.status}
+- Priority: {task.priority}
+- Due: {task.due.strftime("%Y-%m-%d")}
+- Owner: {task.assigned_to or "David"} (this is who you're helping, not a recipient)
+- Notes: {task.notes or "No additional notes"}
+
+Help David accomplish this task. Be proactive - offer to draft communications, create checklists, or take other concrete actions."""
+
+    # Build message history
+    messages: List[Dict[str, Any]] = []
+    
+    # Add task context as first user message (priming)
+    messages.append({
+        "role": "user",
+        "content": [{"type": "text", "text": task_context}]
+    })
+    messages.append({
+        "role": "assistant", 
+        "content": [{"type": "text", "text": "I understand. I'm ready to help you with this task. What would you like to do?"}]
+    })
+
+    # Add conversation history
+    if history:
+        for msg in history:
+            messages.append({
+                "role": msg["role"],
+                "content": [{"type": "text", "text": msg["content"]}]
+            })
+
+    # Add the current user message
+    messages.append({
+        "role": "user",
+        "content": [{"type": "text", "text": user_message}]
+    })
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=config.max_output_tokens,
+            temperature=0.7,  # Slightly higher for more natural conversation
+            system=CHAT_SYSTEM_PROMPT,
+            messages=messages,
+            tools=[WEB_SEARCH_TOOL],  # Enable web search capability
+        )
+    except APIStatusError as exc:
+        raise AnthropicError(f"Anthropic API error: {exc}") from exc
+    except Exception as exc:
+        raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+
+    return _extract_text(response)
+
+
+RESEARCH_SYSTEM_PROMPT = """You are DATA, helping David research information for his tasks.
+
+FORMAT YOUR RESPONSE AS:
+
+## Key Findings
+- 3-5 bullet points with the most important discoveries
+- Include specific details inline (phone, address, hours)
+
+## Action Items
+- 2-3 concrete next steps David should take
+- Be specific (e.g., "Call [number]" not "Contact them")
+
+## Sources
+- Brief list of where info came from
+
+RULES:
+- Be CONCISE - bullet points only, no paragraphs
+- Put contact info (phone, email, address) directly in bullets
+- Skip sections if no relevant info found
+- No filler text or verbose explanations
+"""
+
+
+def research_task(
+    task: TaskDetail,
+    next_steps: Optional[List[str]] = None,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> str:
+    """Research information related to a task using web search.
+    
+    Args:
+        task: The task to research
+        next_steps: Optional list of next steps to inform the research
+        client: Optional pre-built Anthropic client
+        config: Optional configuration override
+    
+    Returns:
+        Formatted research results as a string
+    """
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+
+    # Build the research prompt from task context
+    next_steps_text = ""
+    if next_steps:
+        next_steps_text = "\n".join(f"- {step}" for step in next_steps[:5])
+    
+    research_prompt = f"""Research this task:
+
+**Task:** {task.title}
+**Notes:** {task.notes or "None"}
+{f"**Context:** {next_steps_text}" if next_steps_text else ""}
+
+Find: contact info, hours, procedures, requirements. Be concise - bullets only."""
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": research_prompt}]
+        }
+    ]
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=1500,  # Allow longer responses for research
+            temperature=0.3,  # Lower temperature for factual research
+            system=RESEARCH_SYSTEM_PROMPT,
+            messages=messages,
+            tools=[WEB_SEARCH_TOOL],
+        )
+    except APIStatusError as exc:
+        raise AnthropicError(f"Anthropic API error: {exc}") from exc
+    except Exception as exc:
+        raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+
+    return _extract_text(response)
 

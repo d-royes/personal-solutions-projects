@@ -8,7 +8,10 @@ import {
   fetchActivity,
   fetchConversationHistory,
   fetchTasks,
+  generatePlan,
   runAssist,
+  runResearch,
+  sendChatMessage,
 } from './api'
 import type {
   ActivityEntry,
@@ -37,6 +40,9 @@ function App() {
 
   const [assistPlan, setAssistPlan] = useState<AssistPlan | null>(null)
   const [assistRunning, setAssistRunning] = useState(false)
+  const [planGenerating, setPlanGenerating] = useState(false)
+  const [researchRunning, setResearchRunning] = useState(false)
+  const [researchResults, setResearchResults] = useState<string | null>(null)
   const [assistError, setAssistError] = useState<string | null>(null)
   const [gmailAccount, setGmailAccount] = useState('')
 
@@ -54,8 +60,20 @@ function App() {
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
 
   const handleQuickAction = useCallback((action: { type: string; content: string }) => {
-    console.debug('Quick action', action)
+    // Action handling is now done within AssistPanel
+    console.debug('Quick action triggered:', action)
   }, [])
+
+  const handleSelectTask = useCallback((taskId: string) => {
+    if (taskId !== selectedTaskId) {
+      // Clear plan and research when selecting a different task
+      setAssistPlan(null)
+      setAssistError(null)
+      setConversation([])
+      setResearchResults(null)
+    }
+    setSelectedTaskId(taskId)
+  }, [selectedTaskId])
 
   const selectedTask =
     tasks.find((task) => task.rowId === selectedTaskId) ?? null
@@ -135,45 +153,119 @@ function App() {
     }
   }
 
-  async function triggerAssist(options?: {
-    sendEmailAccount?: string
-    instructions?: string
-  }) {
+  async function engageTask() {
+    // Load task context and conversation history - NO plan generation
     if (!selectedTask) return
     if (!authConfig) {
       setAssistError('Please sign in first.')
       return
     }
-    const hasInstructions = Boolean(options?.instructions)
-    if (hasInstructions) {
-      setSendingMessage(true)
-    } else {
-      setAssistRunning(true)
-    }
+    setAssistRunning(true)
     setAssistError(null)
     try {
       const response = await runAssist(selectedTask.rowId, authConfig, apiBase, {
         source: dataSource,
-        sendEmailAccount: options?.sendEmailAccount,
-        instructions: options?.instructions,
       })
-      setAssistPlan(response.plan)
+      // Set a minimal "engaged" state - plan will be null until user clicks Plan
+      setAssistPlan(response.plan ?? {
+        summary: '',
+        score: 0,
+        labels: [],
+        automationTriggers: [],
+        nextSteps: [],
+        efficiencyTips: [],
+        suggestedActions: ['plan', 'research', 'draft_email', 'follow_up'],
+        task: selectedTask,
+        generator: 'none',
+        generatorNotes: [],
+      })
       setConversation(response.history ?? [])
-      void refreshActivity()
     } catch (error) {
       setAssistError((error as Error).message)
     } finally {
       setAssistRunning(false)
-      setSendingMessage(false)
     }
   }
 
-  async function handleAssist(options?: { sendEmailAccount?: string }) {
-    await triggerAssist({ sendEmailAccount: options?.sendEmailAccount })
+  async function handleGeneratePlan() {
+    // Explicitly generate/update the plan based on task + conversation
+    if (!selectedTask) return
+    if (!authConfig) {
+      setAssistError('Please sign in first.')
+      return
+    }
+    setPlanGenerating(true)
+    setAssistError(null)
+    try {
+      const response = await generatePlan(selectedTask.rowId, authConfig, apiBase, {
+        source: dataSource,
+        anthropicModel: import.meta.env.VITE_ANTHROPIC_MODEL,
+      })
+      setAssistPlan(response.plan)
+      void refreshActivity()
+    } catch (error) {
+      setAssistError((error as Error).message)
+    } finally {
+      setPlanGenerating(false)
+    }
+  }
+
+  async function handleRunResearch() {
+    // Run web research based on task context and next steps
+    if (!selectedTask) return
+    if (!authConfig) {
+      setAssistError('Please sign in first.')
+      return
+    }
+    setResearchRunning(true)
+    setResearchResults(null)
+    setAssistError(null)
+    try {
+      const response = await runResearch(selectedTask.rowId, authConfig, apiBase, {
+        source: dataSource,
+        nextSteps: assistPlan?.nextSteps,
+      })
+      setResearchResults(response.research)
+      // Update conversation history with research summary
+      if (response.history) {
+        setConversation(response.history)
+      }
+      void refreshActivity()
+    } catch (error) {
+      setAssistError((error as Error).message)
+    } finally {
+      setResearchRunning(false)
+    }
+  }
+
+  async function handleAssist() {
+    // Collapse task panel when engaging DATA
+    setTaskPanelCollapsed(true)
+    await engageTask()
   }
 
   async function handleSendMessage(message: string) {
-    await triggerAssist({ instructions: message })
+    if (!selectedTaskId || !authConfig) return
+    
+    setSendingMessage(true)
+    setAssistError(null)
+    
+    try {
+      const result = await sendChatMessage(
+        selectedTaskId,
+        message,
+        authConfig,
+        apiBase,
+        dataSource,
+      )
+      // Update conversation with the response
+      setConversation(result.history)
+    } catch (err) {
+      console.error('Chat error:', err)
+      setAssistError(err instanceof Error ? err.message : 'Chat failed')
+    } finally {
+      setSendingMessage(false)
+    }
   }
 
   const isAuthenticated = !!authConfig
@@ -193,7 +285,10 @@ function App() {
               <span className="env-badge">{envLabel}</span>
             </div>
           </div>
-          <h1 className="app-title">Daily Task Assistant</h1>
+        </div>
+
+        <div className="header-logo">
+          <img src="/DATA_Logo.png" alt="DATA - Daily Autonomous Task Assistant" className="logo-img" />
         </div>
 
         <div className="header-controls">
@@ -285,7 +380,7 @@ function App() {
               <TaskList
                 tasks={tasks}
                 selectedTaskId={selectedTaskId}
-                onSelect={setSelectedTaskId}
+                onSelect={handleSelectTask}
                 loading={tasksLoading}
                 liveTasks={liveTasks}
                 warning={tasksWarning}
@@ -297,9 +392,14 @@ function App() {
               selectedTask={selectedTask}
               latestPlan={assistPlan}
               running={assistRunning}
+              planGenerating={planGenerating}
+              researchRunning={researchRunning}
+              researchResults={researchResults}
               gmailAccount={gmailAccount}
               onGmailChange={setGmailAccount}
               onRunAssist={handleAssist}
+              onGeneratePlan={handleGeneratePlan}
+              onRunResearch={handleRunResearch}
               gmailOptions={gmailAccounts}
               error={assistError}
               conversation={conversation}

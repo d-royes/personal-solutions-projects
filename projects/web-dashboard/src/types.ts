@@ -52,7 +52,7 @@ export interface ConversationMessage {
 }
 
 export interface AssistResponse {
-  plan: AssistPlan
+  plan: AssistPlan | null
   environment: string
   liveTasks: boolean
   warning?: string | null
