@@ -1301,3 +1301,109 @@ button:not(:disabled):hover {
   color: rgba(148, 163, 184, 0.6);
   margin-left: 0.5rem;
 }
+
+/* Pending Action Confirmation Card */
+.pending-action-card {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(16, 185, 129, 0.1) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 0.75rem 0;
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pending-action-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.pending-icon {
+  font-size: 1.2rem;
+}
+
+.pending-action-header strong {
+  color: #4ade80;
+  font-size: 0.95rem;
+}
+
+.pending-action-description {
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  margin: 0 0 0.5rem 0;
+  padding-left: 1.7rem;
+}
+
+.pending-action-reason {
+  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem 0;
+  padding-left: 1.7rem;
+}
+
+.pending-action-buttons {
+  display: flex;
+  gap: 0.75rem;
+  padding-left: 1.7rem;
+}
+
+.confirm-btn {
+  padding: 0.5rem 1rem;
+  background: #22c55e;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 500;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.confirm-btn:hover:not(:disabled) {
+  background: #16a34a;
+}
+
+.confirm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cancel-btn {
+  padding: 0.5rem 1rem;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  color: #f87171;
+  font-weight: 500;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cancel-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Disabled chat input when pending action */
+.chat-input-bottom textarea:disabled {
+  background: rgba(30, 41, 59, 0.5);
+  cursor: not-allowed;
+}

@@ -12,6 +12,10 @@ import {
   runAssist,
   runResearch,
   sendChatMessage,
+  updateTask,
+} from './api'
+import type {
+  PendingAction,
 } from './api'
 import type {
   ActivityEntry,
@@ -49,6 +53,10 @@ function App() {
   const [conversation, setConversation] = useState<ConversationMessage[]>([])
   const [conversationLoading, setConversationLoading] = useState(false)
   const [sendingMessage, setSendingMessage] = useState(false)
+  
+  // Task update state
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
+  const [updateExecuting, setUpdateExecuting] = useState(false)
 
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [activityError, setActivityError] = useState<string | null>(null)
@@ -260,12 +268,59 @@ function App() {
       )
       // Update conversation with the response
       setConversation(result.history)
+      
+      // Check if DATA detected a task update intent
+      if (result.pendingAction) {
+        setPendingAction(result.pendingAction)
+      }
     } catch (err) {
       console.error('Chat error:', err)
       setAssistError(err instanceof Error ? err.message : 'Chat failed')
     } finally {
       setSendingMessage(false)
     }
+  }
+
+  async function handleConfirmUpdate() {
+    if (!selectedTaskId || !authConfig || !pendingAction) return
+    
+    setUpdateExecuting(true)
+    setAssistError(null)
+    
+    try {
+      const result = await updateTask(
+        selectedTaskId,
+        {
+          action: pendingAction.action,
+          status: pendingAction.status,
+          priority: pendingAction.priority,
+          dueDate: pendingAction.dueDate,
+          comment: pendingAction.comment,
+          confirmed: true,
+        },
+        authConfig,
+        apiBase,
+      )
+      
+      if (result.status === 'success') {
+        // Clear the pending action
+        setPendingAction(null)
+        // Refresh tasks to show updated state
+        await refreshTasks()
+        // Refresh conversation to show the update confirmation
+        await loadConversation(selectedTaskId)
+        void refreshActivity()
+      }
+    } catch (err) {
+      console.error('Update error:', err)
+      setAssistError(err instanceof Error ? err.message : 'Update failed')
+    } finally {
+      setUpdateExecuting(false)
+    }
+  }
+
+  function handleCancelUpdate() {
+    setPendingAction(null)
   }
 
   const isAuthenticated = !!authConfig
@@ -410,6 +465,10 @@ function App() {
               onExpandTasks={() => setTaskPanelCollapsed(false)}
               onCollapseTasks={() => setTaskPanelCollapsed(true)}
               onQuickAction={handleQuickAction}
+              pendingAction={pendingAction}
+              updateExecuting={updateExecuting}
+              onConfirmUpdate={handleConfirmUpdate}
+              onCancelUpdate={handleCancelUpdate}
             />
           </>
         )}

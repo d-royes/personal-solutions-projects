@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
+import type { PendingAction } from '../api'
 
 const NOTES_PREVIEW_LIMIT = 200
 
@@ -168,6 +169,28 @@ interface AssistPanelProps {
   onExpandTasks: () => void
   onCollapseTasks: () => void
   onQuickAction?: (action: { type: string; content: string }) => void
+  // Task update confirmation props
+  pendingAction?: PendingAction | null
+  updateExecuting?: boolean
+  onConfirmUpdate?: () => void
+  onCancelUpdate?: () => void
+}
+
+function formatPendingAction(action: PendingAction): string {
+  switch (action.action) {
+    case 'mark_complete':
+      return 'Mark this task as complete'
+    case 'update_status':
+      return `Update status to "${action.status}"`
+    case 'update_priority':
+      return `Change priority to "${action.priority}"`
+    case 'update_due_date':
+      return `Update due date to ${action.dueDate}`
+    case 'add_comment':
+      return `Add comment: "${(action.comment ?? '').slice(0, 50)}${(action.comment?.length ?? 0) > 50 ? '...' : ''}"`
+    default:
+      return `Perform action: ${action.action}`
+  }
 }
 
 export function AssistPanel({
@@ -188,6 +211,10 @@ export function AssistPanel({
   taskPanelCollapsed,
   onExpandTasks,
   onQuickAction,
+  pendingAction,
+  updateExecuting,
+  onConfirmUpdate,
+  onCancelUpdate,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
@@ -438,6 +465,40 @@ export function AssistPanel({
         </div>
       </div>
 
+      {/* Pending action confirmation card */}
+      {pendingAction && (
+        <div className="pending-action-card">
+          <div className="pending-action-header">
+            <span className="pending-icon">⚡</span>
+            <strong>Confirm Smartsheet Update</strong>
+          </div>
+          <p className="pending-action-description">
+            {formatPendingAction(pendingAction)}
+          </p>
+          {pendingAction.reason && (
+            <p className="pending-action-reason">
+              <em>Reason: {pendingAction.reason}</em>
+            </p>
+          )}
+          <div className="pending-action-buttons">
+            <button
+              className="confirm-btn"
+              onClick={onConfirmUpdate}
+              disabled={updateExecuting}
+            >
+              {updateExecuting ? 'Updating...' : '✓ Confirm'}
+            </button>
+            <button
+              className="cancel-btn"
+              onClick={onCancelUpdate}
+              disabled={updateExecuting}
+            >
+              ✗ Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Chat input - pinned at bottom */}
       <form
         className="chat-input-bottom"
@@ -454,8 +515,9 @@ export function AssistPanel({
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Message DATA..."
           rows={2}
+          disabled={!!pendingAction}
         />
-        <button type="submit" disabled={disableSend} className="send-btn">
+        <button type="submit" disabled={disableSend || !!pendingAction} className="send-btn">
           {sendingMessage ? '...' : 'Send'}
         </button>
       </form>
