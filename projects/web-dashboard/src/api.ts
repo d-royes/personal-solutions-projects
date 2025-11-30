@@ -237,6 +237,147 @@ export async function runSummarize(
   return resp.json()
 }
 
+// --- Contact Search ---
+
+export interface ContactCard {
+  name: string
+  email?: string
+  phone?: string
+  title?: string
+  organization?: string
+  location?: string
+  source: string
+  confidence: string
+  sourceUrl?: string
+}
+
+export interface ContactEntity {
+  name: string
+  entityType: string
+  context?: string
+}
+
+export interface ContactSearchResponse {
+  contacts: ContactCard[]
+  entitiesFound: ContactEntity[]
+  needsConfirmation: boolean
+  confirmationMessage?: string
+  searchPerformed: boolean
+  message: string
+  taskId: string
+  taskTitle: string
+  history?: ConversationMessage[]
+}
+
+export async function searchContacts(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: { source?: DataSource; confirmSearch?: boolean } = {},
+): Promise<ContactSearchResponse> {
+  const url = new URL(`/assist/${taskId}/contact`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: options.source ?? defaultSource,
+      confirmSearch: options.confirmSearch ?? false,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Contact search failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Saved Contacts (Phase 2 Foundation) ---
+
+export interface SavedContact {
+  id: string
+  name: string
+  email?: string
+  phone?: string
+  title?: string
+  organization?: string
+  location?: string
+  notes?: string
+  sourceTaskId?: string
+  createdAt: string
+  updatedAt: string
+  userEmail?: string
+  tags: string[]
+}
+
+export async function saveContact(
+  auth: AuthConfig,
+  contact: {
+    name: string
+    email?: string
+    phone?: string
+    title?: string
+    organization?: string
+    location?: string
+    notes?: string
+    sourceTaskId?: string
+    tags?: string[]
+    contactId?: string
+  },
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; contact: SavedContact }> {
+  const url = new URL('/contacts', baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(contact),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Save contact failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function listContacts(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  limit: number = 100,
+): Promise<{ contacts: SavedContact[]; count: number }> {
+  const url = new URL('/contacts', baseUrl)
+  url.searchParams.set('limit', String(limit))
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `List contacts failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function deleteContact(
+  contactId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; message: string }> {
+  const url = new URL(`/contacts/${contactId}`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Delete contact failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 export async function fetchActivity(
   auth: AuthConfig,
   baseUrl: string = defaultBase,

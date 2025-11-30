@@ -14,11 +14,14 @@ import {
   runResearch,
   runSummarize,
   saveWorkspace,
+  searchContacts,
   sendChatMessage,
   submitFeedback,
   updateTask,
 } from './api'
 import type {
+  ContactCard,
+  ContactSearchResponse,
   FeedbackContext,
   FeedbackType,
   PendingAction,
@@ -55,6 +58,9 @@ function App() {
   const [researchResults, setResearchResults] = useState<string | null>(null)
   const [summarizeRunning, setSummarizeRunning] = useState(false)
   const [summarizeResults, setSummarizeResults] = useState<string | null>(null)
+  const [contactRunning, setContactRunning] = useState(false)
+  const [contactResults, setContactResults] = useState<ContactCard[] | null>(null)
+  const [contactConfirmation, setContactConfirmation] = useState<ContactSearchResponse | null>(null)
   const [assistError, setAssistError] = useState<string | null>(null)
   const [gmailAccount, setGmailAccount] = useState('')
 
@@ -297,6 +303,46 @@ function App() {
       setAssistError((error as Error).message)
     } finally {
       setSummarizeRunning(false)
+    }
+  }
+
+  async function handleRunContact(confirmSearch = false) {
+    // Search for contact information based on task context
+    if (!selectedTask) return
+    if (!authConfig) {
+      setAssistError('Please sign in first.')
+      return
+    }
+    setContactRunning(true)
+    if (!confirmSearch) {
+      setContactResults(null)
+      setContactConfirmation(null)
+    }
+    setAssistError(null)
+    try {
+      const response = await searchContacts(selectedTask.rowId, authConfig, apiBase, {
+        source: dataSource,
+        confirmSearch,
+      })
+      
+      if (response.needsConfirmation && !confirmSearch) {
+        // Store confirmation request for user to approve
+        setContactConfirmation(response)
+        setContactResults(null)
+      } else {
+        // Got results
+        setContactResults(response.contacts)
+        setContactConfirmation(null)
+        // Update conversation history
+        if (response.history) {
+          setConversation(response.history)
+        }
+      }
+      void refreshActivity()
+    } catch (error) {
+      setAssistError((error as Error).message)
+    } finally {
+      setContactRunning(false)
     }
   }
 
@@ -568,6 +614,10 @@ function App() {
               onGeneratePlan={handleGeneratePlan}
               onRunResearch={handleRunResearch}
               onRunSummarize={handleRunSummarize}
+              onRunContact={handleRunContact}
+              contactRunning={contactRunning}
+              contactResults={contactResults}
+              contactConfirmation={contactConfirmation}
               gmailOptions={gmailAccounts}
               error={assistError}
               conversation={conversation}

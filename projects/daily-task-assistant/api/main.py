@@ -457,6 +457,134 @@ def research_task_endpoint(
     }
 
 
+class ContactRequest(BaseModel):
+    """Request body for contact search endpoint."""
+    source: Literal["auto", "live", "stub"] = "auto"
+    confirm_search: bool = Field(False, alias="confirmSearch")
+
+
+class ContactCardModel(BaseModel):
+    """A contact card returned from search."""
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    title: Optional[str] = None
+    organization: Optional[str] = None
+    location: Optional[str] = None
+    source: str = "unknown"
+    confidence: str = "low"
+    sourceUrl: Optional[str] = Field(None, alias="source_url")
+
+
+class ContactSearchResponse(BaseModel):
+    """Response from contact search."""
+    contacts: List[ContactCardModel]
+    entitiesFound: List[Dict[str, Any]]
+    needsConfirmation: bool
+    confirmationMessage: Optional[str] = None
+    searchPerformed: bool
+    message: str
+    taskId: str
+    taskTitle: str
+
+
+@app.post("/assist/{task_id}/contact")
+def contact_search_endpoint(
+    task_id: str,
+    request: ContactRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Search for contact information related to a task.
+    
+    Extracts entities (people, organizations) from task details and searches
+    for their contact information. Returns structured contact cards.
+    """
+    from daily_task_assistant.contacts import search_contacts, ContactCard
+
+    tasks, live_tasks, settings, warning = fetch_task_dataset(
+        limit=None, source=request.source
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    # Perform contact search
+    result = search_contacts(target)
+    
+    # If confirmation is needed and not confirmed, return early
+    if result.needs_confirmation and not request.confirm_search:
+        return {
+            "contacts": [],
+            "entitiesFound": [
+                {"name": e.name, "entityType": e.entity_type, "context": e.context}
+                for e in result.entities_found
+            ],
+            "needsConfirmation": True,
+            "confirmationMessage": result.confirmation_message,
+            "searchPerformed": False,
+            "message": result.message,
+            "taskId": task_id,
+            "taskTitle": target.title,
+        }
+    
+    # If confirmed and needs search, search again with confirmation
+    if result.needs_confirmation and request.confirm_search:
+        # Re-run search (the search function will proceed past confirmation)
+        result = search_contacts(target)
+    
+    # Format contacts for response
+    contacts_data = [
+        {
+            "name": c.name,
+            "email": c.email,
+            "phone": c.phone,
+            "title": c.title,
+            "organization": c.organization,
+            "location": c.location,
+            "source": c.source,
+            "confidence": c.confidence,
+            "sourceUrl": c.source_url,
+        }
+        for c in result.contacts
+    ]
+    
+    # Log to conversation if contacts found
+    if result.contacts:
+        contact_summary = f"📇 **Found {len(result.contacts)} contact(s)**: "
+        contact_names = [c.name for c in result.contacts[:3]]
+        contact_summary += ", ".join(contact_names)
+        if len(result.contacts) > 3:
+            contact_summary += f" (+{len(result.contacts) - 3} more)"
+        
+        log_assistant_message(
+            task_id,
+            content=contact_summary,
+            plan=None,
+            metadata={"source": "contact", "contact_count": len(result.contacts)},
+        )
+    
+    # Fetch updated history
+    updated_history = fetch_conversation(task_id, limit=100)
+    
+    return {
+        "contacts": contacts_data,
+        "entitiesFound": [
+            {"name": e.name, "entityType": e.entity_type, "context": e.context}
+            for e in result.entities_found
+        ],
+        "needsConfirmation": False,
+        "confirmationMessage": None,
+        "searchPerformed": result.search_performed,
+        "message": result.message,
+        "taskId": task_id,
+        "taskTitle": target.title,
+        "history": [
+            ConversationMessageModel(**asdict(msg)).model_dump()
+            for msg in updated_history
+        ],
+    }
+
+
 class SummarizeRequest(BaseModel):
     """Request body for summarize endpoint."""
     source: Literal["auto", "live", "stub"] = "auto"
@@ -783,4 +911,99 @@ def activity_feed(
 ) -> dict:
     entries = fetch_activity_entries(limit)
     return {"entries": entries, "count": len(entries)}
+
+
+# --- Contact Storage Endpoints (Phase 2 Foundation) ---
+
+class SaveContactRequest(BaseModel):
+    """Request body for saving a contact."""
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    title: Optional[str] = None
+    organization: Optional[str] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    sourceTaskId: Optional[str] = Field(None, alias="source_task_id")
+    tags: Optional[List[str]] = None
+    contactId: Optional[str] = Field(None, alias="contact_id")  # For updates
+
+
+@app.post("/contacts")
+def save_contact_endpoint(
+    request: SaveContactRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Save or update a contact in the user's contact list."""
+    from daily_task_assistant.contacts import save_contact
+    
+    contact = save_contact(
+        name=request.name,
+        email=request.email,
+        phone=request.phone,
+        title=request.title,
+        organization=request.organization,
+        location=request.location,
+        notes=request.notes,
+        source_task_id=request.sourceTaskId,
+        user_email=user,
+        tags=request.tags,
+        contact_id=request.contactId,
+    )
+    
+    return {
+        "status": "success",
+        "contact": contact.to_dict(),
+    }
+
+
+@app.get("/contacts")
+def list_contacts_endpoint(
+    limit: int = Query(100, ge=1, le=500),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List saved contacts for the current user."""
+    from daily_task_assistant.contacts import list_contacts
+    
+    contacts = list_contacts(user_email=user, limit=limit)
+    
+    return {
+        "contacts": [c.to_dict() for c in contacts],
+        "count": len(contacts),
+    }
+
+
+@app.get("/contacts/{contact_id}")
+def get_contact_endpoint(
+    contact_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get a specific contact by ID."""
+    from daily_task_assistant.contacts import get_contact
+    
+    contact = get_contact(contact_id)
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found.")
+    
+    return {
+        "contact": contact.to_dict(),
+    }
+
+
+@app.delete("/contacts/{contact_id}")
+def delete_contact_endpoint(
+    contact_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Delete a contact by ID."""
+    from daily_task_assistant.contacts import delete_contact
+    
+    deleted = delete_contact(contact_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Contact not found.")
+    
+    return {
+        "status": "success",
+        "message": "Contact deleted.",
+    }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
-import type { FeedbackContext, FeedbackType, PendingAction } from '../api'
+import type { ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
 
 // Feedback callback type
 type OnFeedbackSubmit = (
@@ -103,6 +103,36 @@ function formatActionLabel(action: string): string {
     organize: '📁 Organize',
   }
   return labels[action] || action.replace(/_/g, ' ')
+}
+
+// Format a contact card as markdown
+function formatContactCard(contact: ContactCard): string {
+  const lines: string[] = [`📇 **${contact.name}**`]
+  if (contact.email) {
+    lines.push(`📧 ${contact.email}`)
+  }
+  if (contact.phone) {
+    lines.push(`📱 ${contact.phone}`)
+  }
+  if (contact.title && contact.organization) {
+    lines.push(`🏢 ${contact.organization} - ${contact.title}`)
+  } else if (contact.organization) {
+    lines.push(`🏢 ${contact.organization}`)
+  } else if (contact.title) {
+    lines.push(`💼 ${contact.title}`)
+  }
+  if (contact.location) {
+    lines.push(`📍 ${contact.location}`)
+  }
+  
+  // Source and confidence
+  let sourceText = `Source: ${contact.source}`
+  if (contact.sourceUrl) {
+    sourceText = `Source: [${contact.source}](${contact.sourceUrl})`
+  }
+  lines.push(`🔗 ${sourceText} | Confidence: ${contact.confidence.charAt(0).toUpperCase() + contact.confidence.slice(1)}`)
+  
+  return lines.join('\n')
 }
 
 // Fixed action buttons that are always available
@@ -233,12 +263,16 @@ interface AssistPanelProps {
   researchResults: string | null
   summarizeRunning: boolean
   summarizeResults: string | null
+  contactRunning: boolean
+  contactResults: ContactCard[] | null
+  contactConfirmation: ContactSearchResponse | null
   gmailAccount: string
   onGmailChange: (account: string) => void
   onRunAssist: (options?: { sendEmailAccount?: string }) => void
   onGeneratePlan: () => void
   onRunResearch: () => void
   onRunSummarize: () => void
+  onRunContact: (confirmSearch?: boolean) => void
   gmailOptions: string[]
   error?: string | null
   conversation: ConversationMessage[]
@@ -334,10 +368,14 @@ export function AssistPanel({
   researchResults,
   summarizeRunning,
   summarizeResults,
+  contactRunning,
+  contactResults,
+  contactConfirmation,
   onRunAssist,
   onGeneratePlan,
   onRunResearch,
   onRunSummarize,
+  onRunContact,
   error,
   conversation,
   conversationLoading,
@@ -424,8 +462,8 @@ export function AssistPanel({
       // Run the summarize action
       onRunSummarize()
     } else if (action === 'contact') {
-      // Contact search will show in workspace
-      onQuickAction?.({ type: 'contact', content: 'Please find contact information for any people or organizations mentioned in this task.' })
+      // Run contact search
+      onRunContact()
     } else if (action === 'draft_email') {
       // Draft email will show in workspace
       onQuickAction?.({ type: 'draft_email', content: 'Please draft an email related to this task.' })
@@ -875,6 +913,74 @@ export function AssistPanel({
                     </div>
                   ) : (
                     <p className="subtle">Click Summarize to generate a task summary.</p>
+                  )}
+                </div>
+              ) : activeAction === 'contact' ? (
+                <div className="action-output-content">
+                  <div className="action-output-header">
+                    <h5>{formatActionLabel('contact')}</h5>
+                    {contactResults && contactResults.length > 0 && (
+                      <button
+                        className="push-btn"
+                        onClick={() => {
+                          const contactMarkdown = contactResults.map(c => formatContactCard(c)).join('\n\n---\n\n')
+                          pushToWorkspace(contactMarkdown)
+                        }}
+                        title="Push to Workspace"
+                      >
+                        ➡️
+                      </button>
+                    )}
+                  </div>
+                  {contactRunning ? (
+                    <div className="research-loading">
+                      <p className="subtle">📇 Searching for contacts...</p>
+                    </div>
+                  ) : contactConfirmation ? (
+                    <div className="contact-confirmation">
+                      <p className="confirmation-message">{contactConfirmation.confirmationMessage}</p>
+                      <p className="entities-found">
+                        Entities found: {contactConfirmation.entitiesFound
+                          .filter(e => e.entityType === 'person' || e.entityType === 'organization')
+                          .map(e => e.name)
+                          .slice(0, 6)
+                          .join(', ')}
+                        {contactConfirmation.entitiesFound.length > 6 ? '...' : ''}
+                      </p>
+                      <div className="confirmation-buttons">
+                        <button 
+                          className="primary compact"
+                          onClick={() => onRunContact(true)}
+                        >
+                          Yes, search all
+                        </button>
+                        <button 
+                          className="secondary compact"
+                          onClick={() => setActiveAction(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : contactResults && contactResults.length > 0 ? (
+                    <div className="contact-results">
+                      {contactResults.map((contact, index) => (
+                        <div key={index} className="contact-card">
+                          {renderMarkdown(formatContactCard(contact))}
+                        </div>
+                      ))}
+                      {onFeedbackSubmit && (
+                        <FeedbackControls
+                          context="chat"
+                          messageContent={contactResults.map(c => c.name).join(', ')}
+                          onSubmit={onFeedbackSubmit}
+                        />
+                      )}
+                    </div>
+                  ) : contactResults && contactResults.length === 0 ? (
+                    <p className="subtle">No contacts found in task details.</p>
+                  ) : (
+                    <p className="subtle">Click Contact to search for contact information.</p>
                   )}
                 </div>
               ) : (
