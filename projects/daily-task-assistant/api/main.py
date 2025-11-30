@@ -561,6 +561,63 @@ def update_task(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+class FeedbackRequest(BaseModel):
+    """Request body for feedback endpoint."""
+    feedback: Literal["helpful", "needs_work"]
+    context: Literal["research", "plan", "chat", "email", "task_update"]
+    message_content: str = Field(..., description="The content being rated")
+    message_id: Optional[str] = Field(None, description="Optional conversation message ID")
+
+
+@app.post("/assist/{task_id}/feedback")
+def submit_feedback(
+    task_id: str,
+    request: FeedbackRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Submit feedback on a DATA response.
+    
+    This feedback is used to improve DATA's responses over time.
+    """
+    from daily_task_assistant.feedback import log_feedback
+    
+    entry = log_feedback(
+        task_id=task_id,
+        feedback=request.feedback,
+        context=request.context,
+        message_content=request.message_content,
+        user_email=user,
+        message_id=request.message_id,
+        metadata={"source": "user_feedback"},
+    )
+    
+    return {
+        "status": "success",
+        "feedbackId": entry.id,
+        "message": f"Thank you for your feedback!",
+    }
+
+
+@app.get("/feedback/summary")
+def feedback_summary(
+    days: int = Query(30, ge=1, le=365),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get aggregated feedback statistics for tuning sessions."""
+    from daily_task_assistant.feedback import fetch_feedback_summary
+    
+    summary = fetch_feedback_summary(days=days)
+    
+    return {
+        "totalHelpful": summary.total_helpful,
+        "totalNeedsWork": summary.total_needs_work,
+        "helpfulRate": round(summary.helpful_rate * 100, 1),
+        "byContext": summary.by_context,
+        "recentIssues": summary.recent_issues,
+        "periodDays": days,
+    }
+
+
 @app.get("/activity")
 def activity_feed(
     limit: int = Query(50, ge=1, le=200),

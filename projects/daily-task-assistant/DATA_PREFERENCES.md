@@ -160,9 +160,44 @@ through what I found in detail..."
 4. **The Hedge** - Don't say "I think" or "maybe" when taking definitive action
 5. **The Recap** - Don't repeat back what the user just said before acting
 
+## Feedback System
+
+### Purpose
+User feedback (👍 helpful / 👎 needs work) is collected on DATA's responses to:
+- Improve response quality over time
+- Identify patterns in what works and what doesn't
+- Guide tuning sessions for better AI assistance
+
+### Where Feedback Appears
+| Output Type | Location | Context Tag |
+|-------------|----------|-------------|
+| Research results | Action output panel | `research` |
+| Plan summaries | After plan generation | `plan` |
+| Chat responses | Each assistant message | `chat` |
+| Task updates | After confirmation | `task_update` |
+| Email drafts | Draft preview | `email` |
+
+### Feedback Storage
+- **Production:** Firestore `feedback` collection
+- **Development:** Local `feedback_log/feedback.jsonl`
+- **Retention:** Indefinite for learning purposes
+
+### Tuning Sessions
+Schedule regular (weekly/monthly) reviews of feedback data to:
+1. Identify `needs_work` patterns
+2. Update this preferences file with new examples
+3. Adjust system prompts in `anthropic_client.py`
+4. Track improvement in `helpful_rate` over time
+
+### Accessing Feedback Data
+- **API:** `GET /feedback/summary?days=30`
+- **Admin Menu:** Feedback summary view (planned)
+- **Direct Query:** Firestore console or local file
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1.0 | 2025-11-30 | Added Feedback System section |
 | 1.0.0 | 2025-11-30 | Initial version based on GitHub agents.md best practices |
 

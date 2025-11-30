@@ -12,9 +12,12 @@ import {
   runAssist,
   runResearch,
   sendChatMessage,
+  submitFeedback,
   updateTask,
 } from './api'
 import type {
+  FeedbackContext,
+  FeedbackType,
   PendingAction,
 } from './api'
 import type {
@@ -323,6 +326,34 @@ function App() {
     setPendingAction(null)
   }
 
+  // Feedback submission handler
+  async function handleFeedbackSubmit(
+    feedback: FeedbackType,
+    context: FeedbackContext,
+    messageContent: string,
+    messageId?: string
+  ) {
+    if (!selectedTaskId || !authConfig) return
+    
+    try {
+      await submitFeedback(
+        selectedTaskId,
+        {
+          feedback,
+          context,
+          messageContent,
+          messageId,
+        },
+        authConfig,
+        apiBase
+      )
+      // Optionally refresh activity to show feedback was logged
+      void refreshActivity()
+    } catch (err) {
+      console.error('Feedback submission failed:', err)
+    }
+  }
+
   const isAuthenticated = !!authConfig
   const envLabel = environmentName ?? 'DEV'
 
@@ -469,6 +500,7 @@ function App() {
               updateExecuting={updateExecuting}
               onConfirmUpdate={handleConfirmUpdate}
               onCancelUpdate={handleCancelUpdate}
+              onFeedbackSubmit={handleFeedbackSubmit}
             />
           </>
         )}

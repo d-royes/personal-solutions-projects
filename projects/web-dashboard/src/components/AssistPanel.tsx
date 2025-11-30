@@ -1,6 +1,77 @@
 import { useEffect, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
-import type { PendingAction } from '../api'
+import type { FeedbackContext, FeedbackType, PendingAction } from '../api'
+
+// Feedback callback type
+type OnFeedbackSubmit = (
+  feedback: FeedbackType,
+  context: FeedbackContext,
+  messageContent: string,
+  messageId?: string
+) => Promise<void>
+
+// Reusable feedback controls component
+function FeedbackControls({
+  context,
+  messageContent,
+  messageId,
+  onSubmit,
+}: {
+  context: FeedbackContext
+  messageContent: string
+  messageId?: string
+  onSubmit: OnFeedbackSubmit
+}) {
+  const [submitted, setSubmitted] = useState<FeedbackType | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleFeedback = async (feedback: FeedbackType) => {
+    if (submitted || submitting) return
+    setSubmitting(true)
+    try {
+      await onSubmit(feedback, context, messageContent, messageId)
+      setSubmitted(feedback)
+    } catch (err) {
+      console.error('Feedback submission failed:', err)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="feedback-controls submitted">
+        <span className="feedback-thanks">
+          {submitted === 'helpful' ? '👍 Thanks!' : '👎 Noted, we\'ll improve'}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="feedback-controls">
+      <span className="feedback-label">Was this helpful?</span>
+      <div className="feedback-buttons">
+        <button
+          className="feedback-button helpful"
+          onClick={() => handleFeedback('helpful')}
+          disabled={submitting}
+          title="This was helpful"
+        >
+          👍
+        </button>
+        <button
+          className="feedback-button needs-work"
+          onClick={() => handleFeedback('needs_work')}
+          disabled={submitting}
+          title="Needs improvement"
+        >
+          👎
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const NOTES_PREVIEW_LIMIT = 200
 
@@ -174,6 +245,8 @@ interface AssistPanelProps {
   updateExecuting?: boolean
   onConfirmUpdate?: () => void
   onCancelUpdate?: () => void
+  // Feedback callback
+  onFeedbackSubmit?: OnFeedbackSubmit
 }
 
 function formatPendingAction(action: PendingAction): string {
@@ -215,6 +288,7 @@ export function AssistPanel({
   updateExecuting,
   onConfirmUpdate,
   onCancelUpdate,
+  onFeedbackSubmit,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
@@ -413,6 +487,13 @@ export function AssistPanel({
               ) : researchResults ? (
                 <div className="research-results">
                   {renderMarkdown(researchResults)}
+                  {onFeedbackSubmit && (
+                    <FeedbackControls
+                      context="research"
+                      messageContent={researchResults}
+                      onSubmit={onFeedbackSubmit}
+                    />
+                  )}
                 </div>
               ) : (
                 <p className="subtle">Click Research to search for information about this task.</p>
@@ -459,6 +540,17 @@ export function AssistPanel({
                     : entry.content
                   }
                 </div>
+                {/* Feedback controls for assistant responses */}
+                {entry.role === 'assistant' && onFeedbackSubmit && (
+                  <FeedbackControls
+                    context={entry.metadata?.source === 'research' ? 'research' : 
+                             entry.metadata?.source === 'plan' ? 'plan' :
+                             entry.metadata?.action ? 'task_update' : 'chat'}
+                    messageContent={entry.content}
+                    messageId={entry.metadata?.messageId as string | undefined}
+                    onSubmit={onFeedbackSubmit}
+                  />
+                )}
               </div>
             ))
           )}

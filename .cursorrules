@@ -118,11 +118,19 @@ The `.env` file in `projects/daily-task-assistant/` contains:
 - `POST /assist/{task_id}/chat` - Send chat message
 - `POST /assist/{task_id}/research` - Web research
 - `POST /assist/{task_id}/update` - Update Smartsheet
+- `POST /assist/{task_id}/feedback` - Submit feedback on DATA response
+- `GET /feedback/summary` - Get aggregated feedback statistics
 
 ### Conversation History
 - Stored in Firestore (production) or local JSON files (dev)
 - Set `DTA_CONVERSATION_FORCE_FILE=1` for local file storage
 - History is per-task, cleared when task is marked complete
+
+### Feedback System
+- Stored in Firestore (production) or `feedback_log/feedback.jsonl` (dev)
+- Set `DTA_FEEDBACK_FORCE_FILE=1` for local file storage
+- Feedback is collected on research, plans, chat responses, and task updates
+- Used to improve DATA's responses over time through tuning sessions
 
 ### Authentication
 - Production: Google OAuth with ID token verification
@@ -162,6 +170,14 @@ The `.env` file in `projects/daily-task-assistant/` contains:
 2. Update system prompt in `anthropic_client.py`
 3. Add example to preferences file
 4. Test with real conversation
+
+### Conducting a Tuning Session (Scheduled Maintenance)
+1. Pull feedback summary: `GET /feedback/summary?days=30`
+2. Review `needs_work` patterns - what's consistently flagged?
+3. Update `DATA_PREFERENCES.md` with new examples or anti-patterns
+4. Adjust system prompts in `anthropic_client.py` if needed
+5. Track `helpfulRate` over time to measure improvement
+6. Document changes in version history
 
 ### Adding Smartsheet Field Support
 1. Get column ID from Smartsheet API

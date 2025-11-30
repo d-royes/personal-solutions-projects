@@ -240,6 +240,75 @@ async function safeJson(resp: Response) {
   }
 }
 
+// Feedback Types and Functions
+export type FeedbackType = 'helpful' | 'needs_work'
+export type FeedbackContext = 'research' | 'plan' | 'chat' | 'email' | 'task_update'
+
+export interface FeedbackRequest {
+  feedback: FeedbackType
+  context: FeedbackContext
+  messageContent: string
+  messageId?: string
+}
+
+export interface FeedbackResponse {
+  status: 'success'
+  feedbackId: string
+  message: string
+}
+
+export interface FeedbackSummary {
+  totalHelpful: number
+  totalNeedsWork: number
+  helpfulRate: number
+  byContext: Record<string, { helpful: number; needs_work: number }>
+  recentIssues: string[]
+  periodDays: number
+}
+
+export async function submitFeedback(
+  taskId: string,
+  request: FeedbackRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<FeedbackResponse> {
+  const url = new URL(`/assist/${taskId}/feedback`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      feedback: request.feedback,
+      context: request.context,
+      message_content: request.messageContent,
+      message_id: request.messageId,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Feedback submission failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function fetchFeedbackSummary(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  days: number = 30,
+): Promise<FeedbackSummary> {
+  const url = new URL('/feedback/summary', baseUrl)
+  url.searchParams.set('days', String(days))
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    throw new Error(`Feedback summary request failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 // Task Update Types and Functions
 export type TaskUpdateAction = 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
 
