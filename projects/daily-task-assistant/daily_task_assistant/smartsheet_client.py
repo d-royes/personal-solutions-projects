@@ -173,6 +173,68 @@ class SmartsheetClient:
         except SmartsheetAPIError as exc:
             raise SmartsheetAPIError(f"Failed to post comment: {exc}") from exc
 
+    def update_row(self, row_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update one or more cells in a row.
+        
+        Args:
+            row_id: The Smartsheet row ID to update
+            updates: Dict mapping field names to new values. Supported fields:
+                     status, priority, due_date, notes, done, project, etc.
+        
+        Returns:
+            The API response containing the updated row data.
+        
+        Raises:
+            SmartsheetAPIError: If the API call fails
+            ValueError: If a field value fails validation
+        """
+        if not updates:
+            raise ValueError("No updates provided")
+
+        cells = []
+        for field_name, value in updates.items():
+            column = self.schema.columns.get(field_name)
+            if not column:
+                raise ValueError(f"Unknown field: {field_name}")
+
+            # Validate against allowed values if defined
+            if column.allowed_values and value not in column.allowed_values:
+                raise ValueError(
+                    f"Invalid value '{value}' for field '{field_name}'. "
+                    f"Allowed: {column.allowed_values}"
+                )
+
+            cells.append({
+                "columnId": int(column.column_id),
+                "value": value,
+            })
+
+        payload = [{"id": int(row_id), "cells": cells}]
+
+        try:
+            response = self._request(
+                "PUT",
+                f"/sheets/{self.schema.sheet_id}/rows",
+                body=payload,
+            )
+            return response
+        except SmartsheetAPIError as exc:
+            raise SmartsheetAPIError(f"Failed to update row {row_id}: {exc}") from exc
+
+    def mark_complete(self, row_id: str) -> Dict[str, Any]:
+        """Mark a task as complete by setting Status='Complete' and Done=true.
+        
+        Args:
+            row_id: The Smartsheet row ID to mark complete
+            
+        Returns:
+            The API response containing the updated row data.
+        """
+        return self.update_row(row_id, {
+            "status": "Complete",
+            "done": True,
+        })
+
     @property
     def last_fetch_used_live(self) -> bool:
         return self._last_fetch_used_live
