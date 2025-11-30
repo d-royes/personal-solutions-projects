@@ -1,10 +1,14 @@
 .app {
   min-height: 100vh;
+  height: 100vh;
   background: #050816;
   color: #e2e8f0;
   padding: 0.75rem 1.25rem;
   box-sizing: border-box;
   font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .app-header {
@@ -16,6 +20,53 @@
   margin-bottom: 0.5rem;
 }
 
+/* New minimal header */
+.app-header-minimal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  margin-bottom: 0.5rem;
+  flex-shrink: 0;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  min-width: 150px;
+}
+
+.header-status .status-user {
+  color: rgba(226, 232, 240, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.header-logo-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+.logo-img-large {
+  height: 67px;
+  width: auto;
+  object-fit: contain;
+}
+
+.header-menu {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 150px;
+}
+
+/* Legacy header styles */
 .header-left {
   display: flex;
   align-items: center;
@@ -92,6 +143,9 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 1.5rem;
+  flex: 1;
+  min-height: 0; /* Important for flex children to shrink */
+  overflow: hidden;
 }
 
 .grid.task-collapsed {
@@ -104,6 +158,11 @@
   padding: 1.25rem;
   border: 1px solid rgba(99, 102, 241, 0.15);
   box-shadow: 0 15px 50px rgba(2, 6, 23, 0.6);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panel header {
@@ -116,6 +175,11 @@
 .assist-header-controls {
   display: flex;
   gap: 0.5rem;
+}
+
+.expand-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
 }
 
 .panel h2 {
@@ -188,6 +252,9 @@ button:not(:disabled):hover {
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .task-filters {
@@ -280,8 +347,9 @@ button:not(:disabled):hover {
 }
 
 .scroll-panel {
-  max-height: 70vh;
-  overflow: auto;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .link-button {
@@ -471,6 +539,30 @@ button:not(:disabled):hover {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.menu-panel h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+  color: #a5b4fc;
+}
+
+.env-info {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.env-info p {
+  margin: 0.25rem 0;
+}
+
+/* Refresh button in task panel */
+.refresh-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
 }
 
 .menu-view .menu-panel {
@@ -978,12 +1070,13 @@ button:not(:disabled):hover {
 .assist-panel-full {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 70px);
+  height: 100%;
   background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.95));
   border-radius: 18px;
   border: 1px solid rgba(99, 102, 241, 0.15);
   box-shadow: 0 15px 50px rgba(2, 6, 23, 0.6);
   overflow: hidden;
+  min-height: 0;
 }
 
 .assist-header-compact {
@@ -1234,7 +1327,7 @@ button:not(:disabled):hover {
   display: flex;
   flex-direction: column;
   padding: 0.5rem 1rem;
-  min-height: 300px;
+  min-height: 0; /* Allow shrinking */
   overflow: hidden;
 }
 
@@ -1342,13 +1435,19 @@ button:not(:disabled):hover {
 }
 
 /* Pending Action Confirmation Card */
+/* Pending action confirmation - compact and always visible */
 .pending-action-card {
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(16, 185, 129, 0.1) 100%);
   border: 1px solid rgba(34, 197, 94, 0.3);
-  border-radius: 12px;
-  padding: 1rem;
-  margin: 0.75rem 0;
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  margin: 0.5rem 1rem;
   animation: slideIn 0.2s ease-out;
+  flex-shrink: 0; /* Prevent shrinking */
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 @keyframes slideIn {
@@ -1365,37 +1464,41 @@ button:not(:disabled):hover {
 .pending-action-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  gap: 0.4rem;
 }
 
 .pending-icon {
-  font-size: 1.2rem;
+  font-size: 1rem;
 }
 
 .pending-action-header strong {
   color: #4ade80;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
+}
+
+.pending-action-content {
+  flex: 1;
+  min-width: 200px;
 }
 
 .pending-action-description {
   color: #e2e8f0;
-  font-size: 0.95rem;
-  margin: 0 0 0.5rem 0;
-  padding-left: 1.7rem;
+  font-size: 0.85rem;
+  margin: 0;
+  line-height: 1.3;
 }
 
 .pending-action-reason {
-  color: rgba(148, 163, 184, 0.8);
-  font-size: 0.85rem;
-  margin: 0 0 0.75rem 0;
-  padding-left: 1.7rem;
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.75rem;
+  margin: 0.2rem 0 0 0;
+  font-style: italic;
 }
 
 .pending-action-buttons {
   display: flex;
-  gap: 0.75rem;
-  padding-left: 1.7rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .confirm-btn {
@@ -1445,4 +1548,527 @@ button:not(:disabled):hover {
 .chat-input-bottom textarea:disabled {
   background: rgba(30, 41, 59, 0.5);
   cursor: not-allowed;
+}
+
+/* ============================================
+   THREE-ZONE LAYOUT (New Design)
+   ============================================ */
+
+.assist-panel-three-zone {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.95));
+  border-radius: 18px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  box-shadow: 0 15px 50px rgba(2, 6, 23, 0.6);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.assist-panel-three-zone .assist-header-compact {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.assist-panel-three-zone .header-left-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.assist-panel-three-zone .header-left-group h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.assist-panel-three-zone .task-title-compact {
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+/* Notes row */
+.notes-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.notes-label {
+  color: rgba(148, 163, 184, 0.7);
+  flex-shrink: 0;
+}
+
+.notes-text {
+  color: rgba(226, 232, 240, 0.85);
+  flex: 1;
+  min-width: 0;
+}
+
+/* Three-zone container */
+.three-zone-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Top zones (Planning + Collaboration) */
+.top-zones {
+  display: flex;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+  flex-shrink: 1;
+}
+
+/* Individual zones */
+.planning-zone,
+.collaboration-zone {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.zone-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  flex-shrink: 0;
+}
+
+.zone-header h4 {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+/* Planning Zone - Cyan/Aqua from logo */
+.planning-zone .zone-header {
+  background: linear-gradient(90deg, rgba(0, 212, 255, 0.15) 0%, rgba(0, 212, 255, 0.05) 100%);
+  border-bottom: 1px solid rgba(0, 212, 255, 0.25);
+}
+
+.planning-zone .zone-header h4 {
+  color: #67e8f9;
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+}
+
+/* Workspace/Collaboration Zone - Purple/Violet from logo */
+.collaboration-zone .zone-header {
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.05) 100%);
+  border-bottom: 1px solid rgba(168, 85, 247, 0.25);
+}
+
+.collaboration-zone .zone-header h4 {
+  color: #c084fc;
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
+}
+
+/* Conversation Zone - Blue from logo "DATA" text */
+.conversation-zone .zone-header {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.conversation-zone .zone-header h4 {
+  color: #60a5fa;
+  text-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+}
+
+.zone-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.5rem 0.75rem;
+  min-height: 0;
+  /* Ensure scrolling works */
+  max-height: 100%;
+}
+
+/* Custom scrollbar for zone content */
+.zone-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.zone-content::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 3px;
+}
+
+.zone-content::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 3px;
+}
+
+.zone-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.5);
+}
+
+.zone-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+}
+
+/* Planning zone specific - Cyan accent */
+.planning-zone {
+  border-right: 1px solid rgba(99, 102, 241, 0.1);
+  border-left: 3px solid rgba(0, 212, 255, 0.5);
+}
+
+.planning-zone .plan-section {
+  margin-bottom: 0.75rem;
+  position: relative;
+}
+
+.planning-zone .plan-section h5 {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.plan-date {
+  font-size: 0.65rem;
+  color: rgba(148, 163, 184, 0.5);
+  font-weight: normal;
+  text-transform: none;
+}
+
+.planning-zone .plan-summary-text {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin: 0;
+  padding-right: 1.5rem;
+}
+
+.planning-zone .compact-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.planning-zone .compact-list li {
+  margin-bottom: 0.2rem;
+}
+
+/* Collaboration zone / Workspace - Purple accent */
+.collaboration-zone {
+  background: rgba(168, 85, 247, 0.03);
+  border-left: 3px solid rgba(168, 85, 247, 0.5);
+}
+
+.workspace-controls {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.workspace-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Editable workspace items */
+.workspace-item-editable {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.workspace-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.3), transparent);
+  margin: 0.75rem 0;
+}
+
+.workspace-item-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  padding: 0.25rem 0;
+}
+
+.workspace-item-source {
+  color: #c084fc;
+  text-transform: capitalize;
+  font-weight: 500;
+}
+
+.workspace-item-time {
+  color: rgba(148, 163, 184, 0.5);
+  flex: 1;
+}
+
+.workspace-item-remove {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.5);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.workspace-item-remove:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+/* Editable textarea for workspace content */
+.workspace-editor {
+  width: 100%;
+  min-height: 120px;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 8px;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.workspace-editor:focus {
+  outline: none;
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.1);
+}
+
+.workspace-editor::placeholder {
+  color: rgba(148, 163, 184, 0.4);
+}
+
+/* Legacy non-editable workspace item (keeping for reference) */
+.workspace-item {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.workspace-item-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: rgba(99, 102, 241, 0.1);
+  font-size: 0.7rem;
+}
+
+.workspace-item-content {
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* Push to workspace buttons */
+.push-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 0.15rem 0.35rem;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.15s ease;
+}
+
+.push-btn:hover {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.3);
+}
+
+.push-btn-inline {
+  padding: 0.1rem 0.25rem;
+  background: transparent;
+  border: none;
+  font-size: 0.7rem;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+.push-btn-inline:hover {
+  opacity: 1;
+}
+
+.clear-btn {
+  padding: 0.2rem 0.4rem;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clear-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+/* Draggable dividers */
+.divider {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.divider:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.divider-vertical {
+  width: 8px;
+  cursor: col-resize;
+}
+
+.divider-horizontal {
+  height: 8px;
+  cursor: row-resize;
+}
+
+.divider-handle {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 2px;
+  transition: background 0.15s ease;
+}
+
+.divider-vertical .divider-handle {
+  width: 3px;
+  height: 40px;
+}
+
+.divider-horizontal .divider-handle {
+  width: 40px;
+  height: 3px;
+}
+
+.divider:hover .divider-handle {
+  background: rgba(99, 102, 241, 0.6);
+}
+
+/* Horizontal divider container with toggle on right */
+.horizontal-divider-container {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  position: relative;
+  padding-right: 0.5rem;
+}
+
+.conversation-toggle {
+  padding: 0.2rem 0.6rem;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  z-index: 1;
+}
+
+.conversation-toggle:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #a5b4fc;
+}
+
+/* Conversation zone - Blue accent */
+.conversation-zone {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid rgba(59, 130, 246, 0.2);
+  border-left: 3px solid rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.02);
+}
+
+.conversation-zone.collapsed {
+  min-height: 32px;
+}
+
+.conversation-zone .zone-header {
+  padding: 0.3rem 0.75rem;
+}
+
+.conversation-zone .chat-thread-full {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  min-height: 0;
+}
+
+/* Responsive adjustments for three-zone */
+@media (max-width: 900px) {
+  .top-zones {
+    flex-direction: column;
+  }
+  
+  .planning-zone,
+  .collaboration-zone {
+    width: 100% !important;
+    height: 50%;
+  }
+  
+  .planning-zone {
+    border-right: none;
+    border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  }
+  
+  .divider-vertical {
+    display: none;
+  }
 }

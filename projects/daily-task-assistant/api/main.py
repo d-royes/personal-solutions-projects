@@ -159,6 +159,8 @@ def assist_task(
     Use /assist/{task_id}/plan to generate or update the plan.
     Use /assist/{task_id}/chat for conversational messages.
     """
+    from daily_task_assistant.conversations.history import get_latest_plan
+    
     tasks, live_tasks, settings, warning = fetch_task_dataset(
         limit=request.limit, source=request.source
     )
@@ -170,11 +172,29 @@ def assist_task(
         clear_conversation(task_id)
 
     history = fetch_conversation(task_id, limit=100)
+    
+    # Retrieve the latest plan from conversation history (if any)
+    latest_plan = get_latest_plan(task_id)
 
-    # Just load context - no plan generation, no logging
-    # Plan generation is now triggered explicitly via /assist/{task_id}/plan
+    # Build plan response object if we have a saved plan
+    plan_response = None
+    if latest_plan:
+        plan_response = {
+            "summary": latest_plan.get("summary", ""),
+            "score": 0,
+            "labels": latest_plan.get("labels", []),
+            "automationTriggers": [],
+            "nextSteps": latest_plan.get("next_steps", []),
+            "efficiencyTips": latest_plan.get("efficiency_tips", []),
+            "suggestedActions": latest_plan.get("suggested_actions", ["plan", "research", "draft_email", "follow_up"]),
+            "task": serialize_task(target),
+            "generator": "history",
+            "generatorNotes": [],
+            "generatedAt": latest_plan.get("generatedAt"),
+        }
+
     response = {
-        "plan": None,  # No automatic plan generation
+        "plan": plan_response,  # Return saved plan if available
         "environment": settings.environment,
         "liveTasks": live_tasks,
         "warning": warning,
@@ -203,7 +223,7 @@ def generate_plan(
     """Generate or update the plan for a task, considering conversation history.
     
     This is triggered explicitly by the user clicking the 'Plan' action button.
-    The plan is returned but NOT logged to the conversation history.
+    The plan is stored in conversation history for persistence across sessions.
     """
     tasks, live_tasks, settings, warning = fetch_task_dataset(
         limit=None, source=request.source
@@ -228,8 +248,15 @@ def generate_plan(
         conversation_history=llm_history if llm_history else None,
     )
 
-    # Return the plan but do NOT log it to conversation
-    # The plan updates the CURRENT PLAN section in the UI, not the conversation
+    # Log the plan to conversation history for persistence
+    # This allows the plan to be retrieved when reopening the task
+    log_assistant_message(
+        task_id,
+        content=build_plan_summary(result.plan),
+        plan=result.plan,
+        metadata={"source": "plan", "generator": result.plan.generator},
+    )
+
     return {
         "plan": serialize_plan(result),
         "environment": settings.environment,

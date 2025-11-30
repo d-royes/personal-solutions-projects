@@ -35,6 +35,7 @@ export interface AssistPlan {
   messageId?: string | null
   commentPosted?: boolean
   warnings?: string[]
+  generatedAt?: string | null  // ISO timestamp when plan was generated
 }
 
 export interface ConversationMessage {

@@ -63,7 +63,8 @@ interface TaskListProps {
   loading: boolean
   liveTasks: boolean
   warning?: string | null
-  onCollapse?: () => void
+  onRefresh?: () => void
+  refreshing?: boolean
 }
 
 export function TaskList({
@@ -73,7 +74,8 @@ export function TaskList({
   loading,
   liveTasks,
   warning,
-  onCollapse,
+  onRefresh,
+  refreshing,
 }: TaskListProps) {
   const [filter, setFilter] = useState('all')
 
@@ -112,9 +114,14 @@ export function TaskList({
             of {tasks.length}
           </p>
         </div>
-        {onCollapse && (
-          <button className="secondary" onClick={onCollapse}>
-            Collapse
+        {onRefresh && (
+          <button 
+            className="secondary refresh-btn" 
+            onClick={onRefresh}
+            disabled={refreshing || loading}
+            title="Refresh tasks"
+          >
+            {refreshing ? '↻' : '↻'} Refresh
           </button>
         )}
       </header>

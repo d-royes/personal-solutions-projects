@@ -67,7 +67,7 @@ function App() {
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuView, setMenuView] = useState<'auth' | 'activity'>('auth')
+  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment'>('auth')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
 
   const handleQuickAction = useCallback((action: { type: string; content: string }) => {
@@ -117,7 +117,10 @@ function App() {
         source: dataSource,
       })
       const activeTasks = response.tasks.filter(
-        (task) => task.status?.toLowerCase() !== 'completed',
+        (task) => {
+          const status = task.status?.toLowerCase() || ''
+          return status !== 'complete' && status !== 'completed'
+        },
       )
       setTasks(activeTasks)
       setLiveTasks(response.liveTasks)
@@ -359,51 +362,21 @@ function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <div className="header-left">
-          <div className="status-chip">
-            <span
-              className={`status-dot ${isAuthenticated ? 'online' : 'offline'}`}
-              aria-label={isAuthenticated ? 'Connected' : 'Not connected'}
-            />
-            <div className="status-text">
-              <strong>{state.userEmail ?? 'Not signed in'}</strong>
-              <span className="env-badge">{envLabel}</span>
-            </div>
-          </div>
+      <header className="app-header-minimal">
+        <div className="header-status">
+          <span
+            className={`status-dot ${isAuthenticated ? 'online' : 'offline'}`}
+            aria-label={isAuthenticated ? 'Connected' : 'Not connected'}
+          />
+          <span className="status-user">{state.userEmail ?? 'Not signed in'}</span>
+          <span className="env-badge">{envLabel}</span>
         </div>
 
-        <div className="header-logo">
-          <img src="/DATA_Logo.png" alt="DATA - Daily Autonomous Task Assistant" className="logo-img" />
+        <div className="header-logo-center">
+          <img src="/DATA_Logo.png" alt="DATA - Daily Autonomous Task Assistant" className="logo-img-large" />
         </div>
 
-        <div className="header-controls">
-          <div className="field">
-            <label htmlFor="api-base">API Base URL</label>
-            <input
-              id="api-base"
-              value={apiBase}
-              onChange={(e) => setApiBase(e.target.value)}
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="source">Data Source</label>
-            <select
-              id="source"
-              value={dataSource}
-              onChange={(e) => setDataSource(e.target.value as DataSource)}
-            >
-              <option value="auto">Auto</option>
-              <option value="live">Live</option>
-              <option value="stub">Stub</option>
-            </select>
-          </div>
-
-          <button onClick={refreshTasks} disabled={tasksLoading}>
-            Refresh Tasks
-          </button>
-
+        <div className="header-menu">
           <button
             className="icon-button"
             aria-label="Open admin menu"
@@ -428,6 +401,12 @@ function App() {
                 Authentication
               </button>
               <button
+                className={menuView === 'environment' ? 'active' : ''}
+                onClick={() => setMenuView('environment')}
+              >
+                Environment
+              </button>
+              <button
                 className={menuView === 'activity' ? 'active' : ''}
                 onClick={() => setMenuView('activity')}
                 disabled={!authConfig}
@@ -437,6 +416,35 @@ function App() {
             </nav>
             <div className="menu-view">
               {menuView === 'auth' && <AuthPanel onClose={() => setMenuOpen(false)} />}
+              {menuView === 'environment' && (
+                <div className="menu-panel">
+                  <h3>Environment Settings</h3>
+                  <div className="field">
+                    <label htmlFor="api-base-menu">API Base URL</label>
+                    <input
+                      id="api-base-menu"
+                      value={apiBase}
+                      onChange={(e) => setApiBase(e.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="source-menu">Data Source</label>
+                    <select
+                      id="source-menu"
+                      value={dataSource}
+                      onChange={(e) => setDataSource(e.target.value as DataSource)}
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="live">Live</option>
+                      <option value="stub">Stub</option>
+                    </select>
+                  </div>
+                  <div className="env-info">
+                    <p><strong>Environment:</strong> {envLabel}</p>
+                    <p><strong>Live Tasks:</strong> {liveTasks ? 'Yes' : 'No'}</p>
+                  </div>
+                </div>
+              )}
               {menuView === 'activity' &&
                 (authConfig ? (
                   <div className="menu-activity-wrapper">
@@ -470,7 +478,8 @@ function App() {
                 loading={tasksLoading}
                 liveTasks={liveTasks}
                 warning={tasksWarning}
-                onCollapse={() => setTaskPanelCollapsed(true)}
+                onRefresh={refreshTasks}
+                refreshing={tasksLoading}
               />
             )}
 

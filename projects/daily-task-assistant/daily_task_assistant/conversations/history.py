@@ -145,6 +145,26 @@ def build_plan_summary(plan: AssistPlan) -> str:
     return "\n".join(section for section in sections if section is not None).strip()
 
 
+def get_latest_plan(task_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve the most recent plan from conversation history.
+    
+    Returns the plan snapshot from the most recent assistant message that has one,
+    or None if no plan has been generated yet.
+    """
+    messages = fetch_conversation(task_id, limit=100)
+    
+    # Search from newest to oldest for a message with a plan
+    for msg in reversed(messages):
+        if msg.role == "assistant" and msg.plan:
+            # Add generation timestamp
+            return {
+                **msg.plan,
+                "generatedAt": msg.ts,
+            }
+    
+    return None
+
+
 # Internal helpers ---------------------------------------------------------
 
 
