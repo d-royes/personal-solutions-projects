@@ -134,7 +134,7 @@ function App() {
       const activeTasks = response.tasks.filter(
         (task) => {
           const status = task.status?.toLowerCase() || ''
-          return status !== 'complete' && status !== 'completed'
+          return status !== 'completed' && status !== 'cancelled'
         },
       )
       setTasks(activeTasks)
@@ -264,6 +264,17 @@ function App() {
         nextSteps: assistPlan?.nextSteps,
       })
       setResearchResults(response.research)
+      // Auto-push research to workspace (additive) and trigger save
+      if (response.research) {
+        setWorkspaceItems(prev => {
+          const newItems = [...prev, response.research]
+          // Trigger save after state update
+          if (selectedTask?.rowId && authConfig) {
+            void saveWorkspace(selectedTask.rowId, newItems, authConfig, apiBase)
+          }
+          return newItems
+        })
+      }
       // Update conversation history with research summary
       if (response.history) {
         setConversation(response.history)
@@ -294,6 +305,17 @@ function App() {
         efficiencyTips: assistPlan?.efficiencyTips,
       })
       setSummarizeResults(response.summary)
+      // Auto-push summary to workspace (additive) and trigger save
+      if (response.summary) {
+        setWorkspaceItems(prev => {
+          const newItems = [...prev, response.summary]
+          // Trigger save after state update
+          if (selectedTask?.rowId && authConfig) {
+            void saveWorkspace(selectedTask.rowId, newItems, authConfig, apiBase)
+          }
+          return newItems
+        })
+      }
       // Update conversation history
       if (response.history) {
         setConversation(response.history)
@@ -334,11 +356,18 @@ function App() {
         setContactResults(response.contacts)
         setContactConfirmation(null)
         
-        // Auto-push contacts to workspace (additive)
+        // Auto-push contacts to workspace (additive) and trigger save
         if (response.contacts && response.contacts.length > 0) {
           const contactCards = response.contacts.map(c => formatContactCardMarkdown(c))
           // Add each contact as a separate workspace item
-          setWorkspaceItems(prev => [...prev, ...contactCards])
+          setWorkspaceItems(prev => {
+            const newItems = [...prev, ...contactCards]
+            // Trigger save after state update
+            if (selectedTask?.rowId && authConfig) {
+              void saveWorkspace(selectedTask.rowId, newItems, authConfig, apiBase)
+            }
+            return newItems
+          })
         }
         
         // Update conversation history

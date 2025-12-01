@@ -3,7 +3,7 @@ import type { Task } from '../types'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
-const BLOCKED_STATUSES = ['Blocked', 'Waiting']
+const BLOCKED_STATUSES = ['On Hold', 'Awaiting Reply', 'Needs Approval']
 const URGENT_PRIORITIES = ['Critical', 'Urgent']
 
 const FILTERS = [
@@ -42,7 +42,8 @@ function isDueSoon(due: string) {
   const now = new Date()
   const diff = dueDate.getTime() - now.getTime()
   const days = diff / (1000 * 60 * 60 * 24)
-  return days <= 3
+  // Only tasks due within the next 3 days (not overdue)
+  return days >= 0 && days <= 3
 }
 
 function dueLabel(due: string) {

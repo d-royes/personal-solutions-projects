@@ -165,6 +165,11 @@
   overflow: hidden;
 }
 
+/* Make assist-panel content scrollable in two-column view */
+.panel.assist-panel {
+  overflow-y: auto;
+}
+
 .panel header {
   display: flex;
   justify-content: space-between;
@@ -1365,7 +1370,8 @@ button:not(:disabled):hover {
   margin-top: 0.5rem;
 }
 
-.contact-status .success-message {
+.contact-status .success-message,
+.action-status .success-message {
   color: #4ade80;
   font-weight: 500;
 }
@@ -1815,6 +1821,12 @@ button:not(:disabled):hover {
   text-transform: none;
 }
 
+.plan-feedback {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+}
+
 .planning-zone .plan-summary-text {
   font-size: 0.85rem;
   line-height: 1.5;
@@ -1856,15 +1868,15 @@ button:not(:disabled):hover {
 .workspace-items-container {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  gap: 0;
+  padding-bottom: 0.5rem;
 }
 
 .workspace-item-simple {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  flex-shrink: 0;
+  margin-bottom: 0.5rem;
 }
 
 .workspace-separator {

@@ -755,6 +755,17 @@ export function AssistPanel({
                       </ul>
                     </div>
                   )}
+                  
+                  {/* Feedback controls for plan */}
+                  {onFeedbackSubmit && (
+                    <div className="plan-feedback">
+                      <FeedbackControls
+                        context="plan"
+                        messageContent={latestPlan.summary}
+                        onSubmit={onFeedbackSubmit}
+                      />
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="zone-placeholder">
@@ -824,30 +835,14 @@ export function AssistPanel({
                 <div className="action-output-content">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('research')}</h5>
-                    {researchResults && (
-                      <button
-                        className="push-btn"
-                        onClick={() => pushToWorkspace(researchResults)}
-                        title="Push to Workspace"
-                      >
-                        ➡️
-                      </button>
-                    )}
                   </div>
                   {researchRunning ? (
                     <div className="research-loading">
                       <p className="subtle">🔍 Searching the web...</p>
                     </div>
                   ) : researchResults ? (
-                    <div className="research-results">
-                      {renderMarkdown(researchResults)}
-                      {onFeedbackSubmit && (
-                        <FeedbackControls
-                          context="research"
-                          messageContent={researchResults}
-                          onSubmit={onFeedbackSubmit}
-                        />
-                      )}
+                    <div className="action-status">
+                      <p className="success-message">✅ Research added to workspace</p>
                     </div>
                   ) : (
                     <p className="subtle">Click Research to search for information.</p>
@@ -857,30 +852,14 @@ export function AssistPanel({
                 <div className="action-output-content">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('summarize')}</h5>
-                    {summarizeResults && (
-                      <button
-                        className="push-btn"
-                        onClick={() => pushToWorkspace(summarizeResults)}
-                        title="Push to Workspace"
-                      >
-                        ➡️
-                      </button>
-                    )}
                   </div>
                   {summarizeRunning ? (
                     <div className="research-loading">
                       <p className="subtle">📄 Generating summary...</p>
                     </div>
                   ) : summarizeResults ? (
-                    <div className="research-results">
-                      {renderMarkdown(summarizeResults)}
-                      {onFeedbackSubmit && (
-                        <FeedbackControls
-                          context="chat"
-                          messageContent={summarizeResults}
-                          onSubmit={onFeedbackSubmit}
-                        />
-                      )}
+                    <div className="action-status">
+                      <p className="success-message">✅ Summary added to workspace</p>
                     </div>
                   ) : (
                     <p className="subtle">Click Summarize to generate a task summary.</p>

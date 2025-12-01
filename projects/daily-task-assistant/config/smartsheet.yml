@@ -59,12 +59,9 @@ columns:
     default: Scheduled
     allowed_values:
       - Scheduled
-      - In Progress
-      - Blocked
-      - Waiting
-      - Complete
       - Recurring
       - On Hold
+      - In Progress
       - Follow-up
       - Awaiting Reply
       - Delivered
