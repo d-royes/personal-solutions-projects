@@ -200,10 +200,20 @@ Schedule regular (weekly/monthly) reviews of feedback data to:
 |-------|-------------|--------|-------------|
 | Smartsheet Comment on Email Send | When an email is sent, the system should post a comment to the Smartsheet task (e.g., "Email sent: [subject] to [recipient] via [account]"). Currently, comments may not be posting reliably. Requires investigation of `live_tasks` flag and `SmartsheetClient.post_comment()` execution path. | Open | 2025-12-01 |
 
+## Feature Backlog
+
+| Feature | Description | Priority | Documentation |
+|---------|-------------|----------|---------------|
+| Smartsheet Attachments | Enable DATA to access and understand task attachments (images, documents). Lazy load on task engage, full Claude vision integration for AI-assisted analysis. | Medium | [Feature_Smartsheet_Attachments.md](docs/Feature_Smartsheet_Attachments.md) |
+| Feedback Summary View | Admin menu view to see aggregated feedback statistics and patterns. | Low | - |
+| Save Contact Feature | Save frequently used contacts for quick access in email drafting. | Low | - |
+| Dev → Staging → Prod Environments | Finalize deployment pipeline with proper environment separation. | Medium | - |
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2.0 | 2025-12-01 | Added Feature Backlog section with Smartsheet Attachments plan |
 | 1.1.1 | 2025-12-01 | Added Known Issues section, documented Smartsheet comment bug |
 | 1.1.0 | 2025-11-30 | Added Feedback System section |
 | 1.0.0 | 2025-11-30 | Initial version based on GitHub agents.md best practices |
