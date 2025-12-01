@@ -10,5 +10,5 @@ requires-python = ">=3.11"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["daily_task_assistant*", "api*"]
+include = ["daily_task_assistant", "daily_task_assistant.*", "api", "api.*"]
 
