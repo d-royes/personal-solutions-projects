@@ -39,7 +39,8 @@ def _sample_plan(tmp_path: Path) -> AssistPlan:
 def test_log_assist_event_writes_jsonl(tmp_path, monkeypatch):
     log_file = tmp_path / "log.jsonl"
     monkeypatch.setenv("DTA_ACTIVITY_LOG", str(log_file))
-    monkeypatch.setenv("DTA_ACTIVITY_FORCE_FILE", "1")
+    # Patch FORCE_FILE_FALLBACK at runtime since it's evaluated at import time
+    monkeypatch.setattr(activity_log, "FORCE_FILE_FALLBACK", True)
     plan = _sample_plan(tmp_path)
 
     log_assist_event(
@@ -73,10 +74,11 @@ def test_log_assist_event_calls_firestore(monkeypatch, tmp_path):
             return FakeCollection()
 
     plan = _sample_plan(tmp_path)
-    monkeypatch.delenv("DTA_ACTIVITY_FORCE_FILE", raising=False)
-    monkeypatch.delenv("DTA_ACTIVITY_LOG", raising=False)
+    # Patch FORCE_FILE_FALLBACK to False so it tries Firestore
+    monkeypatch.setattr(activity_log, "FORCE_FILE_FALLBACK", False)
     monkeypatch.setenv("DTA_ACTIVITY_COLLECTION", "activity_log")
-    monkeypatch.setattr(activity_log, "_firestore_client", FakeClient())
+    # Patch get_firestore_client to return our fake client
+    monkeypatch.setattr(activity_log, "get_firestore_client", lambda: FakeClient())
 
     log_assist_event(
         plan=plan,

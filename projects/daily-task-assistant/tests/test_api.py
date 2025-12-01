@@ -38,39 +38,51 @@ def test_list_tasks_stub_source():
 
 
 def test_assist_stub_flow(tmp_path, monkeypatch):
+    from daily_task_assistant.logs import activity as activity_log
+    
     log_file = tmp_path / "api-log.jsonl"
     monkeypatch.setenv("DTA_ACTIVITY_LOG", str(log_file))
-    monkeypatch.setenv("DTA_ACTIVITY_FORCE_FILE", "1")
+    monkeypatch.setattr(activity_log, "FORCE_FILE_FALLBACK", True)
     monkeypatch.setenv("DTA_CONVERSATION_FORCE_FILE", "1")
     monkeypatch.setenv("DTA_CONVERSATION_DIR", str(tmp_path / "conversations"))
-    resp = client.post(
+    
+    # First engage the task (loads context, no plan yet)
+    engage_resp = client.post(
         "/assist/1001",
-        json={"source": "stub", "limit": 5},
+        json={"source": "stub"},
+        headers=USER_HEADERS,
+    )
+    assert engage_resp.status_code == 200
+    engage_body = engage_resp.json()
+    assert "history" in engage_body
+    # Plan may be None if no prior plan exists
+    
+    # Then generate a plan
+    resp = client.post(
+        "/assist/1001/plan",
+        json={"source": "stub"},
         headers=USER_HEADERS,
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["plan"]["summary"]
-    assert not body["plan"]["commentPosted"]
-    assert "history" in body
     assert log_file.exists()
 
     history_resp = client.get("/assist/1001/history", headers=USER_HEADERS)
     assert history_resp.status_code == 200
-    assert len(history_resp.json()) >= len(body["history"])
+    # Plan endpoint logs the plan to history, so there should be at least 1 entry
+    assert len(history_resp.json()) >= 1
 
+    # Re-engage the task to verify context loading works
     follow_up = client.post(
         "/assist/1001",
-        json={
-          "source": "stub",
-          "instructions": "Please mention the parking lot detail.",
-        },
+        json={"source": "stub"},
         headers=USER_HEADERS,
     )
     assert follow_up.status_code == 200
+    # History should include the plan that was logged
     history = follow_up.json()["history"]
-    assert history[-1]["role"] == "assistant"
-    assert any(turn["role"] == "user" for turn in history)
+    assert len(history) >= 1
 
 
 def test_activity_endpoint(tmp_path, monkeypatch):
