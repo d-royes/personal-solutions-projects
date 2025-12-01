@@ -1208,6 +1208,7 @@ export function AssistPanel({
         onRefineInChat={handleRefineInChat}
         initialDraft={emailDraft ?? undefined}
         suggestedContacts={contactResults ?? undefined}
+        taskNotes={selectedTask?.notes ?? undefined}
         gmailAccounts={['church', 'personal']}
         sending={emailSending ?? false}
         regenerating={emailDraftLoading ?? false}

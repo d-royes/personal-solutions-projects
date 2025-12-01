@@ -2357,6 +2357,27 @@ button:not(:disabled):hover {
   background: rgba(99, 102, 241, 0.15);
 }
 
+.contact-option.email-only {
+  padding: 0.3rem 0.6rem;
+}
+
+.contact-section-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: rgba(148, 163, 184, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.4rem 0.6rem 0.2rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  margin-bottom: 0.2rem;
+}
+
+.contact-section-header:not(:first-child) {
+  margin-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+  padding-top: 0.5rem;
+}
+
 .contact-name {
   font-size: 0.85rem;
   font-weight: 500;
@@ -2365,6 +2386,25 @@ button:not(:disabled):hover {
 .contact-email {
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.7);
+}
+
+.contact-org {
+  font-size: 0.7rem;
+  color: rgba(99, 102, 241, 0.6);
+  font-style: italic;
+}
+
+.contact-empty {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.5);
+  padding: 0.5rem 0.6rem;
+  text-align: center;
+  font-style: italic;
+}
+
+.contact-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .subject-input {

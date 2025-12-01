@@ -17,6 +17,7 @@ interface EmailDraftPanelProps {
   onRefineInChat: (draft: EmailDraft) => void
   initialDraft?: Partial<EmailDraft>
   suggestedContacts?: ContactCard[]
+  taskNotes?: string  // Task notes to extract emails from
   gmailAccounts: string[]
   sending: boolean
   regenerating: boolean
@@ -33,6 +34,16 @@ interface EmailDraftPanelProps {
  * - Regenerate with instructions
  * - Refine in Chat option
  */
+// Helper to extract email addresses from text
+function extractEmailsFromText(text: string): string[] {
+  if (!text) return []
+  // Match email patterns
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+  const matches = text.match(emailRegex) || []
+  // Deduplicate and return
+  return [...new Set(matches)]
+}
+
 export function EmailDraftPanel({
   isOpen,
   onClose,
@@ -41,6 +52,7 @@ export function EmailDraftPanel({
   onRefineInChat,
   initialDraft,
   suggestedContacts,
+  taskNotes,
   gmailAccounts,
   sending,
   regenerating,
@@ -55,6 +67,12 @@ export function EmailDraftPanel({
   const [fromAccount, setFromAccount] = useState('')
   const [regenerateInput, setRegenerateInput] = useState('')
   const [showContactPicker, setShowContactPicker] = useState<'to' | 'cc' | null>(null)
+
+  // Extract emails from task notes
+  const emailsFromNotes = extractEmailsFromText(taskNotes || '')
+  
+  // Combine all available contacts/emails for the picker
+  const hasContacts = (suggestedContacts && suggestedContacts.length > 0) || emailsFromNotes.length > 0
 
   // Initialize from draft when it changes
   useEffect(() => {
@@ -218,28 +236,61 @@ export function EmailDraftPanel({
               >
                 +
               </button>
-              {suggestedContacts && suggestedContacts.length > 0 && (
-                <button 
-                  className="contact-btn"
-                  onClick={() => setShowContactPicker(showContactPicker === 'to' ? null : 'to')}
-                  title="Select from contacts"
-                >
-                  📇
-                </button>
-              )}
+              <button 
+                className={`contact-btn ${hasContacts ? '' : 'disabled'}`}
+                onClick={() => hasContacts && setShowContactPicker(showContactPicker === 'to' ? null : 'to')}
+                title={hasContacts ? "Select from contacts" : "No contacts available - run Contact search first"}
+                disabled={!hasContacts}
+              >
+                📇
+              </button>
             </div>
-            {showContactPicker === 'to' && suggestedContacts && (
+            {showContactPicker === 'to' && (
               <div className="contact-picker">
-                {suggestedContacts.filter(c => c.email).map((contact, idx) => (
-                  <button
-                    key={idx}
-                    className="contact-option"
-                    onClick={() => handleAddContact(contact, 'to')}
-                  >
-                    <span className="contact-name">{contact.name}</span>
-                    <span className="contact-email">{contact.email}</span>
-                  </button>
-                ))}
+                {/* Emails extracted from task notes */}
+                {emailsFromNotes.length > 0 && (
+                  <>
+                    <div className="contact-section-header">From Task Notes</div>
+                    {emailsFromNotes
+                      .filter(email => !to.includes(email)) // Don't show already added
+                      .map((email, idx) => (
+                        <button
+                          key={`note-${idx}`}
+                          className="contact-option email-only"
+                          onClick={() => {
+                            setTo([...to, email])
+                            setShowContactPicker(null)
+                          }}
+                        >
+                          <span className="contact-email">{email}</span>
+                        </button>
+                      ))}
+                  </>
+                )}
+                {/* Contacts from Contact search */}
+                {suggestedContacts && suggestedContacts.filter(c => c.email).length > 0 && (
+                  <>
+                    <div className="contact-section-header">From Contact Search</div>
+                    {suggestedContacts.filter(c => c.email && !to.includes(c.email)).map((contact, idx) => (
+                      <button
+                        key={`contact-${idx}`}
+                        className="contact-option"
+                        onClick={() => handleAddContact(contact, 'to')}
+                      >
+                        <span className="contact-name">{contact.name}</span>
+                        <span className="contact-email">{contact.email}</span>
+                        {contact.organization && (
+                          <span className="contact-org">{contact.organization}</span>
+                        )}
+                      </button>
+                    ))}
+                  </>
+                )}
+                {/* No contacts available message */}
+                {emailsFromNotes.filter(e => !to.includes(e)).length === 0 && 
+                 (!suggestedContacts || suggestedContacts.filter(c => c.email && !to.includes(c.email)).length === 0) && (
+                  <div className="contact-empty">All available contacts already added</div>
+                )}
               </div>
             )}
           </div>
@@ -282,7 +333,65 @@ export function EmailDraftPanel({
               >
                 +
               </button>
+              <button 
+                className={`contact-btn ${hasContacts ? '' : 'disabled'}`}
+                onClick={() => hasContacts && setShowContactPicker(showContactPicker === 'cc' ? null : 'cc')}
+                title={hasContacts ? "Select from contacts" : "No contacts available"}
+                disabled={!hasContacts}
+              >
+                📇
+              </button>
             </div>
+            {showContactPicker === 'cc' && (
+              <div className="contact-picker">
+                {/* Emails extracted from task notes */}
+                {emailsFromNotes.length > 0 && (
+                  <>
+                    <div className="contact-section-header">From Task Notes</div>
+                    {emailsFromNotes
+                      .filter(email => !cc.includes(email) && !to.includes(email))
+                      .map((email, idx) => (
+                        <button
+                          key={`note-cc-${idx}`}
+                          className="contact-option email-only"
+                          onClick={() => {
+                            setCc([...cc, email])
+                            setShowContactPicker(null)
+                          }}
+                        >
+                          <span className="contact-email">{email}</span>
+                        </button>
+                      ))}
+                  </>
+                )}
+                {/* Contacts from Contact search */}
+                {suggestedContacts && suggestedContacts.filter(c => c.email).length > 0 && (
+                  <>
+                    <div className="contact-section-header">From Contact Search</div>
+                    {suggestedContacts
+                      .filter(c => c.email && !cc.includes(c.email) && !to.includes(c.email))
+                      .map((contact, idx) => (
+                        <button
+                          key={`contact-cc-${idx}`}
+                          className="contact-option"
+                          onClick={() => handleAddContact(contact, 'cc')}
+                        >
+                          <span className="contact-name">{contact.name}</span>
+                          <span className="contact-email">{contact.email}</span>
+                          {contact.organization && (
+                            <span className="contact-org">{contact.organization}</span>
+                          )}
+                        </button>
+                      ))}
+                  </>
+                )}
+                {/* No contacts available message */}
+                {emailsFromNotes.filter(e => !cc.includes(e) && !to.includes(e)).length === 0 && 
+                 (!suggestedContacts || suggestedContacts.filter(c => c.email && !cc.includes(c.email) && !to.includes(c.email)).length === 0) && (
+                  <div className="contact-empty">All available contacts already added</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
