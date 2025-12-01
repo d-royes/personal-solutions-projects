@@ -8,7 +8,22 @@ version = "0.1.0"
 description = "Daily Task Assistant - AI-powered task management"
 requires-python = ">=3.11"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["daily_task_assistant", "daily_task_assistant.*", "api", "api.*"]
+[tool.setuptools]
+packages = [
+    "daily_task_assistant",
+    "daily_task_assistant.actions",
+    "daily_task_assistant.analysis",
+    "daily_task_assistant.api",
+    "daily_task_assistant.contacts",
+    "daily_task_assistant.conversations",
+    "daily_task_assistant.drafts",
+    "daily_task_assistant.feedback",
+    "daily_task_assistant.interfaces",
+    "daily_task_assistant.llm",
+    "daily_task_assistant.logs",
+    "daily_task_assistant.mailer",
+    "daily_task_assistant.services",
+    "daily_task_assistant.workspace",
+    "api",
+]
 
