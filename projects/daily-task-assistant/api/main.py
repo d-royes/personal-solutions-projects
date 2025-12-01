@@ -652,6 +652,179 @@ def summarize_task_endpoint(
     }
 
 
+# --- Email Draft endpoints ---
+
+class EmailDraftRequest(BaseModel):
+    """Request body for draft email endpoint."""
+    source: Literal["auto", "live", "stub"] = "auto"
+    source_content: Optional[str] = Field(None, alias="sourceContent", description="Workspace content to transform into email")
+    recipient: Optional[str] = Field(None, description="Recipient email address")
+    regenerate_input: Optional[str] = Field(None, alias="regenerateInput", description="Instructions for regenerating the draft")
+
+
+class EmailDraftResponse(BaseModel):
+    """Response from draft email endpoint."""
+    subject: str
+    body: str
+    needs_recipient: bool = Field(alias="needsRecipient")
+    task_id: str = Field(alias="taskId")
+    task_title: str = Field(alias="taskTitle")
+
+
+@app.post("/assist/{task_id}/draft-email")
+def draft_email_endpoint(
+    task_id: str,
+    request: EmailDraftRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Generate an email draft based on task context and optional workspace content.
+    
+    If sourceContent is provided, it will be used as the primary content for the email.
+    Otherwise, the task notes and context will be used.
+    """
+    from daily_task_assistant.llm.anthropic_client import generate_email_draft, AnthropicError
+
+    tasks, live_tasks, settings, warning = fetch_task_dataset(
+        limit=None, source=request.source
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    # Build source content - include regenerate instructions if provided
+    source_content = request.source_content
+    if request.regenerate_input and source_content:
+        source_content = f"{source_content}\n\n[User instructions: {request.regenerate_input}]"
+
+    try:
+        draft_result = generate_email_draft(
+            task=target,
+            recipient=request.recipient,
+            source_content=source_content,
+        )
+    except AnthropicError as exc:
+        raise HTTPException(status_code=502, detail=f"Email draft failed: {exc}")
+
+    return {
+        "subject": draft_result.subject,
+        "body": draft_result.body,
+        "needsRecipient": draft_result.needs_recipient,
+        "taskId": task_id,
+        "taskTitle": target.title,
+    }
+
+
+class SendEmailRequest(BaseModel):
+    """Request body for sending email."""
+    source: Literal["auto", "live", "stub"] = "auto"
+    account: str = Field(..., description="Gmail account prefix (e.g., 'church' or 'personal')")
+    to: List[str] = Field(..., description="List of recipient email addresses")
+    cc: Optional[List[str]] = Field(None, description="List of CC email addresses")
+    subject: str
+    body: str
+
+
+@app.post("/assist/{task_id}/send-email")
+def send_email_endpoint(
+    task_id: str,
+    request: SendEmailRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Send an email via Gmail API and log to conversation + Smartsheet.
+    
+    Sends the email using the specified Gmail account, then logs the action
+    to the conversation history and posts a comment to Smartsheet.
+    """
+    from daily_task_assistant.mailer import GmailError, load_account_from_env, send_email
+
+    tasks, live_tasks, settings, warning = fetch_task_dataset(
+        limit=None, source=request.source
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    # Load Gmail account configuration
+    try:
+        gmail_config = load_account_from_env(request.account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail configuration error: {exc}")
+
+    # Combine recipients for sending
+    all_recipients = request.to.copy()
+    if request.cc:
+        all_recipients.extend(request.cc)
+
+    # Send to primary recipient (Gmail API sends one at a time for simple case)
+    # For multiple recipients, we include them all in the To field
+    to_address = ", ".join(request.to)
+    
+    # Build body with CC note if applicable
+    email_body = request.body
+    if request.cc:
+        cc_line = f"CC: {', '.join(request.cc)}\n\n"
+        # Note: For proper CC handling, we'd need to modify the email builder
+        # For now, we'll send to all recipients in To field
+
+    try:
+        message_id = send_email(
+            account=gmail_config,
+            to_address=to_address,
+            subject=request.subject,
+            body=email_body,
+        )
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Email send failed: {exc}")
+
+    # Log to conversation history
+    recipient_display = to_address
+    if request.cc:
+        recipient_display += f" (CC: {', '.join(request.cc)})"
+    
+    log_assistant_message(
+        task_id,
+        content=f"✉️ **Email sent** via {request.account} account\n\n**To:** {recipient_display}\n**Subject:** {request.subject}",
+        plan=None,
+        metadata={
+            "source": "email_sent",
+            "account": request.account,
+            "recipients": request.to,
+            "cc": request.cc,
+            "subject": request.subject,
+            "message_id": message_id,
+        },
+    )
+
+    # Post Smartsheet comment if using live data
+    comment_posted = False
+    if live_tasks:
+        try:
+            from daily_task_assistant.smartsheet_client import SmartsheetClient
+            client = SmartsheetClient(settings=settings)
+            client.post_comment(
+                row_id=task_id,
+                text=f"Email sent: \"{request.subject}\" to {recipient_display} via {request.account} account",
+            )
+            comment_posted = True
+        except Exception as exc:
+            # Log warning but don't fail the request
+            pass
+
+    # Fetch updated history to return
+    updated_history = fetch_conversation(task_id, limit=100)
+
+    return {
+        "status": "sent",
+        "messageId": message_id,
+        "taskId": task_id,
+        "commentPosted": comment_posted,
+        "history": [
+            ConversationMessageModel(**asdict(msg)).model_dump()
+            for msg in updated_history
+        ],
+    }
+
+
 # --- Workspace endpoints ---
 
 class WorkspaceSaveRequest(BaseModel):

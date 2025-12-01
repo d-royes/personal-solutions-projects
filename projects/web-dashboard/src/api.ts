@@ -608,3 +608,92 @@ export async function updateTask(
   return resp.json()
 }
 
+// Email Draft Types and Functions
+export interface EmailDraftRequest {
+  source?: DataSource
+  sourceContent?: string
+  recipient?: string
+  regenerateInput?: string
+}
+
+export interface EmailDraftResponse {
+  subject: string
+  body: string
+  needsRecipient: boolean
+  taskId: string
+  taskTitle: string
+}
+
+export async function draftEmail(
+  taskId: string,
+  request: EmailDraftRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailDraftResponse> {
+  const url = new URL(`/assist/${taskId}/draft-email`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: request.source ?? 'auto',
+      sourceContent: request.sourceContent,
+      recipient: request.recipient,
+      regenerateInput: request.regenerateInput,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Email draft failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface SendEmailRequest {
+  source?: DataSource
+  account: string
+  to: string[]
+  cc?: string[]
+  subject: string
+  body: string
+}
+
+export interface SendEmailResponse {
+  status: 'sent'
+  messageId: string
+  taskId: string
+  commentPosted: boolean
+  history: ConversationMessage[]
+}
+
+export async function sendEmail(
+  taskId: string,
+  request: SendEmailRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SendEmailResponse> {
+  const url = new URL(`/assist/${taskId}/send-email`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: request.source ?? 'auto',
+      account: request.account,
+      to: request.to,
+      cc: request.cc,
+      subject: request.subject,
+      body: request.body,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Email send failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+

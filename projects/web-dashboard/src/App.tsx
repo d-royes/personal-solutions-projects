@@ -5,6 +5,7 @@ import { AssistPanel } from './components/AssistPanel'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import {
+  draftEmail,
   fetchActivity,
   fetchConversationHistory,
   fetchTasks,
@@ -16,6 +17,7 @@ import {
   saveWorkspace,
   searchContacts,
   sendChatMessage,
+  sendEmail,
   submitFeedback,
   updateTask,
 } from './api'
@@ -75,6 +77,11 @@ function App() {
   // Task update state
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [updateExecuting, setUpdateExecuting] = useState(false)
+
+  // Email draft state
+  const [emailDraftLoading, setEmailDraftLoading] = useState(false)
+  const [emailSending, setEmailSending] = useState(false)
+  const [emailError, setEmailError] = useState<string | null>(null)
 
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [activityError, setActivityError] = useState<string | null>(null)
@@ -402,6 +409,76 @@ function App() {
     return lines.join('\n')
   }
 
+  // Email draft handler
+  async function handleDraftEmail(
+    sourceContent: string,
+    recipient?: string,
+    regenerateInput?: string
+  ): Promise<{ subject: string; body: string }> {
+    if (!selectedTask) throw new Error('No task selected')
+    if (!authConfig) throw new Error('Please sign in first')
+    
+    setEmailDraftLoading(true)
+    setEmailError(null)
+    try {
+      const response = await draftEmail(selectedTask.rowId, {
+        source: dataSource,
+        sourceContent,
+        recipient,
+        regenerateInput,
+      }, authConfig, apiBase)
+      return {
+        subject: response.subject,
+        body: response.body,
+      }
+    } catch (error) {
+      const message = (error as Error).message
+      setEmailError(message)
+      throw error
+    } finally {
+      setEmailDraftLoading(false)
+    }
+  }
+
+  // Email send handler
+  async function handleSendEmail(draft: {
+    to: string[]
+    cc: string[]
+    subject: string
+    body: string
+    fromAccount: string
+  }): Promise<void> {
+    if (!selectedTask) throw new Error('No task selected')
+    if (!authConfig) throw new Error('Please sign in first')
+    
+    setEmailSending(true)
+    setEmailError(null)
+    try {
+      const response = await sendEmail(selectedTask.rowId, {
+        source: dataSource,
+        account: draft.fromAccount,
+        to: draft.to,
+        cc: draft.cc.length > 0 ? draft.cc : undefined,
+        subject: draft.subject,
+        body: draft.body,
+      }, authConfig, apiBase)
+      
+      // Update conversation history from response
+      if (response.history) {
+        setConversation(response.history)
+      }
+      
+      // Refresh activity
+      void refreshActivity()
+    } catch (error) {
+      const message = (error as Error).message
+      setEmailError(message)
+      throw error
+    } finally {
+      setEmailSending(false)
+    }
+  }
+
   async function handleAssist() {
     // Collapse task panel when engaging DATA
     setTaskPanelCollapsed(true)
@@ -691,6 +768,11 @@ function App() {
               onFeedbackSubmit={handleFeedbackSubmit}
               initialWorkspaceItems={workspaceItems}
               onWorkspaceChange={handleWorkspaceChange}
+              onDraftEmail={handleDraftEmail}
+              onSendEmail={handleSendEmail}
+              emailDraftLoading={emailDraftLoading}
+              emailSending={emailSending}
+              emailError={emailError}
             />
           </>
         )}

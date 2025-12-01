@@ -73,18 +73,26 @@ Rules:
 - The assignee (david.a.royes@gmail.com or davidroyes@southpointsda.org) is the OWNER, not a recipient. Never suggest emailing the owner.
 """
 
-EMAIL_DRAFT_PROMPT = """Based on this task, draft a professional email to help the owner complete it.
+EMAIL_DRAFT_PROMPT = """Draft a professional email based on the provided content and task context.
 
 Task: {title}
 Project: {project}
-Notes: {notes}
+Task Notes: {notes}
+
+Source Content to transform into email:
+{source_content}
+
 Recipient: {recipient}
 
 Rules:
-- The email is FROM the owner (David), TO the recipient specified.
-- Be concise and professional.
-- If no recipient is specified, ask who should receive the email.
+- The email is FROM David (the task owner), TO the recipient specified.
+- Transform the source content into a well-structured, professional email.
+- Be concise and clear - get to the point quickly.
+- If the source content contains key information, include it in the email body.
+- Generate an appropriate subject line that summarizes the email purpose.
+- End with "Best regards,\nDavid"
 - Return JSON with keys: subject, body, needs_recipient (boolean).
+- needs_recipient should be true ONLY if no recipient email was provided.
 """
 
 
@@ -264,20 +272,25 @@ def _format_hours(value: float | None) -> str:
 def generate_email_draft(
     task: TaskDetail,
     recipient: Optional[str] = None,
+    source_content: Optional[str] = None,
     *,
     client: Optional[Anthropic] = None,
     config: Optional[AnthropicConfig] = None,
 ) -> EmailDraftResult:
-    """Generate an email draft for a specific task, targeting an external recipient."""
+    """Generate an email draft for a specific task, optionally using workspace content as source."""
 
     client = client or build_anthropic_client()
     config = config or resolve_config()
+
+    # Use source content if provided, otherwise use task notes
+    content_for_email = source_content if source_content else (task.notes or "No specific content provided")
 
     prompt = EMAIL_DRAFT_PROMPT.format(
         title=task.title,
         project=task.project,
         notes=task.notes or "No additional notes",
-        recipient=recipient or "Not specified - please ask who should receive this email",
+        source_content=content_for_email,
+        recipient=recipient or "Not specified - recipient will be added manually",
     )
 
     try:

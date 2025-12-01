@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
 import type { ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 
 // Feedback callback type
 type OnFeedbackSubmit = (
@@ -264,6 +265,15 @@ interface AssistPanelProps {
   // Workspace persistence
   initialWorkspaceItems?: string[]
   onWorkspaceChange?: (items: string[]) => void
+  // Selected workspace item index for email drafting
+  selectedWorkspaceIndex?: number | null
+  onSelectWorkspaceItem?: (index: number | null) => void
+  // Email draft props
+  onDraftEmail?: (sourceContent: string, recipient?: string, regenerateInput?: string) => Promise<{ subject: string; body: string }>
+  onSendEmail?: (draft: EmailDraft) => Promise<void>
+  emailDraftLoading?: boolean
+  emailSending?: boolean
+  emailError?: string | null
 }
 
 // Draggable divider component
@@ -362,10 +372,21 @@ export function AssistPanel({
   onFeedbackSubmit,
   initialWorkspaceItems,
   onWorkspaceChange,
+  selectedWorkspaceIndex,
+  onSelectWorkspaceItem,
+  onDraftEmail,
+  onSendEmail,
+  emailDraftLoading,
+  emailSending,
+  emailError,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
   const [activeAction, setActiveAction] = useState<string | null>(null)
+  
+  // Email draft panel state
+  const [emailDraftOpen, setEmailDraftOpen] = useState(false)
+  const [emailDraft, setEmailDraft] = useState<Partial<EmailDraft> | null>(null)
   
   // Three-zone layout state
   const [verticalSplit, setVerticalSplit] = useState(50) // % for planning zone width
@@ -423,7 +444,7 @@ export function AssistPanel({
   const disableSend = sendingMessage || !message.trim()
   const hasPlan = !!latestPlan
 
-  const handleActionClick = (action: string) => {
+  const handleActionClick = async (action: string) => {
     setActiveAction(action)
     
     // Handle specific actions
@@ -436,11 +457,94 @@ export function AssistPanel({
       // Run contact search
       onRunContact()
     } else if (action === 'draft_email') {
-      // Draft email will show in workspace
-      onQuickAction?.({ type: 'draft_email', content: 'Please draft an email related to this task.' })
+      // Open email draft panel
+      await handleOpenEmailDraft()
     } else {
       onQuickAction?.({ type: action, content: `Help me with: ${action}` })
     }
+  }
+  
+  // Handle opening email draft panel
+  const handleOpenEmailDraft = async () => {
+    if (!onDraftEmail) return
+    
+    // Get source content - either selected workspace item or task context
+    let sourceContent = ''
+    if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
+      sourceContent = workspaceItems[selectedWorkspaceIndex].content
+    } else if (latestPlan) {
+      // Use plan summary as source
+      sourceContent = [
+        latestPlan.summary,
+        ...(latestPlan.nextSteps || []).map(s => `- ${s}`),
+      ].filter(Boolean).join('\n')
+    }
+    
+    try {
+      const result = await onDraftEmail(sourceContent)
+      setEmailDraft({
+        subject: result.subject,
+        body: result.body,
+        to: [],
+        cc: [],
+        fromAccount: '',
+      })
+      setEmailDraftOpen(true)
+    } catch (err) {
+      console.error('Failed to generate email draft:', err)
+    }
+  }
+  
+  // Handle sending email
+  const handleSendEmail = async (draft: EmailDraft) => {
+    if (!onSendEmail) return
+    await onSendEmail(draft)
+    // Close panel on success
+    setEmailDraftOpen(false)
+    setEmailDraft(null)
+  }
+  
+  // Handle regenerating email draft
+  const handleRegenerateEmail = async (instructions: string) => {
+    if (!onDraftEmail || !emailDraft) return
+    
+    // Get source content again
+    let sourceContent = ''
+    if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
+      sourceContent = workspaceItems[selectedWorkspaceIndex].content
+    } else if (latestPlan) {
+      sourceContent = [
+        latestPlan.summary,
+        ...(latestPlan.nextSteps || []).map(s => `- ${s}`),
+      ].filter(Boolean).join('\n')
+    }
+    
+    try {
+      const result = await onDraftEmail(sourceContent, undefined, instructions)
+      setEmailDraft(prev => ({
+        ...prev,
+        subject: result.subject,
+        body: result.body,
+      }))
+    } catch (err) {
+      console.error('Failed to regenerate email draft:', err)
+    }
+  }
+  
+  // Handle refine in chat
+  const handleRefineInChat = (draft: EmailDraft) => {
+    // Save current draft state
+    setEmailDraft(draft)
+    setEmailDraftOpen(false)
+    
+    // Pre-fill chat with refinement request
+    setMessage(`Please update my email draft. Current subject: "${draft.subject}". I'd like to: `)
+  }
+  
+  // Handle closing email draft panel
+  const handleCloseEmailDraft = () => {
+    setEmailDraftOpen(false)
+    // Keep draft in state for potential reopening
   }
   
   // Handle vertical divider drag (between Planning and Collaboration zones)
@@ -1048,6 +1152,21 @@ export function AssistPanel({
           {sendingMessage ? '...' : 'Send'}
         </button>
       </form>
+
+      {/* Email Draft Panel Overlay */}
+      <EmailDraftPanel
+        isOpen={emailDraftOpen}
+        onClose={handleCloseEmailDraft}
+        onSend={handleSendEmail}
+        onRegenerate={handleRegenerateEmail}
+        onRefineInChat={handleRefineInChat}
+        initialDraft={emailDraft ?? undefined}
+        suggestedContacts={contactResults ?? undefined}
+        gmailAccounts={['church', 'personal']}
+        sending={emailSending ?? false}
+        regenerating={emailDraftLoading ?? false}
+        error={emailError}
+      />
     </section>
   )
 }
