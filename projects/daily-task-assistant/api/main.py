@@ -806,6 +806,7 @@ def send_email_endpoint(
 
     # Post Smartsheet comment if using live data
     comment_posted = False
+    comment_error = None
     if live_tasks:
         try:
             from daily_task_assistant.smartsheet_client import SmartsheetClient
@@ -817,7 +818,10 @@ def send_email_endpoint(
             comment_posted = True
         except Exception as exc:
             # Log warning but don't fail the request
-            pass
+            comment_error = str(exc)
+            print(f"WARNING: Failed to post Smartsheet comment for task {task_id}: {exc}")
+    else:
+        print(f"INFO: Skipping Smartsheet comment - live_tasks is False (source: {request.source})")
 
     # Fetch updated history to return
     updated_history = fetch_conversation(task_id, limit=100)
@@ -831,6 +835,8 @@ def send_email_endpoint(
         "messageId": message_id,
         "taskId": task_id,
         "commentPosted": comment_posted,
+        "commentError": comment_error,
+        "liveTasks": live_tasks,  # Debug: verify live_tasks flag
         "history": [
             ConversationMessageModel(**asdict(msg)).model_dump()
             for msg in updated_history

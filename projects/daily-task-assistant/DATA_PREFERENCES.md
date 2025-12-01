@@ -194,10 +194,17 @@ Schedule regular (weekly/monthly) reviews of feedback data to:
 - **Admin Menu:** Feedback summary view (planned)
 - **Direct Query:** Firestore console or local file
 
+## Known Issues / Bugs
+
+| Issue | Description | Status | Date Logged |
+|-------|-------------|--------|-------------|
+| Smartsheet Comment on Email Send | When an email is sent, the system should post a comment to the Smartsheet task (e.g., "Email sent: [subject] to [recipient] via [account]"). Currently, comments may not be posting reliably. Requires investigation of `live_tasks` flag and `SmartsheetClient.post_comment()` execution path. | Open | 2025-12-01 |
+
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1.1 | 2025-12-01 | Added Known Issues section, documented Smartsheet comment bug |
 | 1.1.0 | 2025-11-30 | Added Feedback System section |
 | 1.0.0 | 2025-11-30 | Initial version based on GitHub agents.md best practices |
 
