@@ -91,7 +91,6 @@ def serialize_plan(result: AssistExecutionResult) -> dict:
 
 class AssistRequest(BaseModel):
     source: Literal["auto", "live", "stub"] = "auto"
-    limit: int = 50
     anthropic_model: Optional[str] = Field(
         None, alias="anthropicModel", description="Override Anthropic model name."
     )
@@ -162,7 +161,7 @@ def assist_task(
     from daily_task_assistant.conversations.history import get_latest_plan
     
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=request.limit, source=request.source
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:

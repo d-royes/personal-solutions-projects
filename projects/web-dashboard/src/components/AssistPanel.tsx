@@ -650,12 +650,22 @@ export function AssistPanel({
     return state === 'expanded' ? '▼' : '▲'
   }
   
+  // Fix bullet points that are split across lines (e.g., "-\nContent" -> "- Content")
+  const fixBulletFormatting = (text: string): string => {
+    return text
+      .replace(/^-\s*\n+/gm, '- ')      // Fix "- \n" at start of line
+      .replace(/\n-\s*\n+/g, '\n- ')    // Fix "\n-\n" patterns
+      .replace(/-\s*\n+(?=[A-Z])/g, '- ') // Fix "-\n" followed by capital letter
+      .replace(/\n{3,}/g, '\n\n')       // Collapse excessive newlines
+  }
+
   // Push content to workspace
   const pushToWorkspace = (content: string) => {
     workspaceModifiedRef.current = true
+    const cleanedContent = fixBulletFormatting(content)
     const newItem: WorkspaceItem = {
       id: `ws-${Date.now()}`,
-      content,
+      content: cleanedContent,
     }
     setWorkspaceItems(prev => [...prev, newItem])
   }
