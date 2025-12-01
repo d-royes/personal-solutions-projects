@@ -75,6 +75,7 @@ export function EmailDraftPanel({
   const hasContacts = (suggestedContacts && suggestedContacts.length > 0) || emailsFromNotes.length > 0
 
   // Initialize from draft when it changes
+  // Use specific properties as dependencies to ensure updates are detected
   useEffect(() => {
     if (initialDraft) {
       setTo(initialDraft.to ?? [])
@@ -83,7 +84,7 @@ export function EmailDraftPanel({
       setBody(initialDraft.body ?? '')
       setFromAccount(initialDraft.fromAccount ?? '')
     }
-  }, [initialDraft])
+  }, [initialDraft?.subject, initialDraft?.body, initialDraft?.to, initialDraft?.cc, initialDraft?.fromAccount])
 
   if (!isOpen) return null
 

@@ -102,10 +102,17 @@ export interface PendingAction {
   reason?: string
 }
 
+export interface EmailDraftUpdate {
+  subject?: string
+  body?: string
+  reason: string
+}
+
 export interface ChatResponse {
   response: string
   history: ConversationMessage[]
   pendingAction?: PendingAction
+  emailDraftUpdate?: EmailDraftUpdate
 }
 
 export async function sendChatMessage(

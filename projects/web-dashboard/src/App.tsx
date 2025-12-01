@@ -602,6 +602,45 @@ function App() {
       if (result.pendingAction) {
         setPendingAction(result.pendingAction)
       }
+      
+      // Check if DATA suggested email draft updates
+      if (result.emailDraftUpdate) {
+        const update = result.emailDraftUpdate
+        // Update the saved draft with the new content
+        setSavedDraft(prev => {
+          if (!prev) {
+            // Create a new draft if none exists
+            return {
+              taskId: selectedTaskId,
+              to: [],
+              cc: [],
+              subject: update.subject ?? '',
+              body: update.body ?? '',
+              fromAccount: '',
+              sourceContent: '',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          }
+          // Update existing draft
+          return {
+            ...prev,
+            subject: update.subject ?? prev.subject,
+            body: update.body ?? prev.body,
+            updatedAt: new Date().toISOString(),
+          }
+        })
+        // Also save to backend
+        if (savedDraft || update.subject || update.body) {
+          void saveDraft(selectedTaskId, {
+            to: savedDraft?.to ?? [],
+            cc: savedDraft?.cc ?? [],
+            subject: update.subject ?? savedDraft?.subject ?? '',
+            body: update.body ?? savedDraft?.body ?? '',
+            fromAccount: savedDraft?.fromAccount ?? '',
+          }, authConfig, apiBase)
+        }
+      }
     } catch (err) {
       console.error('Chat error:', err)
       setAssistError(err instanceof Error ? err.message : 'Chat failed')

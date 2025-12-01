@@ -471,6 +471,30 @@ TASK_UPDATE_TOOL = {
     }
 }
 
+# Tool definition for updating email drafts
+EMAIL_DRAFT_UPDATE_TOOL = {
+    "name": "update_email_draft",
+    "description": "Update the current email draft with new content. Use this when the user asks to refine, improve, or change their email draft.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "subject": {
+                "type": "string",
+                "description": "New subject line for the email (optional - only include if changing)"
+            },
+            "body": {
+                "type": "string", 
+                "description": "New body content for the email (optional - only include if changing)"
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of what was changed"
+            }
+        },
+        "required": ["reason"]
+    }
+}
+
 def _build_chat_system_prompt() -> str:
     """Build the chat system prompt, incorporating DATA preferences if available."""
     base_prompt = """You are DATA (Daily Autonomous Task Assistant), David's proactive AI chief of staff.
@@ -505,9 +529,13 @@ The UI will show a confirmation card with Confirm/Cancel buttons after you call 
 
 OTHER CAPABILITIES:
 - Draft emails (but NEVER email the task owner about their own task)
+- Refine email drafts using the update_email_draft tool
 - Create action plans
 - Research and summarize information
 - Web search for current information
+
+EMAIL DRAFT REFINEMENT:
+When the user shares an email draft and asks for improvements, use the update_email_draft tool to provide the refined version. Include only the fields you're changing (subject and/or body).
 
 STYLE:
 - Be concise - 1-2 sentences when taking action
@@ -544,10 +572,19 @@ class TaskUpdateAction:
 
 
 @dataclass(slots=True)
+class EmailDraftUpdate:
+    """Structured email draft update from chat."""
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    reason: str = ""
+
+
+@dataclass(slots=True)
 class ChatResponse:
-    """Response from chat_with_tools, may include a pending action."""
+    """Response from chat_with_tools, may include a pending action or email update."""
     message: str
     pending_action: Optional[TaskUpdateAction] = None
+    email_draft_update: Optional[EmailDraftUpdate] = None
 
 
 def chat_with_tools(
@@ -619,7 +656,7 @@ def chat_with_tools(
             temperature=0.5,
             system=CHAT_WITH_TOOLS_SYSTEM_PROMPT,
             messages=messages,
-            tools=[TASK_UPDATE_TOOL, WEB_SEARCH_TOOL],
+            tools=[TASK_UPDATE_TOOL, WEB_SEARCH_TOOL, EMAIL_DRAFT_UPDATE_TOOL],
         )
     except APIStatusError as exc:
         raise AnthropicError(f"Anthropic API error: {exc}") from exc
@@ -629,6 +666,7 @@ def chat_with_tools(
     # Extract text and tool use from response
     text_content = []
     pending_action = None
+    email_draft_update = None
     
     for block in getattr(response, "content", []):
         block_type = getattr(block, "type", None)
@@ -646,6 +684,13 @@ def chat_with_tools(
                     comment=tool_input.get("comment"),
                     reason=tool_input.get("reason", ""),
                 )
+            elif tool_name == "update_email_draft":
+                tool_input = getattr(block, "input", {})
+                email_draft_update = EmailDraftUpdate(
+                    subject=tool_input.get("subject"),
+                    body=tool_input.get("body"),
+                    reason=tool_input.get("reason", ""),
+                )
 
     message = "\n".join(text_content).strip()
     
@@ -653,8 +698,17 @@ def chat_with_tools(
     if pending_action and not message:
         action_desc = _describe_action(pending_action)
         message = f"I'll {action_desc}. Should I proceed?"
+    
+    # If there's an email draft update but no message, generate a confirmation message
+    if email_draft_update and not message:
+        changes = []
+        if email_draft_update.subject:
+            changes.append("subject")
+        if email_draft_update.body:
+            changes.append("body")
+        message = f"I've updated the email {' and '.join(changes)}. {email_draft_update.reason}"
 
-    return ChatResponse(message=message, pending_action=pending_action)
+    return ChatResponse(message=message, pending_action=pending_action, email_draft_update=email_draft_update)
 
 
 def _describe_action(action: TaskUpdateAction) -> str:

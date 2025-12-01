@@ -361,6 +361,15 @@ def chat_with_task(
             "comment": action.comment,
             "reason": action.reason,
         }
+    
+    # Include email draft update if DATA suggested changes
+    if chat_response.email_draft_update:
+        update = chat_response.email_draft_update
+        response_data["emailDraftUpdate"] = {
+            "subject": update.subject,
+            "body": update.body,
+            "reason": update.reason,
+        }
 
     return response_data
 
