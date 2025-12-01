@@ -28,12 +28,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install -e . -v
-          echo "Installed packages:"
-          pip list | grep -i daily
-          echo "Python path check:"
-          python -c "import daily_task_assistant; print(daily_task_assistant.__file__)"
-          python -c "from daily_task_assistant.logs import activity; print('logs module OK')"
+          pip install -e .
 
       - name: Run tests
         env:
