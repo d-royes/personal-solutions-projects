@@ -14,6 +14,7 @@ interface EmailDraftPanelProps {
   onClose: (currentDraft: EmailDraft) => void
   onSend: (draft: EmailDraft) => Promise<void>
   onRegenerate: (instructions: string) => Promise<void>
+  onDiscard: () => Promise<void>
   initialDraft?: Partial<EmailDraft>
   suggestedContacts?: ContactCard[]
   taskNotes?: string  // Task notes to extract emails from
@@ -47,6 +48,7 @@ export function EmailDraftPanel({
   onClose,
   onSend,
   onRegenerate,
+  onDiscard,
   initialDraft,
   suggestedContacts,
   taskNotes,
@@ -144,6 +146,17 @@ export function EmailDraftPanel({
         <div className="email-draft-header">
           <h3>✉️ Draft Email</h3>
           <div className="email-draft-header-actions">
+            <button 
+              className="discard-btn" 
+              onClick={async () => {
+                if (confirm('Discard this draft? This cannot be undone.')) {
+                  await onDiscard()
+                }
+              }}
+              title="Discard draft"
+            >
+              🗑️ Discard
+            </button>
             <button 
               className="secondary" 
               onClick={() => onClose({ to, cc, subject, body, fromAccount })}

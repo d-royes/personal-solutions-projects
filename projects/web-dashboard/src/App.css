@@ -2181,6 +2181,23 @@ button:not(:disabled):hover {
   align-items: center;
 }
 
+.email-draft-header .discard-btn {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: rgba(239, 68, 68, 0.8);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.email-draft-header .discard-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #ef4444;
+}
+
 .email-draft-header .icon-btn {
   width: 28px;
   height: 28px;

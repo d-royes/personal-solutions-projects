@@ -389,7 +389,7 @@ export function AssistPanel({
   onDraftEmail,
   onSendEmail,
   onSaveDraft,
-  onDeleteDraft: _onDeleteDraft,
+  onDeleteDraft,
   onToggleEmailDraft: _onToggleEmailDraft,
   emailDraftLoading,
   emailSending,
@@ -580,6 +580,17 @@ export function AssistPanel({
         fromAccount: currentDraft.fromAccount,
       })
     }
+    setEmailDraftOpen(false)
+  }
+  
+  // Handle discarding email draft
+  const handleDiscardEmailDraft = async () => {
+    // Delete the draft from backend
+    if (onDeleteDraft) {
+      await onDeleteDraft()
+    }
+    // Clear local state
+    setEmailDraft(null)
     setEmailDraftOpen(false)
   }
   
@@ -1195,6 +1206,7 @@ export function AssistPanel({
         onClose={handleCloseEmailDraft}
         onSend={handleSendEmail}
         onRegenerate={handleRegenerateEmail}
+        onDiscard={handleDiscardEmailDraft}
         initialDraft={emailDraft ?? undefined}
         suggestedContacts={contactResults ?? undefined}
         taskNotes={selectedTask?.notes ?? undefined}
