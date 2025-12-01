@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "daily-task-assistant"
+version = "0.1.0"
+description = "Daily Task Assistant - AI-powered task management"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["daily_task_assistant*", "api*"]
+
