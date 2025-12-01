@@ -565,39 +565,6 @@ export function AssistPanel({
     }
   }
   
-  // Handle refine in chat
-  const handleRefineInChat = async (draft: EmailDraft) => {
-    // Save current draft state first
-    setEmailDraft(draft)
-    
-    // Auto-save the draft before switching to chat
-    if (onSaveDraft) {
-      await onSaveDraft(draft)
-    }
-    
-    // Close the email panel
-    setEmailDraftOpen(false)
-    
-    // Build a context message for the chat
-    const contextMessage = `I'm working on an email draft and need your help refining it.
-
-**Current Draft:**
-- **Subject:** ${draft.subject}
-- **To:** ${draft.to.length > 0 ? draft.to.join(', ') : '(not set)'}
-${draft.cc.length > 0 ? `- **Cc:** ${draft.cc.join(', ')}` : ''}
-
-**Body:**
-${draft.body}
-
----
-Please help me improve this email. What changes would you suggest?`
-    
-    // Send this as a chat message to get DATA's feedback
-    if (onSendMessage) {
-      await onSendMessage(contextMessage)
-    }
-  }
-  
   // Handle closing email draft panel - auto-save the draft
   const handleCloseEmailDraft = async (currentDraft: EmailDraft) => {
     // Update local draft state
@@ -1228,7 +1195,6 @@ Please help me improve this email. What changes would you suggest?`
         onClose={handleCloseEmailDraft}
         onSend={handleSendEmail}
         onRegenerate={handleRegenerateEmail}
-        onRefineInChat={handleRefineInChat}
         initialDraft={emailDraft ?? undefined}
         suggestedContacts={contactResults ?? undefined}
         taskNotes={selectedTask?.notes ?? undefined}

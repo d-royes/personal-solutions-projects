@@ -14,7 +14,6 @@ interface EmailDraftPanelProps {
   onClose: (currentDraft: EmailDraft) => void
   onSend: (draft: EmailDraft) => Promise<void>
   onRegenerate: (instructions: string) => Promise<void>
-  onRefineInChat: (draft: EmailDraft) => void
   initialDraft?: Partial<EmailDraft>
   suggestedContacts?: ContactCard[]
   taskNotes?: string  // Task notes to extract emails from
@@ -32,7 +31,6 @@ interface EmailDraftPanelProps {
  * - Subject and body editing
  * - Gmail account selection (church/personal)
  * - Regenerate with instructions
- * - Refine in Chat option
  */
 // Helper to extract email addresses from text
 function extractEmailsFromText(text: string): string[] {
@@ -49,7 +47,6 @@ export function EmailDraftPanel({
   onClose,
   onSend,
   onRegenerate,
-  onRefineInChat,
   initialDraft,
   suggestedContacts,
   taskNotes,
@@ -136,16 +133,6 @@ export function EmailDraftPanel({
     if (!regenerateInput.trim()) return
     await onRegenerate(regenerateInput)
     setRegenerateInput('')
-  }
-
-  const handleRefineInChat = () => {
-    onRefineInChat({
-      to,
-      cc,
-      subject,
-      body,
-      fromAccount,
-    })
   }
 
   const canSend = to.length > 0 && fromAccount && subject.trim() && body.trim()
@@ -434,12 +421,6 @@ export function EmailDraftPanel({
             disabled={regenerating || !regenerateInput.trim()}
           >
             {regenerating ? '🔄 Regenerating...' : '🔄 Regenerate'}
-          </button>
-          <button
-            className="secondary"
-            onClick={handleRefineInChat}
-          >
-            💬 Refine in Chat
           </button>
         </div>
 
