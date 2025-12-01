@@ -414,6 +414,38 @@ def _summarize_research(full_research: str, max_length: int = 200) -> str:
     return f"🔍 **Research completed**: {truncated}"
 
 
+def _summarize_summary(full_summary: str, max_length: int = 250) -> str:
+    """Extract key points from a summary for conversation history."""
+    lines = full_summary.split('\n')
+    key_points = []
+    
+    for line in lines:
+        stripped = line.strip()
+        # Skip headers and empty lines
+        if not stripped or stripped.startswith('#'):
+            continue
+        # Capture bullet points
+        if stripped.startswith('-') or stripped.startswith('•'):
+            clean_line = stripped.lstrip('-•').strip()
+            if clean_line and len(clean_line) > 10:  # Skip very short items
+                key_points.append(clean_line)
+                if len(key_points) >= 4:  # Max 4 key points
+                    break
+        # Or capture the first substantive paragraph
+        elif len(key_points) == 0 and len(stripped) > 30:
+            key_points.append(stripped)
+    
+    if key_points:
+        summary = "; ".join(key_points)
+        if len(summary) > max_length:
+            summary = summary[:max_length-3] + "..."
+        return f"📋 **Summary generated**: {summary}"
+    
+    # Fallback: just truncate the beginning
+    truncated = full_summary[:max_length-3].rsplit(' ', 1)[0] + "..."
+    return f"📋 **Summary generated**: {truncated}"
+
+
 @app.post("/assist/{task_id}/research")
 def research_task_endpoint(
     task_id: str,
@@ -638,10 +670,11 @@ def summarize_task_endpoint(
     except AnthropicError as exc:
         raise HTTPException(status_code=502, detail=f"Summarize failed: {exc}")
 
-    # Log a brief note to the conversation history
+    # Log a condensed version of the summary to the conversation history
+    summary_excerpt = _summarize_summary(summary_results)
     log_assistant_message(
         task_id,
-        content=f"📋 **Summary generated** - Review the summary in the workspace for current task status and recommendations.",
+        content=summary_excerpt,
         plan=None,
         metadata={"source": "summarize"},
     )
