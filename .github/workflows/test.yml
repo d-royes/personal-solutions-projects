@@ -31,12 +31,13 @@ jobs:
 
       - name: Run tests
         env:
-          PYTHONPATH: ${{ github.workspace }}/projects/daily-task-assistant
           DTA_DEV_AUTH_BYPASS: "1"
           DTA_CONVERSATION_FORCE_FILE: "1"
           DTA_FEEDBACK_FORCE_FILE: "1"
           DTA_ACTIVITY_FORCE_FILE: "1"
         run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+          echo "PYTHONPATH=$PYTHONPATH"
           python -m pytest tests/ -v --tb=short
 
   frontend-typecheck:
