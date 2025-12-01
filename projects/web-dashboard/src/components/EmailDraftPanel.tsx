@@ -11,7 +11,7 @@ export interface EmailDraft {
 
 interface EmailDraftPanelProps {
   isOpen: boolean
-  onClose: () => void
+  onClose: (currentDraft: EmailDraft) => void
   onSend: (draft: EmailDraft) => Promise<void>
   onRegenerate: (instructions: string) => Promise<void>
   onRefineInChat: (draft: EmailDraft) => void
@@ -140,14 +140,14 @@ export function EmailDraftPanel({
           <div className="email-draft-header-actions">
             <button 
               className="secondary" 
-              onClick={onClose}
+              onClick={() => onClose({ to, cc, subject, body, fromAccount })}
               title="Save and close"
             >
               Save
             </button>
             <button 
               className="icon-btn" 
-              onClick={onClose}
+              onClick={() => onClose({ to, cc, subject, body, fromAccount })}
               title="Close"
             >
               ✕

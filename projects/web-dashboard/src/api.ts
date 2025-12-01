@@ -697,3 +697,99 @@ export async function sendEmail(
   return resp.json()
 }
 
+// Email Draft Persistence Types and Functions
+export interface SavedEmailDraft {
+  taskId: string
+  to: string[]
+  cc: string[]
+  subject: string
+  body: string
+  fromAccount: string
+  sourceContent: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LoadDraftResponse {
+  taskId: string
+  hasDraft: boolean
+  draft: SavedEmailDraft | null
+}
+
+export interface SaveDraftRequest {
+  to: string[]
+  cc: string[]
+  subject: string
+  body: string
+  fromAccount?: string
+  sourceContent?: string
+}
+
+export interface SaveDraftResponse {
+  status: 'saved'
+  taskId: string
+  draft: SavedEmailDraft
+}
+
+export async function loadDraft(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<LoadDraftResponse> {
+  const url = new URL(`/assist/${taskId}/draft`, baseUrl)
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Load draft failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function saveDraft(
+  taskId: string,
+  request: SaveDraftRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SaveDraftResponse> {
+  const url = new URL(`/assist/${taskId}/draft`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      to: request.to,
+      cc: request.cc,
+      subject: request.subject,
+      body: request.body,
+      from_account: request.fromAccount ?? '',
+      source_content: request.sourceContent ?? '',
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Save draft failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function deleteDraft(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: 'deleted'; taskId: string }> {
+  const url = new URL(`/assist/${taskId}/draft`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Delete draft failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+

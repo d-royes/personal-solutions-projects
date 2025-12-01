@@ -5,15 +5,18 @@ import { AssistPanel } from './components/AssistPanel'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import {
+  deleteDraft,
   draftEmail,
   fetchActivity,
   fetchConversationHistory,
   fetchTasks,
   generatePlan,
+  loadDraft,
   loadWorkspace,
   runAssist,
   runResearch,
   runSummarize,
+  saveDraft,
   saveWorkspace,
   searchContacts,
   sendChatMessage,
@@ -21,6 +24,7 @@ import {
   submitFeedback,
   updateTask,
 } from './api'
+import type { SavedEmailDraft } from './api'
 import type {
   ContactCard,
   ContactSearchResponse,
@@ -82,6 +86,8 @@ function App() {
   const [emailDraftLoading, setEmailDraftLoading] = useState(false)
   const [emailSending, setEmailSending] = useState(false)
   const [emailError, setEmailError] = useState<string | null>(null)
+  const [savedDraft, setSavedDraft] = useState<SavedEmailDraft | null>(null)
+  const [emailDraftOpen, setEmailDraftOpen] = useState(false)
 
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [activityError, setActivityError] = useState<string | null>(null)
@@ -97,16 +103,31 @@ function App() {
     console.debug('Quick action triggered:', action)
   }, [])
 
-  const handleSelectTask = useCallback((taskId: string) => {
+  const handleSelectTask = useCallback(async (taskId: string) => {
     if (taskId !== selectedTaskId) {
       // Clear plan and research when selecting a different task
       setAssistPlan(null)
       setAssistError(null)
       setConversation([])
       setResearchResults(null)
+      setSavedDraft(null)
+      setEmailDraftOpen(false)
+      setEmailError(null)
     }
     setSelectedTaskId(taskId)
-  }, [selectedTaskId])
+    
+    // Load any saved draft for this task
+    if (authConfig) {
+      try {
+        const draftResponse = await loadDraft(taskId, authConfig, apiBase)
+        if (draftResponse.hasDraft && draftResponse.draft) {
+          setSavedDraft(draftResponse.draft)
+        }
+      } catch (err) {
+        console.error('Failed to load draft:', err)
+      }
+    }
+  }, [selectedTaskId, authConfig, apiBase])
 
   const selectedTask =
     tasks.find((task) => task.rowId === selectedTaskId) ?? null
@@ -409,7 +430,7 @@ function App() {
     return lines.join('\n')
   }
 
-  // Email draft handler
+  // Email draft handler - generates new draft or returns saved draft
   async function handleDraftEmail(
     sourceContent: string,
     recipient?: string,
@@ -440,6 +461,55 @@ function App() {
     }
   }
 
+  // Save draft to backend
+  async function handleSaveDraft(draft: {
+    to: string[]
+    cc: string[]
+    subject: string
+    body: string
+    fromAccount: string
+  }): Promise<void> {
+    if (!selectedTask) return
+    if (!authConfig) return
+    
+    try {
+      const response = await saveDraft(selectedTask.rowId, {
+        to: draft.to,
+        cc: draft.cc,
+        subject: draft.subject,
+        body: draft.body,
+        fromAccount: draft.fromAccount,
+      }, authConfig, apiBase)
+      setSavedDraft(response.draft)
+    } catch (error) {
+      console.error('Failed to save draft:', error)
+    }
+  }
+
+  // Delete draft from backend
+  async function handleDeleteDraft(): Promise<void> {
+    if (!selectedTask) return
+    if (!authConfig) return
+    
+    try {
+      await deleteDraft(selectedTask.rowId, authConfig, apiBase)
+      setSavedDraft(null)
+    } catch (error) {
+      console.error('Failed to delete draft:', error)
+    }
+  }
+
+  // Toggle email draft panel - smart behavior based on state
+  function handleToggleEmailDraft() {
+    if (emailDraftOpen) {
+      // Close panel (draft will be auto-saved by panel)
+      setEmailDraftOpen(false)
+    } else {
+      // Open panel
+      setEmailDraftOpen(true)
+    }
+  }
+
   // Email send handler
   async function handleSendEmail(draft: {
     to: string[]
@@ -462,6 +532,10 @@ function App() {
         subject: draft.subject,
         body: draft.body,
       }, authConfig, apiBase)
+      
+      // Clear saved draft after successful send (backend also deletes)
+      setSavedDraft(null)
+      setEmailDraftOpen(false)
       
       // Update conversation history from response
       if (response.history) {
@@ -770,9 +844,15 @@ function App() {
               onWorkspaceChange={handleWorkspaceChange}
               onDraftEmail={handleDraftEmail}
               onSendEmail={handleSendEmail}
+              onSaveDraft={handleSaveDraft}
+              onDeleteDraft={handleDeleteDraft}
+              onToggleEmailDraft={handleToggleEmailDraft}
               emailDraftLoading={emailDraftLoading}
               emailSending={emailSending}
               emailError={emailError}
+              savedDraft={savedDraft}
+              emailDraftOpen={emailDraftOpen}
+              setEmailDraftOpen={setEmailDraftOpen}
             />
           </>
         )}

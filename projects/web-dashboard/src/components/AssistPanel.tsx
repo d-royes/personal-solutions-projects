@@ -271,9 +271,21 @@ interface AssistPanelProps {
   // Email draft props
   onDraftEmail?: (sourceContent: string, recipient?: string, regenerateInput?: string) => Promise<{ subject: string; body: string }>
   onSendEmail?: (draft: EmailDraft) => Promise<void>
+  onSaveDraft?: (draft: EmailDraft) => Promise<void>
+  onDeleteDraft?: () => Promise<void>
+  onToggleEmailDraft?: () => void
   emailDraftLoading?: boolean
   emailSending?: boolean
   emailError?: string | null
+  savedDraft?: {
+    to: string[]
+    cc: string[]
+    subject: string
+    body: string
+    fromAccount: string
+  } | null
+  emailDraftOpen?: boolean
+  setEmailDraftOpen?: (open: boolean) => void
 }
 
 // Draggable divider component
@@ -373,19 +385,27 @@ export function AssistPanel({
   initialWorkspaceItems,
   onWorkspaceChange,
   selectedWorkspaceIndex,
-  onSelectWorkspaceItem,
+  onSelectWorkspaceItem: _onSelectWorkspaceItem,
   onDraftEmail,
   onSendEmail,
+  onSaveDraft,
+  onDeleteDraft: _onDeleteDraft,
+  onToggleEmailDraft: _onToggleEmailDraft,
   emailDraftLoading,
   emailSending,
   emailError,
+  savedDraft,
+  emailDraftOpen: emailDraftOpenProp,
+  setEmailDraftOpen: setEmailDraftOpenProp,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
   const [activeAction, setActiveAction] = useState<string | null>(null)
   
-  // Email draft panel state
-  const [emailDraftOpen, setEmailDraftOpen] = useState(false)
+  // Email draft panel state - use props if provided, otherwise local state
+  const [localEmailDraftOpen, setLocalEmailDraftOpen] = useState(false)
+  const emailDraftOpen = emailDraftOpenProp ?? localEmailDraftOpen
+  const setEmailDraftOpen = setEmailDraftOpenProp ?? setLocalEmailDraftOpen
   const [emailDraft, setEmailDraft] = useState<Partial<EmailDraft> | null>(null)
   
   // Three-zone layout state
@@ -466,6 +486,20 @@ export function AssistPanel({
   
   // Handle opening email draft panel
   const handleOpenEmailDraft = async () => {
+    // If we have a saved draft, just open the panel with it
+    if (savedDraft && (savedDraft.subject || savedDraft.body || savedDraft.to.length > 0)) {
+      setEmailDraft({
+        subject: savedDraft.subject,
+        body: savedDraft.body,
+        to: savedDraft.to,
+        cc: savedDraft.cc,
+        fromAccount: savedDraft.fromAccount,
+      })
+      setEmailDraftOpen(true)
+      return
+    }
+    
+    // No saved draft - generate a new one
     if (!onDraftEmail) return
     
     // Get source content - either selected workspace item or task context
@@ -499,7 +533,7 @@ export function AssistPanel({
   const handleSendEmail = async (draft: EmailDraft) => {
     if (!onSendEmail) return
     await onSendEmail(draft)
-    // Close panel on success
+    // Close panel on success (backend deletes draft)
     setEmailDraftOpen(false)
     setEmailDraft(null)
   }
@@ -541,10 +575,22 @@ export function AssistPanel({
     setMessage(`Please update my email draft. Current subject: "${draft.subject}". I'd like to: `)
   }
   
-  // Handle closing email draft panel
-  const handleCloseEmailDraft = () => {
+  // Handle closing email draft panel - auto-save the draft
+  const handleCloseEmailDraft = async (currentDraft: EmailDraft) => {
+    // Update local draft state
+    setEmailDraft(currentDraft)
+    
+    // Auto-save the current draft state before closing
+    if (onSaveDraft && (currentDraft.subject || currentDraft.body || currentDraft.to.length > 0)) {
+      await onSaveDraft({
+        to: currentDraft.to,
+        cc: currentDraft.cc,
+        subject: currentDraft.subject,
+        body: currentDraft.body,
+        fromAccount: currentDraft.fromAccount,
+      })
+    }
     setEmailDraftOpen(false)
-    // Keep draft in state for potential reopening
   }
   
   // Handle vertical divider drag (between Planning and Collaboration zones)

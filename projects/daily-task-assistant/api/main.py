@@ -813,6 +813,10 @@ def send_email_endpoint(
     # Fetch updated history to return
     updated_history = fetch_conversation(task_id, limit=100)
 
+    # Delete the draft after successful send
+    from daily_task_assistant.drafts import delete_draft
+    delete_draft(task_id)
+
     return {
         "status": "sent",
         "messageId": message_id,
@@ -822,6 +826,87 @@ def send_email_endpoint(
             ConversationMessageModel(**asdict(msg)).model_dump()
             for msg in updated_history
         ],
+    }
+
+
+# --- Email Draft Persistence endpoints ---
+
+class SaveDraftRequest(BaseModel):
+    """Request body for saving an email draft."""
+    to: List[str] = Field(default_factory=list, description="List of recipient email addresses")
+    cc: List[str] = Field(default_factory=list, description="List of CC email addresses")
+    subject: str = ""
+    body: str = ""
+    fromAccount: str = Field("", alias="from_account", description="Gmail account prefix")
+    sourceContent: str = Field("", alias="source_content", description="Original content used to generate draft")
+
+
+@app.get("/assist/{task_id}/draft")
+def get_draft(
+    task_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Load a saved email draft for a task.
+    
+    Returns the draft if one exists, or empty fields if not.
+    """
+    from daily_task_assistant.drafts import load_draft
+    
+    draft = load_draft(task_id)
+    has_draft = bool(draft.subject or draft.body or draft.to)
+    
+    return {
+        "taskId": task_id,
+        "hasDraft": has_draft,
+        "draft": draft.to_dict() if has_draft else None,
+    }
+
+
+@app.post("/assist/{task_id}/draft")
+def save_draft_endpoint(
+    task_id: str,
+    request: SaveDraftRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Save an email draft for a task.
+    
+    Drafts persist until explicitly deleted or until the email is sent.
+    """
+    from daily_task_assistant.drafts import save_draft
+    
+    draft = save_draft(
+        task_id=task_id,
+        to=request.to,
+        cc=request.cc,
+        subject=request.subject,
+        body=request.body,
+        from_account=request.fromAccount,
+        source_content=request.sourceContent,
+    )
+    
+    return {
+        "status": "saved",
+        "taskId": task_id,
+        "draft": draft.to_dict(),
+    }
+
+
+@app.delete("/assist/{task_id}/draft")
+def delete_draft_endpoint(
+    task_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Delete an email draft for a task.
+    
+    Called when user explicitly discards a draft.
+    """
+    from daily_task_assistant.drafts import delete_draft
+    
+    delete_draft(task_id)
+    
+    return {
+        "status": "deleted",
+        "taskId": task_id,
     }
 
 
