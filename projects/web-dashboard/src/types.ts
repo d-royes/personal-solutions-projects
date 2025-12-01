@@ -50,6 +50,8 @@ export interface ConversationMessage {
     suggested_actions: string[]
     labels?: string[]
   }
+  struck?: boolean
+  struckAt?: string
 }
 
 export interface AssistResponse {

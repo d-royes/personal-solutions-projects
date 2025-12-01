@@ -1998,6 +1998,65 @@ button:not(:disabled):hover {
   opacity: 1;
 }
 
+/* Strike button in chat meta */
+.strike-btn {
+  padding: 0.1rem 0.25rem;
+  background: transparent;
+  border: none;
+  font-size: 0.7rem;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  color: #94a3b8;
+}
+
+.strike-btn:hover {
+  opacity: 1;
+  color: #f59e0b;
+}
+
+/* Struck message styling */
+.chat-bubble.struck {
+  padding: 0.5rem 0.75rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px dashed rgba(99, 102, 241, 0.2);
+}
+
+.struck-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.struck-icon {
+  color: #f59e0b;
+  font-size: 0.9rem;
+}
+
+.struck-text {
+  flex: 1;
+  font-style: italic;
+}
+
+.unstrike-btn {
+  padding: 0.2rem 0.5rem;
+  background: transparent;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.unstrike-btn:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #e2e8f0;
+}
+
 .clear-btn {
   padding: 0.2rem 0.4rem;
   background: transparent;

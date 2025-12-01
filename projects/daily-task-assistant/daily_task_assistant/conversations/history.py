@@ -35,6 +35,8 @@ class ConversationMessage:
     ts: str
     metadata: Dict[str, Any] = field(default_factory=dict)
     plan: Optional[Dict[str, Any]] = None
+    struck: bool = False
+    struck_at: Optional[str] = None
 
 
 def log_user_message(
@@ -165,6 +167,72 @@ def get_latest_plan(task_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def strike_message(task_id: str, message_ts: str) -> bool:
+    """Mark a message as struck by its timestamp.
+    
+    Returns True if the message was found and struck, False otherwise.
+    """
+    if _force_file_fallback():
+        return _strike_file_message(task_id, message_ts, strike=True)
+    
+    try:
+        client = get_firestore_client()
+        collection = (
+            client.collection(_conversation_collection())
+            .document(task_id)
+            .collection("messages")
+        )
+        # Find the message by timestamp
+        query = collection.where("ts", "==", message_ts).limit(1)
+        docs = list(query.stream())
+        if docs:
+            docs[0].reference.update({
+                "struck": True,
+                "struck_at": _now(),
+            })
+            return True
+        return False
+    except Exception as exc:
+        print(f"[Conversation] Firestore strike failed, falling back to file: {exc}")
+        return _strike_file_message(task_id, message_ts, strike=True)
+
+
+def unstrike_message(task_id: str, message_ts: str) -> bool:
+    """Remove the struck flag from a message.
+    
+    Returns True if the message was found and unstruck, False otherwise.
+    """
+    if _force_file_fallback():
+        return _strike_file_message(task_id, message_ts, strike=False)
+    
+    try:
+        client = get_firestore_client()
+        collection = (
+            client.collection(_conversation_collection())
+            .document(task_id)
+            .collection("messages")
+        )
+        # Find the message by timestamp
+        query = collection.where("ts", "==", message_ts).limit(1)
+        docs = list(query.stream())
+        if docs:
+            docs[0].reference.update({
+                "struck": False,
+                "struck_at": None,
+            })
+            return True
+        return False
+    except Exception as exc:
+        print(f"[Conversation] Firestore unstrike failed, falling back to file: {exc}")
+        return _strike_file_message(task_id, message_ts, strike=False)
+
+
+def fetch_conversation_for_llm(task_id: str, limit: int = 50) -> List[ConversationMessage]:
+    """Return conversation history excluding struck messages (for LLM context)."""
+    messages = fetch_conversation(task_id, limit=limit)
+    return [msg for msg in messages if not msg.struck]
+
+
 # Internal helpers ---------------------------------------------------------
 
 
@@ -223,4 +291,34 @@ def _read_file_messages(task_id: str, limit: int) -> List[ConversationMessage]:
         except json.JSONDecodeError:
             continue
     return messages
+
+
+def _strike_file_message(task_id: str, message_ts: str, strike: bool) -> bool:
+    """Update the struck status of a message in the local file.
+    
+    Rewrites the entire file with the updated message.
+    """
+    path = _conversation_file(task_id)
+    if not path.exists():
+        return False
+    
+    lines = path.read_text(encoding="utf-8").splitlines()
+    updated_lines = []
+    found = False
+    
+    for line in lines:
+        try:
+            data = json.loads(line)
+            if data.get("ts") == message_ts:
+                data["struck"] = strike
+                data["struck_at"] = _now() if strike else None
+                found = True
+            updated_lines.append(json.dumps(data))
+        except json.JSONDecodeError:
+            updated_lines.append(line)
+    
+    if found:
+        path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+    
+    return found
 

@@ -93,6 +93,56 @@ export async function fetchConversationHistory(
   return resp.json()
 }
 
+export interface StrikeResponse {
+  status: 'struck' | 'unstruck'
+  messageTs: string
+  history: ConversationMessage[]
+}
+
+export async function strikeMessage(
+  taskId: string,
+  messageTs: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<StrikeResponse> {
+  const url = new URL(`/assist/${taskId}/history/strike`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ messageTs }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Strike failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function unstrikeMessage(
+  taskId: string,
+  messageTs: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<StrikeResponse> {
+  const url = new URL(`/assist/${taskId}/history/unstrike`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ messageTs }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Unstrike failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 export interface PendingAction {
   action: 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
   status?: string

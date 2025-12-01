@@ -286,6 +286,9 @@ interface AssistPanelProps {
   } | null
   emailDraftOpen?: boolean
   setEmailDraftOpen?: (open: boolean) => void
+  // Strike/unstrike message handlers
+  onStrikeMessage?: (messageTs: string) => Promise<void>
+  onUnstrikeMessage?: (messageTs: string) => Promise<void>
 }
 
 // Draggable divider component
@@ -397,6 +400,8 @@ export function AssistPanel({
   savedDraft,
   emailDraftOpen: emailDraftOpenProp,
   setEmailDraftOpen: setEmailDraftOpenProp,
+  onStrikeMessage,
+  onUnstrikeMessage,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
@@ -1113,38 +1118,71 @@ export function AssistPanel({
               <p className="subtle">Start collaborating with DATA on this task.</p>
             ) : (
               conversation.map((entry, index) => (
-                <div key={`${entry.ts}-${index}`} className={`chat-bubble ${entry.role}`}>
-                  <div className="chat-meta">
-                    <span>{entry.role === 'assistant' ? 'DATA' : 'You'}</span>
-                    <span>{new Date(entry.ts).toLocaleString()}</span>
-                    {entry.role === 'assistant' && (
-                      <button
-                        className="push-btn-inline"
-                        onClick={() => pushToWorkspace(entry.content)}
-                        title="Push to Workspace"
-                      >
-                        ➡️
-                      </button>
+                entry.struck ? (
+                  // Struck message - show single line with undo option
+                  <div key={`${entry.ts}-${index}`} className="chat-bubble struck">
+                    <div className="struck-message">
+                      <span className="struck-icon">⚡</span>
+                      <span className="struck-text">
+                        Response removed on {entry.struckAt ? new Date(entry.struckAt).toLocaleDateString() : 'unknown date'}
+                      </span>
+                      {onUnstrikeMessage && (
+                        <button
+                          className="unstrike-btn"
+                          onClick={() => onUnstrikeMessage(entry.ts)}
+                          title="Restore this response"
+                        >
+                          Undo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  // Normal message
+                  <div key={`${entry.ts}-${index}`} className={`chat-bubble ${entry.role}`}>
+                    <div className="chat-meta">
+                      <span>{entry.role === 'assistant' ? 'DATA' : 'You'}</span>
+                      <span>{new Date(entry.ts).toLocaleString()}</span>
+                      {entry.role === 'assistant' && (
+                        <>
+                          <button
+                            className="push-btn-inline"
+                            onClick={() => pushToWorkspace(entry.content)}
+                            title="Push to Workspace"
+                          >
+                            ➡️
+                          </button>
+                          {onStrikeMessage && (
+                            <button
+                              className="strike-btn"
+                              onClick={() => onStrikeMessage(entry.ts)}
+                              title="Strike this response"
+                            >
+                              ⚡
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    <div className="chat-content">
+                      {entry.role === 'assistant' 
+                        ? renderMarkdown(entry.content)
+                        : entry.content
+                      }
+                    </div>
+                    {/* Feedback controls for assistant responses */}
+                    {entry.role === 'assistant' && onFeedbackSubmit && (
+                      <FeedbackControls
+                        context={entry.metadata?.source === 'research' ? 'research' : 
+                                 entry.metadata?.source === 'plan' ? 'plan' :
+                                 entry.metadata?.action ? 'task_update' : 'chat'}
+                        messageContent={entry.content}
+                        messageId={entry.metadata?.messageId as string | undefined}
+                        onSubmit={onFeedbackSubmit}
+                      />
                     )}
                   </div>
-                  <div className="chat-content">
-                    {entry.role === 'assistant' 
-                      ? renderMarkdown(entry.content)
-                      : entry.content
-                    }
-                  </div>
-                  {/* Feedback controls for assistant responses */}
-                  {entry.role === 'assistant' && onFeedbackSubmit && (
-                    <FeedbackControls
-                      context={entry.metadata?.source === 'research' ? 'research' : 
-                               entry.metadata?.source === 'plan' ? 'plan' :
-                               entry.metadata?.action ? 'task_update' : 'chat'}
-                      messageContent={entry.content}
-                      messageId={entry.metadata?.messageId as string | undefined}
-                      onSubmit={onFeedbackSubmit}
-                    />
-                  )}
-                </div>
+                )
               ))
             )}
           </div>

@@ -5,8 +5,11 @@ from .history import (
     build_plan_summary,
     clear_conversation,
     fetch_conversation,
+    fetch_conversation_for_llm,
     log_assistant_message,
     log_user_message,
+    strike_message,
+    unstrike_message,
 )
 
 __all__ = [
@@ -14,7 +17,10 @@ __all__ = [
     "build_plan_summary",
     "clear_conversation",
     "fetch_conversation",
+    "fetch_conversation_for_llm",
     "log_assistant_message",
     "log_user_message",
+    "strike_message",
+    "unstrike_message",
 ]
 

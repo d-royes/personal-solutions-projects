@@ -21,7 +21,9 @@ import {
   searchContacts,
   sendChatMessage,
   sendEmail,
+  strikeMessage,
   submitFeedback,
+  unstrikeMessage,
   updateTask,
 } from './api'
 import type { SavedEmailDraft } from './api'
@@ -719,6 +721,30 @@ function App() {
     }
   }
 
+  // Strike message handler - hides a response from view and excludes from LLM context
+  async function handleStrikeMessage(messageTs: string) {
+    if (!selectedTaskId || !authConfig) return
+    
+    try {
+      const result = await strikeMessage(selectedTaskId, messageTs, authConfig, apiBase)
+      setConversation(result.history)
+    } catch (err) {
+      console.error('Strike message failed:', err)
+    }
+  }
+
+  // Unstrike message handler - restores a struck message
+  async function handleUnstrikeMessage(messageTs: string) {
+    if (!selectedTaskId || !authConfig) return
+    
+    try {
+      const result = await unstrikeMessage(selectedTaskId, messageTs, authConfig, apiBase)
+      setConversation(result.history)
+    } catch (err) {
+      console.error('Unstrike message failed:', err)
+    }
+  }
+
   const isAuthenticated = !!authConfig
   const envLabel = environmentName ?? 'DEV'
 
@@ -749,7 +775,7 @@ function App() {
           >
             ☰
           </button>
-        </div>
+      </div>
       </header>
 
       {menuOpen && (
@@ -774,7 +800,7 @@ function App() {
                 disabled={!authConfig}
               >
                 Activity
-              </button>
+        </button>
             </nav>
             <div className="menu-view">
               {menuView === 'auth' && <AuthPanel onClose={() => setMenuOpen(false)} />}
@@ -822,7 +848,7 @@ function App() {
                 ))}
             </div>
           </div>
-        </div>
+      </div>
       )}
 
       <main className={`grid ${taskPanelCollapsed ? 'task-collapsed' : ''}`}>
@@ -892,6 +918,8 @@ function App() {
               savedDraft={savedDraft}
               emailDraftOpen={emailDraftOpen}
               setEmailDraftOpen={setEmailDraftOpen}
+              onStrikeMessage={handleStrikeMessage}
+              onUnstrikeMessage={handleUnstrikeMessage}
             />
           </>
         )}

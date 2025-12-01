@@ -17,8 +17,11 @@ from daily_task_assistant.conversations import (
     build_plan_summary,
     clear_conversation,
     fetch_conversation,
+    fetch_conversation_for_llm,
     log_assistant_message,
     log_user_message,
+    strike_message,
+    unstrike_message,
 )
 from daily_task_assistant.dataset import fetch_tasks as fetch_task_dataset
 from daily_task_assistant.logs import fetch_activity_entries
@@ -110,7 +113,7 @@ class AssistRequest(BaseModel):
 class ConversationMessageModel(BaseModel):
     role: Literal["user", "assistant"]
     content: str
-    ts: datetime
+    ts: str  # Keep as string to preserve exact timestamp format for strike matching
     metadata: Dict[str, Any] = Field(default_factory=dict)
     plan: Optional[Dict[str, Any]] = None
     send_email_account: Optional[str] = Field(
@@ -118,6 +121,8 @@ class ConversationMessageModel(BaseModel):
         alias="sendEmailAccount",
         description="Gmail account prefix to send email (e.g., 'church').",
     )
+    struck: bool = False
+    struck_at: Optional[str] = Field(None, alias="struckAt")  # Keep as string
 
 
 @app.get("/health")
@@ -231,8 +236,8 @@ def generate_plan(
     if not target:
         raise HTTPException(status_code=404, detail="Task not found.")
 
-    # Fetch conversation history to include in plan consideration
-    history = fetch_conversation(task_id, limit=100)
+    # Fetch conversation history to include in plan consideration (excluding struck messages)
+    history = fetch_conversation_for_llm(task_id, limit=100)
     llm_history: List[Dict[str, str]] = [
         {"role": msg.role, "content": msg.content} for msg in history
     ]
@@ -274,6 +279,54 @@ def get_conversation_history(
     return [ConversationMessageModel(**asdict(msg)) for msg in history]
 
 
+class StrikeRequest(BaseModel):
+    """Request body for striking a message."""
+    message_ts: str = Field(..., alias="messageTs", description="Timestamp of the message to strike")
+
+
+@app.post("/assist/{task_id}/history/strike")
+def strike_conversation_message(
+    task_id: str,
+    request: StrikeRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Strike (hide) a message from the conversation.
+    
+    Struck messages are hidden from the UI and excluded from LLM context.
+    """
+    success = strike_message(task_id, request.message_ts)
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found.")
+    
+    # Return updated history
+    history = fetch_conversation(task_id, limit=100)
+    return {
+        "status": "struck",
+        "messageTs": request.message_ts,
+        "history": [ConversationMessageModel(**asdict(msg)).model_dump() for msg in history],
+    }
+
+
+@app.post("/assist/{task_id}/history/unstrike")
+def unstrike_conversation_message(
+    task_id: str,
+    request: StrikeRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Unstrike (restore) a previously struck message."""
+    success = unstrike_message(task_id, request.message_ts)
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found.")
+    
+    # Return updated history
+    history = fetch_conversation(task_id, limit=100)
+    return {
+        "status": "unstruck",
+        "messageTs": request.message_ts,
+        "history": [ConversationMessageModel(**asdict(msg)).model_dump() for msg in history],
+    }
+
+
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
     message: str = Field(..., description="The user's message")
@@ -300,9 +353,10 @@ def chat_with_task(
     if not target:
         raise HTTPException(status_code=404, detail="Task not found.")
 
-    # Fetch existing conversation history
+    # Fetch existing conversation history (full history for logging, filtered for LLM)
     history = fetch_conversation(task_id, limit=50)
-    
+    llm_history_messages = fetch_conversation_for_llm(task_id, limit=50)
+
     # Log the user message
     user_turn = log_user_message(
         task_id,
@@ -311,9 +365,9 @@ def chat_with_task(
         metadata={"source": request.source},
     )
 
-    # Build history for LLM (excluding the message we just logged)
+    # Build history for LLM (excluding struck messages and the message we just logged)
     llm_history: List[Dict[str, str]] = [
-        {"role": msg.role, "content": msg.content} for msg in history
+        {"role": msg.role, "content": msg.content} for msg in llm_history_messages
     ]
 
     # Call Anthropic with tool support for task updates
@@ -653,8 +707,8 @@ def summarize_task_endpoint(
     if not target:
         raise HTTPException(status_code=404, detail="Task not found.")
 
-    # Fetch conversation history
-    history = fetch_conversation(task_id, limit=100)
+    # Fetch conversation history (excluding struck messages for LLM)
+    history = fetch_conversation_for_llm(task_id, limit=100)
     llm_history: List[Dict[str, str]] = [
         {"role": msg.role, "content": msg.content} for msg in history
     ]
