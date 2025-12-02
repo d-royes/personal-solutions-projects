@@ -137,55 +137,6 @@ def health_check() -> dict:
     """
     # Get environment directly - don't use _get_settings() as it may throw
     environment = os.getenv("DTA_ENV", "local")
-
-
-@app.get("/health/anthropic-test")
-def anthropic_test() -> dict:
-    """Test endpoint to verify Anthropic API connection works.
-    
-    Makes a simple API call to verify the connection is working.
-    This helps diagnose issues where config looks correct but calls fail.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    try:
-        from daily_task_assistant.llm.anthropic_client import build_anthropic_client, resolve_config
-        logger.info("Imported anthropic_client successfully")
-        
-        client = build_anthropic_client()
-        logger.info("Built anthropic client successfully")
-        
-        config = resolve_config()
-        logger.info(f"Using model: {config.model}")
-        
-        # Make a minimal API call
-        response = client.messages.create(
-            model=config.model,
-            max_tokens=50,
-            messages=[{"role": "user", "content": "Say 'OK' if you can hear me."}],
-        )
-        logger.info("API call succeeded")
-        
-        # Extract response text
-        text = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                text += block.text
-        
-        return {
-            "status": "ok",
-            "model": config.model,
-            "response": text[:100],
-            "stop_reason": response.stop_reason,
-        }
-    except Exception as e:
-        logger.exception("Anthropic test failed")
-        return {
-            "status": "error",
-            "error_type": type(e).__name__,
-            "error_message": str(e),
-        }
     errors = {}
     
     # Check Anthropic configuration
@@ -262,6 +213,55 @@ def anthropic_test() -> dict:
         },
         "errors": errors if errors else None,
     }
+
+
+@app.get("/health/anthropic-test")
+def anthropic_test() -> dict:
+    """Test endpoint to verify Anthropic API connection works.
+    
+    Makes a simple API call to verify the connection is working.
+    This helps diagnose issues where config looks correct but calls fail.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        from daily_task_assistant.llm.anthropic_client import build_anthropic_client, resolve_config
+        logger.info("Imported anthropic_client successfully")
+        
+        client = build_anthropic_client()
+        logger.info("Built anthropic client successfully")
+        
+        config = resolve_config()
+        logger.info(f"Using model: {config.model}")
+        
+        # Make a minimal API call
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=50,
+            messages=[{"role": "user", "content": "Say 'OK' if you can hear me."}],
+        )
+        logger.info("API call succeeded")
+        
+        # Extract response text
+        text = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                text += block.text
+        
+        return {
+            "status": "ok",
+            "model": config.model,
+            "response": text[:100],
+            "stop_reason": response.stop_reason,
+        }
+    except Exception as e:
+        logger.exception("Anthropic test failed")
+        return {
+            "status": "error",
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+        }
 
 
 @app.get("/tasks")
