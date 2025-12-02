@@ -5,6 +5,17 @@ import type { AuthConfig } from './types'
 
 const AUTH_STORAGE_KEY = 'dta-auth-state'
 
+// Allowed email addresses (must match backend DTA_ALLOWED_EMAILS or defaults)
+const ALLOWED_EMAILS = new Set([
+  'davidroyes@southpointsda.org',
+  'david.a.royes@gmail.com',
+])
+
+function isEmailAllowed(email: string | null): boolean {
+  if (!email) return false
+  return ALLOWED_EMAILS.has(email.toLowerCase())
+}
+
 interface AuthState {
   mode: 'google' | 'dev' | 'unauthenticated'
   userEmail: string | null
@@ -16,9 +27,10 @@ interface AuthContextValue {
   authConfig: AuthConfig | null
   googleClientId?: string
   defaultDevEmail: string
-  useDevAuth: (email: string) => void
+  authError: string | null
+  useDevAuth: (email: string) => boolean  // Returns false if email not allowed
   clearAuth: () => void
-  setGoogleCredential: (token: string, email: string | null) => void
+  setGoogleCredential: (token: string, email: string | null) => boolean  // Returns false if email not allowed
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -82,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const defaultDevEmail = import.meta.env.VITE_DEV_USER_EMAIL ?? ''
 
   const [state, setState] = useState<AuthState>(() => loadAuthState(defaultDevEmail))
+  const [authError, setAuthError] = useState<string | null>(null)
 
   // Persist auth state to localStorage whenever it changes
   useEffect(() => {
@@ -126,24 +139,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authConfig,
     googleClientId: clientId,
     defaultDevEmail,
-    useDevAuth: (email: string) =>
+    authError,
+    useDevAuth: (email: string) => {
+      if (!isEmailAllowed(email)) {
+        setAuthError(`Access denied. Email '${email}' is not authorized.`)
+        return false
+      }
+      setAuthError(null)
       setState({
         mode: 'dev',
         userEmail: email,
         idToken: null,
-      }),
-    clearAuth: () =>
+      })
+      return true
+    },
+    clearAuth: () => {
+      setAuthError(null)
       setState({
         mode: 'unauthenticated',
         userEmail: null,
         idToken: null,
-      }),
-    setGoogleCredential: (token, email) =>
+      })
+    },
+    setGoogleCredential: (token, email) => {
+      if (!isEmailAllowed(email)) {
+        setAuthError(`Access denied. Email '${email}' is not authorized to use this application.`)
+        return false
+      }
+      setAuthError(null)
       setState({
         mode: 'google',
         idToken: token,
         userEmail: email,
-      }),
+      })
+      return true
+    },
   }
 
   const content = (
