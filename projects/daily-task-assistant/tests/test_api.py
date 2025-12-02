@@ -5,16 +5,22 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-os.environ.setdefault("SMARTSHEET_API_TOKEN", "test-token")
-os.environ.setdefault("DTA_ACTIVITY_LOG", str(Path("test_activity_log.jsonl").resolve()))
-os.environ.setdefault("DTA_ACTIVITY_FORCE_FILE", "1")
-os.environ.setdefault("DTA_CONVERSATION_FORCE_FILE", "1")
-os.environ.setdefault("DTA_CONVERSATION_DIR", str(Path("test_conversations").resolve()))
-os.environ.setdefault("DTA_DEV_AUTH_BYPASS", "1")
+# Set env vars BEFORE any imports that might cache them
+os.environ["SMARTSHEET_API_TOKEN"] = "test-token"
+os.environ["DTA_ACTIVITY_LOG"] = str(Path("test_activity_log.jsonl").resolve())
+os.environ["DTA_ACTIVITY_FORCE_FILE"] = "1"
+os.environ["DTA_CONVERSATION_FORCE_FILE"] = "1"
+os.environ["DTA_CONVERSATION_DIR"] = str(Path("test_conversations").resolve())
+os.environ["DTA_DEV_AUTH_BYPASS"] = "1"
+os.environ["DTA_ALLOWED_EMAILS"] = "tester@example.com,david.a.royes@gmail.com"
 
 API_ROOT = Path("projects/daily-task-assistant").resolve()
 if str(API_ROOT) not in sys.path:
     sys.path.append(str(API_ROOT))
+
+# Clear any cached auth functions before importing app
+from daily_task_assistant.api import auth as auth_module  # noqa: E402
+auth_module._allowed_emails.cache_clear()
 
 from api.main import app  # type: ignore  # noqa: E402
 

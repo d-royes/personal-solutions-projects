@@ -232,9 +232,7 @@ interface AssistPanelProps {
   running: boolean
   planGenerating: boolean
   researchRunning: boolean
-  researchResults: string | null
   summarizeRunning: boolean
-  summarizeResults: string | null
   contactRunning: boolean
   contactResults: ContactCard[] | null
   contactConfirmation: ContactSearchResponse | null
@@ -361,9 +359,7 @@ export function AssistPanel({
   running,
   planGenerating,
   researchRunning,
-  researchResults,
   summarizeRunning,
-  summarizeResults,
   contactRunning,
   contactResults,
   contactConfirmation,
