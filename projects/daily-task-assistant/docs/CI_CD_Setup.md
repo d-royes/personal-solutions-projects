@@ -1,9 +1,16 @@
 # CI/CD Setup Guide
 
 > **Last Updated**: December 2, 2025  
-> **Status**: Staging environment fully operational
+> **Status**: ✅ Staging environment fully operational  
+> **First Successful Deployment**: December 2, 2025 (PR #8, 2m 32s)
 
 This document describes how to set up the GitHub Actions CI/CD pipeline for the Daily Task Assistant.
+
+## Deployment History
+
+| Date | PR | Environment | Duration | Notes |
+|------|-----|-------------|----------|-------|
+| 2025-12-02 | #8 | Staging | 2m 32s | First CI/CD deployment - 9 commits including auth persistence, email allowlist, Research improvements |
 
 ## Quick Reference
 
