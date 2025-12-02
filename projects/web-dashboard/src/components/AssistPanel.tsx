@@ -974,31 +974,9 @@ export function AssistPanel({
               )}
             </div>
             <div className="zone-content workspace-content">
-              {workspaceItems.length > 0 ? (
-                <div className="workspace-items-container">
-                  {workspaceItems.map((item, index) => (
-                    <div key={item.id} className="workspace-item-simple">
-                      {index > 0 && <hr className="workspace-separator" />}
-                      <div className="workspace-item-wrapper">
-                        <textarea
-                          className="workspace-editor"
-                          value={item.content}
-                          onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
-                          placeholder="Edit content here..."
-                        />
-                        <button
-                          className="workspace-item-delete"
-                          onClick={() => removeWorkspaceItem(item.id)}
-                          title="Remove this section"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : activeAction === 'research' ? (
-                <div className="action-output-content">
+              {/* Action status banner - shows above workspace when action is active */}
+              {activeAction === 'research' && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('research')}</h5>
                   </div>
@@ -1014,8 +992,9 @@ export function AssistPanel({
                     <p className="subtle">Click Research to search for information.</p>
                   )}
                 </div>
-              ) : activeAction === 'summarize' ? (
-                <div className="action-output-content">
+              )}
+              {activeAction === 'summarize' && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('summarize')}</h5>
                   </div>
@@ -1031,8 +1010,9 @@ export function AssistPanel({
                     <p className="subtle">Click Summarize to generate a task summary.</p>
                   )}
                 </div>
-              ) : activeAction === 'contact' ? (
-                <div className="action-output-content">
+              )}
+              {activeAction === 'contact' && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('contact')}</h5>
                   </div>
@@ -1076,13 +1056,39 @@ export function AssistPanel({
                     <p className="subtle">Click Contact to search for contact information.</p>
                   )}
                 </div>
-              ) : (
+              )}
+              
+              {/* Workspace items */}
+              {workspaceItems.length > 0 ? (
+                <div className="workspace-items-container">
+                  {workspaceItems.map((item, index) => (
+                    <div key={item.id} className="workspace-item-simple">
+                      {index > 0 && <hr className="workspace-separator" />}
+                      <div className="workspace-item-wrapper">
+                        <textarea
+                          className="workspace-editor"
+                          value={item.content}
+                          onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
+                          placeholder="Edit content here..."
+                        />
+                        <button
+                          className="workspace-item-delete"
+                          onClick={() => removeWorkspaceItem(item.id)}
+                          title="Remove this section"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : !activeAction ? (
                 <div className="zone-placeholder">
                   <p className="subtle">
                     Push content here from the conversation or run an action.
                   </p>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>

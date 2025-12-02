@@ -1245,6 +1245,17 @@ button:not(:disabled):hover {
   flex-direction: column;
 }
 
+.action-status-banner {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+  max-height: none;
+  overflow: visible;
+}
+
 .action-output-header {
   display: flex;
   justify-content: space-between;
