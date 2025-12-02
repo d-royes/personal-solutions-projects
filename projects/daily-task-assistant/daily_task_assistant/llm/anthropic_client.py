@@ -266,8 +266,17 @@ def _extract_text(response, extract_formatted_only: bool = False) -> str:
 
 
 def _parse_json(text: str) -> dict:
+    """Parse JSON from text, handling markdown code fences if present."""
+    import re
+    
+    # Strip markdown code fences if present (```json ... ``` or ``` ... ```)
+    cleaned = text.strip()
+    fence_match = re.match(r'^```(?:json)?\s*\n?(.*?)\n?```$', cleaned, re.DOTALL)
+    if fence_match:
+        cleaned = fence_match.group(1).strip()
+    
     try:
-        return json.loads(text)
+        return json.loads(cleaned)
     except json.JSONDecodeError as exc:
         raise AnthropicError(
             f"Anthropic response was not valid JSON: {text[:200]}"
