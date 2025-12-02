@@ -223,8 +223,17 @@ def generate_assist_suggestion(
     )
 
 
-def _extract_text(response) -> str:
-    """Extract text content from Anthropic response, handling various block types."""
+def _extract_text(response, extract_formatted_only: bool = False) -> str:
+    """Extract text content from Anthropic response, handling various block types.
+    
+    Args:
+        response: The Anthropic API response
+        extract_formatted_only: If True, try to extract only the formatted markdown
+            section (starting from ## headers), filtering out reasoning/thinking text.
+            Useful for web search responses that include verbose reasoning.
+    """
+    import re
+    
     chunks = []
     for block in getattr(response, "content", []):
         block_type = getattr(block, "type", None)
@@ -235,6 +244,24 @@ def _extract_text(response) -> str:
     text = "\n".join(chunks).strip()
     if not text:
         raise AnthropicError("Anthropic response did not contain text content.")
+    
+    # If requested, try to extract only the formatted section
+    if extract_formatted_only:
+        # Find the first ## header (Key Findings, Task Overview, etc.)
+        match = re.search(r'^(##\s+\w)', text, re.MULTILINE)
+        if match:
+            text = text[match.start():].strip()
+    
+    # Fix bullet point formatting: "- \n\nText" should become "- Text"
+    # This handles cases where Anthropic adds extra newlines after bullet markers
+    text = re.sub(r'^-\s*\n+', '- ', text, flags=re.MULTILINE)
+    
+    # Also fix numbered lists with same issue: "1. \n\nText" -> "1. Text"
+    text = re.sub(r'^(\d+\.)\s*\n+', r'\1 ', text, flags=re.MULTILINE)
+    
+    # Collapse multiple blank lines into single blank line
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
     return text
 
 
@@ -727,26 +754,38 @@ def _describe_action(action: TaskUpdateAction) -> str:
     return f"perform action: {action.action}"
 
 
-RESEARCH_SYSTEM_PROMPT = """You are DATA, helping David research information for his tasks.
+RESEARCH_SYSTEM_PROMPT = """You are DATA, researching information to help David complete a SPECIFIC task.
 
-FORMAT YOUR RESPONSE AS:
+CRITICAL: Research must be DIRECTLY ACTIONABLE for THIS task. Do NOT provide:
+- Generic tool comparisons or product reviews
+- Background information or definitions
+- "Options to consider" lists
+- Anything David would already know
+
+INSTEAD provide:
+- Specific answers to questions implied by the task
+- Contact details, URLs, or procedures David needs RIGHT NOW
+- Concrete steps to complete THIS task
+
+FORMAT (use only relevant sections):
 
 ## Key Findings
-- 3-5 bullet points with the most important discoveries
-- Include specific details inline (phone, address, hours)
+- 3-5 bullets with SPECIFIC, ACTIONABLE information
+- Include exact details: phone numbers, URLs, deadlines, requirements
+- Every bullet should help David take action TODAY
 
 ## Action Items
-- 2-3 concrete next steps David should take
-- Be specific (e.g., "Call [number]" not "Contact them")
+- 2-3 CONCRETE next steps (not "consider" or "explore")
+- Use specific verbs: "Call", "Email", "Submit", "Download"
 
 ## Sources
-- Brief list of where info came from
+- Brief attribution (1-2 lines max)
 
 RULES:
-- Be CONCISE - bullet points only, no paragraphs
-- Put contact info (phone, email, address) directly in bullets
-- Skip sections if no relevant info found
-- No filler text or verbose explanations
+- Maximum 150 words total
+- Skip sections with no useful findings
+- No filler, no hedging, no "you might want to consider"
+- If web search finds nothing useful, say so in one line
 """
 
 
@@ -776,13 +815,15 @@ def research_task(
     if next_steps:
         next_steps_text = "\n".join(f"- {step}" for step in next_steps[:5])
     
-    research_prompt = f"""Research this task:
+    research_prompt = f"""Help David complete this task by finding SPECIFIC, ACTIONABLE information:
 
 **Task:** {task.title}
 **Notes:** {task.notes or "None"}
-{f"**Context:** {next_steps_text}" if next_steps_text else ""}
+{f"**What David needs to do:** {next_steps_text}" if next_steps_text else ""}
 
-Find: contact info, hours, procedures, requirements. Be concise - bullets only."""
+Search for: specific procedures, requirements, contact info, or deadlines that David needs to ACT on this task.
+Do NOT search for: tool comparisons, product reviews, or general background information.
+If the task is self-explanatory, say "No external research needed" and suggest proceeding directly."""
 
     messages = [
         {
@@ -805,7 +846,8 @@ Find: contact info, hours, procedures, requirements. Be concise - bullets only."
     except Exception as exc:
         raise AnthropicError(f"Anthropic request failed: {exc}") from exc
 
-    return _extract_text(response)
+    # Use extract_formatted_only=True to filter out web search reasoning/thinking
+    return _extract_text(response, extract_formatted_only=True)
 
 
 SUMMARIZE_SYSTEM_PROMPT = """You are DATA, David's task assistant. Create a concise summary of the current state of a task.

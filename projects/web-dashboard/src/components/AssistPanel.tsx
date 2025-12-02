@@ -974,44 +974,28 @@ export function AssistPanel({
               )}
             </div>
             <div className="zone-content workspace-content">
-              {/* Action status banner - shows above workspace when action is active */}
-              {activeAction === 'research' && (
+              {/* Action status banner - shows ONLY while action is running */}
+              {activeAction === 'research' && researchRunning && (
                 <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('research')}</h5>
                   </div>
-                  {researchRunning ? (
-                    <div className="research-loading">
-                      <p className="subtle">🔍 Searching the web...</p>
-                    </div>
-                  ) : researchResults ? (
-                    <div className="action-status">
-                      <p className="success-message">✅ Research added to workspace</p>
-                    </div>
-                  ) : (
-                    <p className="subtle">Click Research to search for information.</p>
-                  )}
+                  <div className="research-loading">
+                    <p className="subtle">🔍 Searching the web...</p>
+                  </div>
                 </div>
               )}
-              {activeAction === 'summarize' && (
+              {activeAction === 'summarize' && summarizeRunning && (
                 <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('summarize')}</h5>
                   </div>
-                  {summarizeRunning ? (
-                    <div className="research-loading">
-                      <p className="subtle">📄 Generating summary...</p>
-                    </div>
-                  ) : summarizeResults ? (
-                    <div className="action-status">
-                      <p className="success-message">✅ Summary added to workspace</p>
-                    </div>
-                  ) : (
-                    <p className="subtle">Click Summarize to generate a task summary.</p>
-                  )}
+                  <div className="research-loading">
+                    <p className="subtle">📄 Generating summary...</p>
+                  </div>
                 </div>
               )}
-              {activeAction === 'contact' && (
+              {activeAction === 'contact' && (contactRunning || contactConfirmation) && (
                 <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('contact')}</h5>
@@ -1046,15 +1030,7 @@ export function AssistPanel({
                         </button>
                       </div>
                     </div>
-                  ) : contactResults && contactResults.length > 0 ? (
-                    <div className="contact-status">
-                      <p className="success-message">✅ {contactResults.length} contact(s) added to workspace</p>
-                    </div>
-                  ) : contactResults && contactResults.length === 0 ? (
-                    <p className="subtle">No contacts found in task details.</p>
-                  ) : (
-                    <p className="subtle">Click Contact to search for contact information.</p>
-                  )}
+                  ) : null}
                 </div>
               )}
               
