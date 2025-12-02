@@ -1,6 +1,17 @@
 # CI/CD Setup Guide
 
+> **Last Updated**: December 2, 2025  
+> **Status**: Staging environment fully operational
+
 This document describes how to set up the GitHub Actions CI/CD pipeline for the Daily Task Assistant.
+
+## Quick Reference
+
+| Environment | Frontend URL | Backend URL |
+|-------------|--------------|-------------|
+| **Dev** | http://localhost:5173 | http://localhost:8000 |
+| **Staging** | https://daily-task-assistant-church.web.app | https://daily-task-assistant-staging-368257400464.us-central1.run.app |
+| **Production** | TBD | TBD |
 
 ## Branch Strategy
 
@@ -52,21 +63,36 @@ The workflows will create these automatically on first deploy:
 
 ### 3. Secret Manager Secrets
 
-Ensure these secrets exist in Secret Manager:
-- `SMARTSHEET_API_TOKEN`
-- `ANTHROPIC_API_KEY`
-- `CHURCH_GMAIL_CLIENT_ID`
-- `CHURCH_GMAIL_CLIENT_SECRET`
-- `CHURCH_GMAIL_REFRESH_TOKEN`
-- `PERSONAL_GMAIL_CLIENT_ID`
-- `PERSONAL_GMAIL_CLIENT_SECRET`
-- `PERSONAL_GMAIL_REFRESH_TOKEN`
+Ensure these secrets exist in Secret Manager (10 total):
+
+| Secret | Purpose |
+|--------|---------|
+| `SMARTSHEET_API_TOKEN` | Smartsheet API access |
+| `ANTHROPIC_API_KEY` | Claude AI API access |
+| `CHURCH_GMAIL_CLIENT_ID` | Church Gmail OAuth Client ID |
+| `CHURCH_GMAIL_CLIENT_SECRET` | Church Gmail OAuth Client Secret |
+| `CHURCH_GMAIL_REFRESH_TOKEN` | Church Gmail OAuth Refresh Token |
+| `CHURCH_GMAIL_ADDRESS` | Church Gmail email address (e.g., `user@southpointsda.org`) |
+| `PERSONAL_GMAIL_CLIENT_ID` | Personal Gmail OAuth Client ID |
+| `PERSONAL_GMAIL_CLIENT_SECRET` | Personal Gmail OAuth Client Secret |
+| `PERSONAL_GMAIL_REFRESH_TOKEN` | Personal Gmail OAuth Refresh Token |
+| `PERSONAL_GMAIL_ADDRESS` | Personal Gmail email address |
+
+> ⚠️ **CRITICAL**: When creating secrets, ensure there are NO trailing whitespace or newline characters. Copy values carefully - trailing `\r\n` or spaces will cause authentication failures that are difficult to debug.
 
 ### 4. Firebase Hosting
 
 Firebase Hosting should already be configured from the previous setup. The workflows use:
 - Staging: `daily-task-assistant-church.web.app`
 - Production: `daily-task-assistant-prod.web.app` (create when ready)
+
+### 5. Current Staging URLs
+
+| Service | URL |
+|---------|-----|
+| Frontend | https://daily-task-assistant-church.web.app |
+| Backend | https://daily-task-assistant-staging-368257400464.us-central1.run.app |
+| Health Check | https://daily-task-assistant-staging-368257400464.us-central1.run.app/health |
 
 ## Branch Protection Rules
 
@@ -114,6 +140,50 @@ Create a `production` environment in GitHub repo Settings > Environments:
 8. Create PR from `staging` to `main` → tests run
 9. Merge to `main` → wait for approval → deploy to production
 
+## Post-Deployment Verification
+
+The deployment workflows include automatic health checks that verify:
+
+1. **Backend Health** - Calls `/health` endpoint and checks:
+   - Anthropic API configured
+   - Smartsheet API configured
+   - Church Gmail configured
+   - Personal Gmail configured
+
+2. **Frontend Accessibility** - Verifies the Firebase Hosting URL returns HTTP 200
+
+If any critical service is not configured, the deployment will **fail** and alert you.
+
+### Manual Health Check
+
+You can manually verify the deployment by calling:
+```bash
+curl https://daily-task-assistant-staging-368257400464.us-central1.run.app/health | jq
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "environment": "staging",
+  "services": {
+    "anthropic": "configured",
+    "smartsheet": "configured",
+    "church_gmail": "configured",
+    "personal_gmail": "configured"
+  }
+}
+```
+
+### Anthropic Connection Test
+
+For deeper Anthropic debugging, use:
+```bash
+curl https://daily-task-assistant-staging-368257400464.us-central1.run.app/health/anthropic-test | jq
+```
+
+This makes an actual API call to verify the connection works end-to-end.
+
 ## Troubleshooting
 
 ### Tests fail
@@ -127,4 +197,20 @@ Create a `production` environment in GitHub repo Settings > Environments:
 ### Firebase deploy fails
 - Ensure `firebase.json` exists in `projects/web-dashboard/`
 - Verify the service account has Firebase Hosting Admin role
+
+### Secrets not working after update
+Cloud Run caches secrets. After updating a secret in Secret Manager:
+1. Deploy a new revision: `gcloud run deploy daily-task-assistant-staging --region us-central1 --source .`
+2. Or update the service to force a new revision
+
+### "Illegal header value" or authentication errors
+This usually means a secret has trailing whitespace or newline characters:
+1. Go to Secret Manager in GCP Console
+2. Create a **new version** of the affected secret with clean value
+3. Redeploy to pick up the new version
+
+### Gmail "invalid_client" error
+The Gmail OAuth Client ID is incorrect or has trailing characters:
+1. Verify the Client ID matches exactly what's in GCP Console > APIs & Services > Credentials
+2. Recreate the secret with the exact value (no trailing spaces/newlines)
 
