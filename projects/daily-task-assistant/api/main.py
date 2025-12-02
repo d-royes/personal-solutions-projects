@@ -131,8 +131,12 @@ def health_check() -> dict:
     
     Returns status of critical services including Anthropic API and Gmail configuration.
     Used by CI/CD pipeline to verify deployment success.
+    
+    Note: This endpoint must NOT call _get_settings() as it may raise ConfigError
+    if required env vars are missing. We read env vars directly instead.
     """
-    settings = _get_settings()
+    # Get environment directly - don't use _get_settings() as it may throw
+    environment = os.getenv("DTA_ENV", "local")
     errors = {}
     
     # Check Anthropic configuration
@@ -200,7 +204,7 @@ def health_check() -> dict:
     return {
         "status": "ok",
         "time": datetime.now(timezone.utc).isoformat(),
-        "environment": settings.environment,
+        "environment": environment,
         "services": {
             "anthropic": anthropic_status,
             "smartsheet": smartsheet_status,
