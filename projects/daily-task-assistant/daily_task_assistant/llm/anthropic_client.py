@@ -754,38 +754,41 @@ def _describe_action(action: TaskUpdateAction) -> str:
     return f"perform action: {action.action}"
 
 
-RESEARCH_SYSTEM_PROMPT = """You are DATA, researching information to help David complete a SPECIFIC task.
+RESEARCH_SYSTEM_PROMPT = """You are DATA, researching to help David gain DEEPER UNDERSTANDING of a task topic.
 
-CRITICAL: Research must be DIRECTLY ACTIONABLE for THIS task. Do NOT provide:
-- Generic tool comparisons or product reviews
-- Background information or definitions
-- "Options to consider" lists
-- Anything David would already know
+PURPOSE: Surface insights, best practices, pros/cons, and approaches that help David make informed decisions and execute effectively.
 
-INSTEAD provide:
-- Specific answers to questions implied by the task
-- Contact details, URLs, or procedures David needs RIGHT NOW
-- Concrete steps to complete THIS task
+RESEARCH SHOULD REVEAL:
+- Pros and cons of the approach mentioned in the task
+- Alternative approaches worth considering
+- Best practices and common pitfalls
+- How to get started or structure the work
 
-FORMAT (use only relevant sections):
+DO NOT:
+- List product/tool comparisons with pricing
+- Provide generic definitions David already knows
+- Include contact info unless the task requires external parties
 
-## Key Findings
-- 3-5 bullets with SPECIFIC, ACTIONABLE information
-- Include exact details: phone numbers, URLs, deadlines, requirements
-- Every bullet should help David take action TODAY
+FORMAT:
 
-## Action Items
-- 2-3 CONCRETE next steps (not "consider" or "explore")
-- Use specific verbs: "Call", "Email", "Submit", "Download"
+## Key Insights
+- 3-5 bullets revealing UNDERSTANDING about the topic
+- Focus on "why" and "how" not just "what"
+- Include best practices, trade-offs, or lessons learned
 
-## Sources
-- Brief attribution (1-2 lines max)
+## Approach Options
+- 2-3 alternative approaches if relevant
+- Brief pros/cons for each
+
+## Getting Started
+- 2-3 concrete first steps to begin implementation
+- Focus on structure, setup, or initial actions
 
 RULES:
-- Maximum 150 words total
-- Skip sections with no useful findings
-- No filler, no hedging, no "you might want to consider"
-- If web search finds nothing useful, say so in one line
+- Maximum 200 words
+- Skip sections not relevant to this task
+- Be substantive, not generic
+- If the topic is straightforward, keep it brief
 """
 
 
@@ -815,15 +818,19 @@ def research_task(
     if next_steps:
         next_steps_text = "\n".join(f"- {step}" for step in next_steps[:5])
     
-    research_prompt = f"""Help David complete this task by finding SPECIFIC, ACTIONABLE information:
+    research_prompt = f"""Research this topic to help David understand it better and execute effectively:
 
 **Task:** {task.title}
 **Notes:** {task.notes or "None"}
-{f"**What David needs to do:** {next_steps_text}" if next_steps_text else ""}
+{f"**Context:** {next_steps_text}" if next_steps_text else ""}
 
-Search for: specific procedures, requirements, contact info, or deadlines that David needs to ACT on this task.
-Do NOT search for: tool comparisons, product reviews, or general background information.
-If the task is self-explanatory, say "No external research needed" and suggest proceeding directly."""
+Research goals:
+- Understand pros/cons and trade-offs of the approach
+- Discover best practices and common pitfalls
+- Find alternative approaches worth considering
+- Identify how to structure or get started
+
+Do NOT provide: tool/product comparisons with pricing, generic definitions, or contact info unless the task involves external parties."""
 
     messages = [
         {
