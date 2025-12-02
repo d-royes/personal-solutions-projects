@@ -232,9 +232,7 @@ interface AssistPanelProps {
   running: boolean
   planGenerating: boolean
   researchRunning: boolean
-  researchResults: string | null
   summarizeRunning: boolean
-  summarizeResults: string | null
   contactRunning: boolean
   contactResults: ContactCard[] | null
   contactConfirmation: ContactSearchResponse | null
@@ -361,9 +359,7 @@ export function AssistPanel({
   running,
   planGenerating,
   researchRunning,
-  researchResults,
   summarizeRunning,
-  summarizeResults,
   contactRunning,
   contactResults,
   contactConfirmation,
@@ -974,65 +970,29 @@ export function AssistPanel({
               )}
             </div>
             <div className="zone-content workspace-content">
-              {workspaceItems.length > 0 ? (
-                <div className="workspace-items-container">
-                  {workspaceItems.map((item, index) => (
-                    <div key={item.id} className="workspace-item-simple">
-                      {index > 0 && <hr className="workspace-separator" />}
-                      <div className="workspace-item-wrapper">
-                        <textarea
-                          className="workspace-editor"
-                          value={item.content}
-                          onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
-                          placeholder="Edit content here..."
-                        />
-                        <button
-                          className="workspace-item-delete"
-                          onClick={() => removeWorkspaceItem(item.id)}
-                          title="Remove this section"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : activeAction === 'research' ? (
-                <div className="action-output-content">
+              {/* Action status banner - shows ONLY while action is running */}
+              {activeAction === 'research' && researchRunning && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('research')}</h5>
                   </div>
-                  {researchRunning ? (
-                    <div className="research-loading">
-                      <p className="subtle">🔍 Searching the web...</p>
-                    </div>
-                  ) : researchResults ? (
-                    <div className="action-status">
-                      <p className="success-message">✅ Research added to workspace</p>
-                    </div>
-                  ) : (
-                    <p className="subtle">Click Research to search for information.</p>
-                  )}
+                  <div className="research-loading">
+                    <p className="subtle">🔍 Searching the web...</p>
+                  </div>
                 </div>
-              ) : activeAction === 'summarize' ? (
-                <div className="action-output-content">
+              )}
+              {activeAction === 'summarize' && summarizeRunning && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('summarize')}</h5>
                   </div>
-                  {summarizeRunning ? (
-                    <div className="research-loading">
-                      <p className="subtle">📄 Generating summary...</p>
-                    </div>
-                  ) : summarizeResults ? (
-                    <div className="action-status">
-                      <p className="success-message">✅ Summary added to workspace</p>
-                    </div>
-                  ) : (
-                    <p className="subtle">Click Summarize to generate a task summary.</p>
-                  )}
+                  <div className="research-loading">
+                    <p className="subtle">📄 Generating summary...</p>
+                  </div>
                 </div>
-              ) : activeAction === 'contact' ? (
-                <div className="action-output-content">
+              )}
+              {activeAction === 'contact' && (contactRunning || contactConfirmation) && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('contact')}</h5>
                   </div>
@@ -1066,23 +1026,41 @@ export function AssistPanel({
                         </button>
                       </div>
                     </div>
-                  ) : contactResults && contactResults.length > 0 ? (
-                    <div className="contact-status">
-                      <p className="success-message">✅ {contactResults.length} contact(s) added to workspace</p>
-                    </div>
-                  ) : contactResults && contactResults.length === 0 ? (
-                    <p className="subtle">No contacts found in task details.</p>
-                  ) : (
-                    <p className="subtle">Click Contact to search for contact information.</p>
-                  )}
+                  ) : null}
                 </div>
-              ) : (
+              )}
+              
+              {/* Workspace items */}
+              {workspaceItems.length > 0 ? (
+                <div className="workspace-items-container">
+                  {workspaceItems.map((item, index) => (
+                    <div key={item.id} className="workspace-item-simple">
+                      {index > 0 && <hr className="workspace-separator" />}
+                      <div className="workspace-item-wrapper">
+                        <textarea
+                          className="workspace-editor"
+                          value={item.content}
+                          onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
+                          placeholder="Edit content here..."
+                        />
+                        <button
+                          className="workspace-item-delete"
+                          onClick={() => removeWorkspaceItem(item.id)}
+                          title="Remove this section"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : !activeAction ? (
                 <div className="zone-placeholder">
                   <p className="subtle">
                     Push content here from the conversation or run an action.
                   </p>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>

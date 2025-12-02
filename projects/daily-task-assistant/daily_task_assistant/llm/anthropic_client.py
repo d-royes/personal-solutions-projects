@@ -223,8 +223,17 @@ def generate_assist_suggestion(
     )
 
 
-def _extract_text(response) -> str:
-    """Extract text content from Anthropic response, handling various block types."""
+def _extract_text(response, extract_formatted_only: bool = False) -> str:
+    """Extract text content from Anthropic response, handling various block types.
+    
+    Args:
+        response: The Anthropic API response
+        extract_formatted_only: If True, try to extract only the formatted markdown
+            section (starting from ## headers), filtering out reasoning/thinking text.
+            Useful for web search responses that include verbose reasoning.
+    """
+    import re
+    
     chunks = []
     for block in getattr(response, "content", []):
         block_type = getattr(block, "type", None)
@@ -235,12 +244,39 @@ def _extract_text(response) -> str:
     text = "\n".join(chunks).strip()
     if not text:
         raise AnthropicError("Anthropic response did not contain text content.")
+    
+    # If requested, try to extract only the formatted section
+    if extract_formatted_only:
+        # Find the first ## header (Key Findings, Task Overview, etc.)
+        match = re.search(r'^(##\s+\w)', text, re.MULTILINE)
+        if match:
+            text = text[match.start():].strip()
+    
+    # Fix bullet point formatting: "- \n\nText" should become "- Text"
+    # This handles cases where Anthropic adds extra newlines after bullet markers
+    text = re.sub(r'^-\s*\n+', '- ', text, flags=re.MULTILINE)
+    
+    # Also fix numbered lists with same issue: "1. \n\nText" -> "1. Text"
+    text = re.sub(r'^(\d+\.)\s*\n+', r'\1 ', text, flags=re.MULTILINE)
+    
+    # Collapse multiple blank lines into single blank line
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
     return text
 
 
 def _parse_json(text: str) -> dict:
+    """Parse JSON from text, handling markdown code fences if present."""
+    import re
+    
+    # Strip markdown code fences if present (```json ... ``` or ``` ... ```)
+    cleaned = text.strip()
+    fence_match = re.match(r'^```(?:json)?\s*\n?(.*?)\n?```$', cleaned, re.DOTALL)
+    if fence_match:
+        cleaned = fence_match.group(1).strip()
+    
     try:
-        return json.loads(text)
+        return json.loads(cleaned)
     except json.JSONDecodeError as exc:
         raise AnthropicError(
             f"Anthropic response was not valid JSON: {text[:200]}"
@@ -727,26 +763,41 @@ def _describe_action(action: TaskUpdateAction) -> str:
     return f"perform action: {action.action}"
 
 
-RESEARCH_SYSTEM_PROMPT = """You are DATA, helping David research information for his tasks.
+RESEARCH_SYSTEM_PROMPT = """You are DATA, researching to help David gain DEEPER UNDERSTANDING of a task topic.
 
-FORMAT YOUR RESPONSE AS:
+PURPOSE: Surface insights, best practices, pros/cons, and approaches that help David make informed decisions and execute effectively.
 
-## Key Findings
-- 3-5 bullet points with the most important discoveries
-- Include specific details inline (phone, address, hours)
+RESEARCH SHOULD REVEAL:
+- Pros and cons of the approach mentioned in the task
+- Alternative approaches worth considering
+- Best practices and common pitfalls
+- How to get started or structure the work
 
-## Action Items
-- 2-3 concrete next steps David should take
-- Be specific (e.g., "Call [number]" not "Contact them")
+DO NOT:
+- List product/tool comparisons with pricing
+- Provide generic definitions David already knows
+- Include contact info unless the task requires external parties
 
-## Sources
-- Brief list of where info came from
+FORMAT:
+
+## Key Insights
+- 3-5 bullets revealing UNDERSTANDING about the topic
+- Focus on "why" and "how" not just "what"
+- Include best practices, trade-offs, or lessons learned
+
+## Approach Options
+- 2-3 alternative approaches if relevant
+- Brief pros/cons for each
+
+## Getting Started
+- 2-3 concrete first steps to begin implementation
+- Focus on structure, setup, or initial actions
 
 RULES:
-- Be CONCISE - bullet points only, no paragraphs
-- Put contact info (phone, email, address) directly in bullets
-- Skip sections if no relevant info found
-- No filler text or verbose explanations
+- Maximum 200 words
+- Skip sections not relevant to this task
+- Be substantive, not generic
+- If the topic is straightforward, keep it brief
 """
 
 
@@ -776,13 +827,19 @@ def research_task(
     if next_steps:
         next_steps_text = "\n".join(f"- {step}" for step in next_steps[:5])
     
-    research_prompt = f"""Research this task:
+    research_prompt = f"""Research this topic to help David understand it better and execute effectively:
 
 **Task:** {task.title}
 **Notes:** {task.notes or "None"}
 {f"**Context:** {next_steps_text}" if next_steps_text else ""}
 
-Find: contact info, hours, procedures, requirements. Be concise - bullets only."""
+Research goals:
+- Understand pros/cons and trade-offs of the approach
+- Discover best practices and common pitfalls
+- Find alternative approaches worth considering
+- Identify how to structure or get started
+
+Do NOT provide: tool/product comparisons with pricing, generic definitions, or contact info unless the task involves external parties."""
 
     messages = [
         {
@@ -805,7 +862,8 @@ Find: contact info, hours, procedures, requirements. Be concise - bullets only."
     except Exception as exc:
         raise AnthropicError(f"Anthropic request failed: {exc}") from exc
 
-    return _extract_text(response)
+    # Use extract_formatted_only=True to filter out web search reasoning/thinking
+    return _extract_text(response, extract_formatted_only=True)
 
 
 SUMMARIZE_SYSTEM_PROMPT = """You are DATA, David's task assistant. Create a concise summary of the current state of a task.

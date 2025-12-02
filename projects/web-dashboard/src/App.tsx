@@ -63,9 +63,7 @@ function App() {
   const [assistRunning, setAssistRunning] = useState(false)
   const [planGenerating, setPlanGenerating] = useState(false)
   const [researchRunning, setResearchRunning] = useState(false)
-  const [researchResults, setResearchResults] = useState<string | null>(null)
   const [summarizeRunning, setSummarizeRunning] = useState(false)
-  const [summarizeResults, setSummarizeResults] = useState<string | null>(null)
   const [contactRunning, setContactRunning] = useState(false)
   const [contactResults, setContactResults] = useState<ContactCard[] | null>(null)
   const [contactConfirmation, setContactConfirmation] = useState<ContactSearchResponse | null>(null)
@@ -107,11 +105,10 @@ function App() {
 
   const handleSelectTask = useCallback(async (taskId: string) => {
     if (taskId !== selectedTaskId) {
-      // Clear plan and research when selecting a different task
+      // Clear plan when selecting a different task
       setAssistPlan(null)
       setAssistError(null)
       setConversation([])
-      setResearchResults(null)
       setSavedDraft(null)
       setEmailDraftOpen(false)
       setEmailError(null)
@@ -286,14 +283,12 @@ function App() {
       return
     }
     setResearchRunning(true)
-    setResearchResults(null)
     setAssistError(null)
     try {
       const response = await runResearch(selectedTask.rowId, authConfig, apiBase, {
         source: dataSource,
         nextSteps: assistPlan?.nextSteps,
       })
-      setResearchResults(response.research)
       // Auto-push research to workspace (additive) and trigger save
       if (response.research) {
         setWorkspaceItems(prev => {
@@ -325,7 +320,6 @@ function App() {
       return
     }
     setSummarizeRunning(true)
-    setSummarizeResults(null)
     setAssistError(null)
     try {
       const response = await runSummarize(selectedTask.rowId, authConfig, apiBase, {
@@ -334,7 +328,6 @@ function App() {
         nextSteps: assistPlan?.nextSteps,
         efficiencyTips: assistPlan?.efficiencyTips,
       })
-      setSummarizeResults(response.summary)
       // Auto-push summary to workspace (additive) and trigger save
       if (response.summary) {
         setWorkspaceItems(prev => {
@@ -877,9 +870,7 @@ function App() {
               running={assistRunning}
               planGenerating={planGenerating}
               researchRunning={researchRunning}
-              researchResults={researchResults}
               summarizeRunning={summarizeRunning}
-              summarizeResults={summarizeResults}
               gmailAccount={gmailAccount}
               onGmailChange={setGmailAccount}
               onRunAssist={handleAssist}

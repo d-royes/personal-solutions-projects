@@ -1,7 +1,20 @@
 "use client"
 import { GoogleLogin, GoogleOAuthProvider } from '@react-oauth/google'
-import { ReactNode, createContext, useContext, useMemo, useState } from 'react'
+import { ReactNode, createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { AuthConfig } from './types'
+
+const AUTH_STORAGE_KEY = 'dta-auth-state'
+
+// Allowed email addresses (must match backend DTA_ALLOWED_EMAILS or defaults)
+const ALLOWED_EMAILS = new Set([
+  'davidroyes@southpointsda.org',
+  'david.a.royes@gmail.com',
+])
+
+function isEmailAllowed(email: string | null): boolean {
+  if (!email) return false
+  return ALLOWED_EMAILS.has(email.toLowerCase())
+}
 
 interface AuthState {
   mode: 'google' | 'dev' | 'unauthenticated'
@@ -14,22 +27,102 @@ interface AuthContextValue {
   authConfig: AuthConfig | null
   googleClientId?: string
   defaultDevEmail: string
-  useDevAuth: (email: string) => void
+  authError: string | null
+  useDevAuth: (email: string) => boolean  // Returns false if email not allowed
   clearAuth: () => void
-  setGoogleCredential: (token: string, email: string | null) => void
+  setGoogleCredential: (token: string, email: string | null) => boolean  // Returns false if email not allowed
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+
+/**
+ * Check if a JWT token is expired
+ */
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = token.split('.')[1]
+    const decoded = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+    const exp = decoded?.exp
+    if (!exp) return true
+    // Token is expired if exp is in the past (with 60s buffer)
+    return Date.now() >= (exp * 1000) - 60000
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Load auth state from localStorage, validating token expiry
+ */
+function loadAuthState(defaultDevEmail: string): AuthState {
+  try {
+    const stored = localStorage.getItem(AUTH_STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored) as AuthState
+      // Validate Google tokens haven't expired
+      if (parsed.mode === 'google' && parsed.idToken) {
+        if (isTokenExpired(parsed.idToken)) {
+          // Token expired, clear it
+          localStorage.removeItem(AUTH_STORAGE_KEY)
+          return {
+            mode: 'unauthenticated',
+            userEmail: null,
+            idToken: null,
+          }
+        }
+        return parsed
+      }
+      // Dev mode auth is always valid
+      if (parsed.mode === 'dev' && parsed.userEmail) {
+        return parsed
+      }
+    }
+  } catch {
+    // Invalid stored state, ignore
+  }
+  
+  // Default state
+  return {
+    mode: defaultDevEmail ? 'dev' : 'unauthenticated',
+    userEmail: defaultDevEmail || null,
+    idToken: null,
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
   const defaultDevEmail = import.meta.env.VITE_DEV_USER_EMAIL ?? ''
 
-  const [state, setState] = useState<AuthState>({
-    mode: defaultDevEmail ? 'dev' : 'unauthenticated',
-    userEmail: defaultDevEmail || null,
-    idToken: null,
-  })
+  const [state, setState] = useState<AuthState>(() => loadAuthState(defaultDevEmail))
+  const [authError, setAuthError] = useState<string | null>(null)
+
+  // Persist auth state to localStorage whenever it changes
+  useEffect(() => {
+    if (state.mode === 'unauthenticated') {
+      localStorage.removeItem(AUTH_STORAGE_KEY)
+    } else {
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(state))
+    }
+  }, [state])
+
+  // Periodically check for token expiry (every 5 minutes)
+  useEffect(() => {
+    if (state.mode !== 'google' || !state.idToken) return
+
+    const checkExpiry = () => {
+      if (state.idToken && isTokenExpired(state.idToken)) {
+        console.log('Google token expired, clearing auth state')
+        setState({
+          mode: 'unauthenticated',
+          userEmail: null,
+          idToken: null,
+        })
+      }
+    }
+
+    const interval = setInterval(checkExpiry, 5 * 60 * 1000) // Check every 5 minutes
+    return () => clearInterval(interval)
+  }, [state.mode, state.idToken])
 
   const authConfig = useMemo<AuthConfig | null>(() => {
     if (state.mode === 'google' && state.idToken) {
@@ -46,24 +139,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authConfig,
     googleClientId: clientId,
     defaultDevEmail,
-    useDevAuth: (email: string) =>
+    authError,
+    useDevAuth: (email: string) => {
+      if (!isEmailAllowed(email)) {
+        setAuthError(`Access denied. Email '${email}' is not authorized.`)
+        return false
+      }
+      setAuthError(null)
       setState({
         mode: 'dev',
         userEmail: email,
         idToken: null,
-      }),
-    clearAuth: () =>
+      })
+      return true
+    },
+    clearAuth: () => {
+      setAuthError(null)
       setState({
         mode: 'unauthenticated',
         userEmail: null,
         idToken: null,
-      }),
-    setGoogleCredential: (token, email) =>
+      })
+    },
+    setGoogleCredential: (token, email) => {
+      if (!isEmailAllowed(email)) {
+        setAuthError(`Access denied. Email '${email}' is not authorized to use this application.`)
+        return false
+      }
+      setAuthError(null)
       setState({
         mode: 'google',
         idToken: token,
         userEmail: email,
-      }),
+      })
+      return true
+    },
   }
 
   const content = (

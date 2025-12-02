@@ -86,7 +86,7 @@ PHONE_PATTERN = re.compile(
 )
 
 
-def extract_entities(task: TaskDetail) -> List[ExtractedEntity]:
+def extract_entities(task: TaskDetail, use_ai: bool = True) -> List[ExtractedEntity]:
     """Extract potential contact entities from task details.
     
     Looks for:
@@ -94,6 +94,11 @@ def extract_entities(task: TaskDetail) -> List[ExtractedEntity]:
     - Phone numbers
     - Names (from "From:", "To:", common patterns)
     - Organizations
+    - AI-powered extraction for names/orgs in prose text (when use_ai=True)
+    
+    Args:
+        task: The task to extract entities from
+        use_ai: Whether to use AI for enhanced entity extraction (default True)
     """
     entities: List[ExtractedEntity] = []
     seen_values: set = set()
@@ -179,7 +184,92 @@ def extract_entities(task: TaskDetail) -> List[ExtractedEntity]:
                         context=f"Extracted from email domain: {domain}",
                     ))
     
+    # If no person/org entities found and we have meaningful text, try AI extraction
+    person_org_entities = [e for e in entities if e.entity_type in ("person", "organization")]
+    if use_ai and not person_org_entities and len(full_text.strip()) > 20:
+        ai_entities = _extract_entities_with_ai(full_text, seen_values)
+        entities.extend(ai_entities)
+    
     return entities
+
+
+def _extract_entities_with_ai(text: str, seen_values: set) -> List[ExtractedEntity]:
+    """Use AI to extract person and organization names from text.
+    
+    This is used as a fallback when regex-based extraction doesn't find anything.
+    """
+    import json
+    
+    try:
+        from ..llm.anthropic_client import build_anthropic_client, resolve_config
+        
+        client = build_anthropic_client()
+        config = resolve_config()
+        
+        system_prompt = """You are a named entity recognition system. Extract person names and organization names from the given text.
+
+Return ONLY a JSON array with objects containing:
+- "name": The full name of the person or organization
+- "type": Either "person" or "organization"
+- "context": A brief phrase showing where this name appears
+
+Rules:
+- Only extract actual names, not generic terms like "attorney" or "lawyer"
+- Include law firms, companies, and organizations
+- For people, use their full name as mentioned
+- If no names are found, return an empty array: []
+
+Example output:
+[
+  {"name": "Phil Revah", "type": "person", "context": "Phil Revah, who is well-regarded in real estate law"},
+  {"name": "Lampert Law Firm", "type": "organization", "context": "the Lampert Law Firm come highly recommended"}
+]"""
+
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=500,
+            temperature=0,
+            system=system_prompt,
+            messages=[{
+                "role": "user",
+                "content": f"Extract person and organization names from this text:\n\n{text[:2000]}"  # Limit text length
+            }],
+        )
+        
+        # Extract text from response
+        result_text = ""
+        for block in response.content:
+            if hasattr(block, 'text'):
+                result_text += block.text
+        
+        if not result_text.strip():
+            return []
+        
+        # Parse JSON response - find array in response
+        json_match = re.search(r'\[[\s\S]*\]', result_text)
+        if json_match:
+            data = json.loads(json_match.group())
+            entities = []
+            for item in data:
+                name = item.get("name", "").strip()
+                entity_type = item.get("type", "").lower()
+                context = item.get("context", "")
+                
+                if name and entity_type in ("person", "organization"):
+                    if name.lower() not in seen_values:
+                        seen_values.add(name.lower())
+                        entities.append(ExtractedEntity(
+                            name=name,
+                            entity_type=entity_type,
+                            context=context,
+                        ))
+            return entities
+        
+        return []
+        
+    except Exception as e:
+        print(f"[Contact Search] AI entity extraction failed: {e}")
+        return []
 
 
 def _get_context(text: str, start: int, end: int, window: int = 50) -> str:
@@ -314,7 +404,7 @@ def search_contacts(
     org_entities = [e for e in entities if e.entity_type == "organization"]
     searchable_entities = person_entities + org_entities
     
-    if len(searchable_entities) > 3:
+    if len(searchable_entities) > 10:
         entity_names = [e.name for e in searchable_entities[:6]]  # Show first 6
         return ContactSearchResult(
             entities_found=entities,
