@@ -127,11 +127,91 @@ class ConversationMessageModel(BaseModel):
 
 @app.get("/health")
 def health_check() -> dict:
-    settings = _get_settings()
+    """Health check endpoint with service status information.
+    
+    Returns status of critical services including Anthropic API and Gmail configuration.
+    Used by CI/CD pipeline to verify deployment success.
+    
+    Note: This endpoint must NOT call _get_settings() as it may raise ConfigError
+    if required env vars are missing. We read env vars directly instead.
+    """
+    # Get environment directly - don't use _get_settings() as it may throw
+    environment = os.getenv("DTA_ENV", "local")
+    errors = {}
+    
+    # Check Anthropic configuration
+    anthropic_status = "not_configured"
+    try:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if api_key and len(api_key) > 10:
+            anthropic_status = "configured"
+        else:
+            errors["anthropic"] = "ANTHROPIC_API_KEY not set or invalid"
+    except Exception as e:
+        errors["anthropic"] = str(e)
+    
+    # Check Smartsheet configuration
+    smartsheet_status = "not_configured"
+    try:
+        smartsheet_token = os.getenv("SMARTSHEET_API_TOKEN")
+        if smartsheet_token and len(smartsheet_token) > 10:
+            smartsheet_status = "configured"
+        else:
+            errors["smartsheet"] = "SMARTSHEET_API_TOKEN not set or invalid"
+    except Exception as e:
+        errors["smartsheet"] = str(e)
+    
+    # Check Church Gmail configuration
+    church_gmail_status = "not_configured"
+    try:
+        church_client_id = os.getenv("CHURCH_GMAIL_CLIENT_ID")
+        church_client_secret = os.getenv("CHURCH_GMAIL_CLIENT_SECRET")
+        church_refresh_token = os.getenv("CHURCH_GMAIL_REFRESH_TOKEN")
+        if all([church_client_id, church_client_secret, church_refresh_token]):
+            church_gmail_status = "configured"
+        else:
+            missing = []
+            if not church_client_id:
+                missing.append("CHURCH_GMAIL_CLIENT_ID")
+            if not church_client_secret:
+                missing.append("CHURCH_GMAIL_CLIENT_SECRET")
+            if not church_refresh_token:
+                missing.append("CHURCH_GMAIL_REFRESH_TOKEN")
+            errors["church_gmail"] = f"Missing: {', '.join(missing)}"
+    except Exception as e:
+        errors["church_gmail"] = str(e)
+    
+    # Check Personal Gmail configuration
+    personal_gmail_status = "not_configured"
+    try:
+        personal_client_id = os.getenv("PERSONAL_GMAIL_CLIENT_ID")
+        personal_client_secret = os.getenv("PERSONAL_GMAIL_CLIENT_SECRET")
+        personal_refresh_token = os.getenv("PERSONAL_GMAIL_REFRESH_TOKEN")
+        if all([personal_client_id, personal_client_secret, personal_refresh_token]):
+            personal_gmail_status = "configured"
+        else:
+            missing = []
+            if not personal_client_id:
+                missing.append("PERSONAL_GMAIL_CLIENT_ID")
+            if not personal_client_secret:
+                missing.append("PERSONAL_GMAIL_CLIENT_SECRET")
+            if not personal_refresh_token:
+                missing.append("PERSONAL_GMAIL_REFRESH_TOKEN")
+            errors["personal_gmail"] = f"Missing: {', '.join(missing)}"
+    except Exception as e:
+        errors["personal_gmail"] = str(e)
+    
     return {
         "status": "ok",
         "time": datetime.now(timezone.utc).isoformat(),
-        "environment": settings.environment,
+        "environment": environment,
+        "services": {
+            "anthropic": anthropic_status,
+            "smartsheet": smartsheet_status,
+            "church_gmail": church_gmail_status,
+            "personal_gmail": personal_gmail_status,
+        },
+        "errors": errors if errors else None,
     }
 
 

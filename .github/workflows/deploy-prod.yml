@@ -99,3 +99,92 @@ jobs:
           # Target production site
           target: production
 
+  verify-deployment:
+    name: Verify Deployment
+    needs: [deploy-backend, deploy-frontend]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Wait for Cloud Run to stabilize
+        run: sleep 30
+
+      - name: Verify Backend Health
+        run: |
+          HEALTH_URL="https://${{ env.BACKEND_SERVICE }}-368257400464.${{ env.REGION }}.run.app/health"
+          echo "Checking health endpoint: $HEALTH_URL"
+          
+          RESPONSE=$(curl -s --fail --max-time 30 "$HEALTH_URL")
+          echo "Response: $RESPONSE"
+          
+          # Check if response contains expected fields
+          if ! echo "$RESPONSE" | grep -q '"status":"ok"'; then
+            echo "❌ Health check failed: status not ok"
+            exit 1
+          fi
+          
+          FAILED=0
+          
+          # Check Anthropic configuration (CRITICAL)
+          ANTHROPIC_STATUS=$(echo "$RESPONSE" | jq -r '.services.anthropic // "unknown"')
+          echo "Anthropic status: $ANTHROPIC_STATUS"
+          if [ "$ANTHROPIC_STATUS" != "configured" ]; then
+            echo "❌ CRITICAL: Anthropic API is not configured!"
+            FAILED=1
+          fi
+          
+          # Check Smartsheet configuration (CRITICAL)
+          SMARTSHEET_STATUS=$(echo "$RESPONSE" | jq -r '.services.smartsheet // "unknown"')
+          echo "Smartsheet status: $SMARTSHEET_STATUS"
+          if [ "$SMARTSHEET_STATUS" != "configured" ]; then
+            echo "❌ CRITICAL: Smartsheet API is not configured!"
+            FAILED=1
+          fi
+          
+          # Check Church Gmail configuration (CRITICAL)
+          CHURCH_GMAIL_STATUS=$(echo "$RESPONSE" | jq -r '.services.church_gmail // "unknown"')
+          echo "Church Gmail status: $CHURCH_GMAIL_STATUS"
+          if [ "$CHURCH_GMAIL_STATUS" != "configured" ]; then
+            echo "❌ CRITICAL: Church Gmail is not configured!"
+            FAILED=1
+          fi
+          
+          # Check Personal Gmail configuration (CRITICAL)
+          PERSONAL_GMAIL_STATUS=$(echo "$RESPONSE" | jq -r '.services.personal_gmail // "unknown"')
+          echo "Personal Gmail status: $PERSONAL_GMAIL_STATUS"
+          if [ "$PERSONAL_GMAIL_STATUS" != "configured" ]; then
+            echo "❌ CRITICAL: Personal Gmail is not configured!"
+            FAILED=1
+          fi
+          
+          # Show any errors
+          ERRORS=$(echo "$RESPONSE" | jq -r '.errors // empty')
+          if [ -n "$ERRORS" ] && [ "$ERRORS" != "null" ]; then
+            echo ""
+            echo "Error details:"
+            echo "$ERRORS" | jq .
+          fi
+          
+          if [ $FAILED -eq 1 ]; then
+            echo ""
+            echo "❌ Deployment verification FAILED - critical services not configured!"
+            echo "Check that all secrets exist in Google Secret Manager."
+            exit 1
+          fi
+          
+          echo "✅ All critical services verified!"
+
+      - name: Verify Frontend Accessible
+        run: |
+          FRONTEND_URL="https://${{ env.FRONTEND_SITE }}.web.app"
+          echo "Checking frontend: $FRONTEND_URL"
+          
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$FRONTEND_URL")
+          echo "HTTP Status: $HTTP_STATUS"
+          
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ Frontend not accessible (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+          
+          echo "✅ Frontend is accessible!"
+
