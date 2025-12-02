@@ -34,7 +34,7 @@ class TestUpdateRow:
             "result": [{"id": "123", "cells": []}]
         }
 
-        result = mock_client.update_row("123", {"status": "Complete"})
+        result = mock_client.update_row("123", {"status": "Completed"})
 
         assert result == {"result": [{"id": "123", "cells": []}]}
         mock_client._mock_request.assert_called_once()
@@ -43,14 +43,14 @@ class TestUpdateRow:
         assert "/rows" in call_args[0][1]
         payload = call_args[1]["body"]
         assert payload[0]["id"] == 123
-        assert any(c["value"] == "Complete" for c in payload[0]["cells"])
+        assert any(c["value"] == "Completed" for c in payload[0]["cells"])
 
     def test_update_row_multiple_fields(self, mock_client):
         """Test updating multiple fields at once."""
         mock_client._mock_request.return_value = {"result": [{"id": "123"}]}
 
         result = mock_client.update_row("123", {
-            "status": "Complete",
+            "status": "Completed",
             "done": True,
             "priority": "Urgent",
         })
@@ -85,7 +85,7 @@ class TestUpdateRow:
         mock_client._mock_request.side_effect = SmartsheetAPIError("API failed")
 
         with pytest.raises(SmartsheetAPIError, match="Failed to update row"):
-            mock_client.update_row("123", {"status": "Complete"})
+            mock_client.update_row("123", {"status": "Completed"})
 
 
 class TestMarkComplete:
@@ -105,7 +105,7 @@ class TestMarkComplete:
         assert len(cells) == 2
 
         # Find status and done cells
-        status_cell = next((c for c in cells if c["value"] == "Complete"), None)
+        status_cell = next((c for c in cells if c["value"] == "Completed"), None)
         done_cell = next((c for c in cells if c["value"] is True), None)
 
         assert status_cell is not None, "Status cell not found"

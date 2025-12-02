@@ -222,7 +222,7 @@ class SmartsheetClient:
             raise SmartsheetAPIError(f"Failed to update row {row_id}: {exc}") from exc
 
     def mark_complete(self, row_id: str) -> Dict[str, Any]:
-        """Mark a task as complete by setting Status='Complete' and Done=true.
+        """Mark a task as complete by setting Status='Completed' and Done=true.
         
         Args:
             row_id: The Smartsheet row ID to mark complete
@@ -231,7 +231,7 @@ class SmartsheetClient:
             The API response containing the updated row data.
         """
         return self.update_row(row_id, {
-            "status": "Complete",
+            "status": "Completed",
             "done": True,
         })
 

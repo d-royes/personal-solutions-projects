@@ -143,7 +143,9 @@ class TestFetchFeedback:
         assert all(e.task_id == "task-A" for e in result)
 
     def test_fetch_feedback_for_task_sorted_descending(self, feedback_dir):
+        import time
         log_feedback(task_id="task-A", feedback="helpful", context="research", message_content="First")
+        time.sleep(0.01)  # Ensure different timestamps
         log_feedback(task_id="task-A", feedback="needs_work", context="chat", message_content="Second")
         
         result = fetch_feedback_for_task("task-A")
