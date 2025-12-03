@@ -1,0 +1,5 @@
+- Confirm blockers/status
+- Complete "{next_step}" as the immediate deliverable
+- Capture updates directly in Smartsheet so collaborators see the change
+- Prep any artifacts or context needed so the follow-on handoff is smooth
+

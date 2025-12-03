@@ -1,0 +1,135 @@
+sheet:
+  id: 4543936291884932
+  name: Task Management Master
+  description: |
+    Canonical sheet for Daily Task Assistant automations. Column IDs
+    must be updated once retrieved from the Smartsheet metadata API.
+
+required_fields: &required_fields
+  - task
+  - project
+  - due_date
+  - priority
+  - status
+  - assigned_to
+  - estimated_hours
+
+priority_values:
+  ordered: &priority_list
+    - Critical
+    - Urgent
+    - Important
+    - Standard
+    - Low
+  default: Standard
+
+project_values: &project_list
+  - Around The House
+  - Church Tasks
+  - Family Time
+  - Shopping
+  - Sm. Projects & Tasks
+  - "---------------------"
+  - Zendesk Ticket
+
+columns:
+  task:
+    column_id: "1404910744326020"
+    type: text
+    description: Actionable task name (singular verb + outcome).
+  project:
+    column_id: "7034410278539140"
+    type: picklist
+    allowed_values: *project_list
+    fallback: "Sm. Projects & Tasks"
+    description: Validated project grouping for reporting.
+  due_date:
+    column_id: "3656710558011268"
+    type: date
+    description: Target completion date (not necessarily hard deadline).
+  priority:
+    column_id: "279010837483396"
+    type: picklist
+    allowed_values: *priority_list
+    default: Standard
+    description: Enforced urgency level; maps to automation urgency.
+  status:
+    column_id: "8863997627158404"
+    type: picklist
+    default: Scheduled
+    allowed_values:
+      - Scheduled
+      - Recurring
+      - On Hold
+      - In Progress
+      - Follow-up
+      - Awaiting Reply
+      - Delivered
+      - Create ZD Ticket
+      - Ticket Created
+      - Validation
+      - Needs Approval
+      - Cancelled
+      - Delegated
+      - Completed
+    description: Workflow state (independent of Done checkbox).
+  assigned_to:
+    column_id: "5908510371696516"
+    type: contact
+    default: "david.a.royes@gmail.com"
+    description: Primary owner for follow-ups.
+  estimated_hours:
+    column_id: "8160310185381764"
+    type: picklist
+    description: Rough effort sizing chosen from Smartsheet list.
+  number:
+    column_id: "4360397999787908"
+    label: "#"
+    type: int
+    description: Daily ordering field; assistant may reorder to reprioritize.
+  done:
+    column_id: "2108598186102660"
+    type: checkbox
+    description: User-controlled completion marker (never auto-toggle without confirmation).
+  notes:
+    column_id: "1967860697747332"
+    type: text
+    optional: true
+  contact_flag:
+    column_id: "4782610464853892"
+    type: checkbox
+    optional: true
+  deadline:
+    column_id: "841960790904708"
+    type: date
+    optional: true
+  recurring_pattern:
+    column_id: "2530810651168644"
+    type: text
+    optional: true
+  completed_on:
+    column_id: "5345560418275204"
+    type: date
+    optional: true
+  ai_feedback:
+    column_id: "8541248033607556"
+    type: text
+    optional: true
+  ai_response:
+    column_id: "5502710606155652"
+    type: picklist
+    optional: true
+  last_modified:
+    column_id: "6471460325117828"
+    type: datetime
+    optional: true
+
+validation:
+  enforce_picklists: true
+  enforce_required_fields: true
+  reject_blank_due_dates: true
+  reject_missing_priority: true
+
+notes:
+  - Populate each TODO_* placeholder with the actual column ID from the Smartsheet Describe Sheet endpoint before enabling write operations.
+  - Automations may reorder the `number` column but must not set `done` to checked unless explicitly confirmed by the user.

@@ -1,0 +1,188 @@
+import { useMemo, useState } from 'react'
+import type { Task } from '../types'
+import '../App.css'
+
+const PREVIEW_LIMIT = 240
+const BLOCKED_STATUSES = ['On Hold', 'Awaiting Reply', 'Needs Approval']
+const URGENT_PRIORITIES = ['Critical', 'Urgent']
+
+const FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'needs_attention', label: 'Needs attention' },
+  { id: 'blocked', label: 'Blocked' },
+  { id: 'personal', label: 'Personal' },
+  { id: 'church', label: 'Church' },
+  { id: 'work', label: 'Work' },
+]
+
+function previewText(task: Task) {
+  const source =
+    (task.nextStep?.trim() || task.automationHint?.trim() || task.notes?.trim() || '')
+      .trim()
+  if (!source) return 'No next step recorded yet.'
+  if (source.length <= PREVIEW_LIMIT) return source
+  return `${source.slice(0, PREVIEW_LIMIT)}…`
+}
+
+function deriveDomain(project?: string | null) {
+  if (!project) return 'Personal'
+  const value = project.toLowerCase()
+  if (value.includes('church')) return 'Church'
+  if (value.includes('work') || value.includes('ticket') || value.includes('project')) {
+    return 'Work'
+  }
+  if (value.includes('family') || value.includes('home') || value.includes('house')) {
+    return 'Personal'
+  }
+  return 'Personal'
+}
+
+function isDueSoon(due: string) {
+  const dueDate = new Date(due)
+  const now = new Date()
+  const diff = dueDate.getTime() - now.getTime()
+  const days = diff / (1000 * 60 * 60 * 24)
+  // Only tasks due within the next 3 days (not overdue)
+  return days >= 0 && days <= 3
+}
+
+function dueLabel(due: string) {
+  const dueDate = new Date(due)
+  const today = new Date()
+  const diff = dueDate.getTime() - today.getTime()
+  const days = Math.round(diff / (1000 * 60 * 60 * 24))
+  if (days < 0) return `Overdue ${Math.abs(days)}d`
+  if (days === 0) return 'Due today'
+  if (days === 1) return 'Due tomorrow'
+  return `Due in ${days}d`
+}
+
+interface TaskListProps {
+  tasks: Task[]
+  selectedTaskId: string | null
+  onSelect: (taskId: string) => void
+  loading: boolean
+  liveTasks: boolean
+  warning?: string | null
+  onRefresh?: () => void
+  refreshing?: boolean
+}
+
+export function TaskList({
+  tasks,
+  selectedTaskId,
+  onSelect,
+  loading,
+  liveTasks,
+  warning,
+  onRefresh,
+  refreshing,
+}: TaskListProps) {
+  const [filter, setFilter] = useState('all')
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const domain = deriveDomain(task.project)
+      const status = task.status ?? ''
+      switch (filter) {
+        case 'needs_attention':
+          return (
+            URGENT_PRIORITIES.includes(task.priority ?? '') ||
+            isDueSoon(task.due) ||
+            BLOCKED_STATUSES.includes(status)
+          )
+        case 'blocked':
+          return BLOCKED_STATUSES.includes(status)
+        case 'personal':
+          return domain === 'Personal'
+        case 'church':
+          return domain === 'Church'
+        case 'work':
+          return domain === 'Work'
+        default:
+          return true
+      }
+    })
+  }, [tasks, filter])
+
+  return (
+    <section className="panel task-panel scroll-panel">
+      <header>
+        <div>
+          <h2>Tasks</h2>
+          <p className="subtle">
+            {liveTasks ? 'Live data' : 'Stubbed data'} · Showing {filteredTasks.length}{' '}
+            of {tasks.length}
+          </p>
+        </div>
+        {onRefresh && (
+          <button 
+            className="secondary refresh-btn" 
+            onClick={onRefresh}
+            disabled={refreshing || loading}
+            title="Refresh tasks"
+          >
+            {refreshing ? '↻' : '↻'} Refresh
+          </button>
+        )}
+      </header>
+
+      {warning && <p className="warning">{warning}</p>}
+
+      <div className="task-filters">
+        {FILTERS.map((chip) => (
+          <button
+            key={chip.id}
+            className={filter === chip.id ? 'active' : ''}
+            onClick={() => setFilter(chip.id)}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <p>Loading tasks…</p>
+      ) : filteredTasks.length === 0 ? (
+        <p>No tasks match this filter.</p>
+      ) : (
+        <ul className="task-list">
+          {filteredTasks.map((task) => {
+            const domain = deriveDomain(task.project)
+            const status = task.status ?? 'Unknown'
+            const next = previewText(task)
+            return (
+              <li
+                key={task.rowId}
+                className={
+                  selectedTaskId === task.rowId ? 'task-item selected' : 'task-item'
+                }
+                onClick={() => onSelect(task.rowId)}
+              >
+                <div className="task-signals">
+                  <span className={`badge domain ${domain.toLowerCase()}`}>{domain}</span>
+                  <span className="badge status">{status}</span>
+                  {task.priority && (
+                    <span className={`badge priority ${task.priority.toLowerCase()}`}>
+                      {task.priority}
+                    </span>
+                  )}
+                  <span className="badge due">{dueLabel(task.due)}</span>
+                </div>
+                <div className="task-title-row">
+                  <div className="task-title">{task.title}</div>
+                </div>
+                <div className="task-meta">
+                  <span>{task.project}</span>
+                  {task.assignedTo && <span>Owner: {task.assignedTo}</span>}
+                </div>
+                <p className="task-next">{next}</p>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}
+

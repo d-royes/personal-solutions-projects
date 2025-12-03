@@ -1,0 +1,107 @@
+# Changelog
+
+All notable changes to the Daily Task Assistant project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [Unreleased]
+
+### Added
+- Production deployment workflow (pending first production release)
+
+---
+
+## [0.2.0] - 2025-12-02
+
+### 🚀 First Staging Deployment via CI/CD Pipeline
+
+This release marks the first successful automated deployment to staging using our new CI/CD pipeline.
+
+### Added
+
+#### Security & Authentication
+- **Email allowlist**: Only `davidroyes@southpointsda.org` and `david.a.royes@gmail.com` can access the app
+  - Backend returns 403 Forbidden for unauthorized emails
+  - Frontend shows error message before attempting API calls
+  - Configurable via `DTA_ALLOWED_EMAILS` environment variable
+- **Auth persistence**: Login state now survives page refresh
+  - Google OAuth tokens persisted to localStorage
+  - Automatic token expiry validation (tokens valid ~1 hour per Google's policy)
+  - Periodic expiry check every 5 minutes while app is running
+
+#### Contact Feature
+- **AI-powered entity extraction**: Contact search now uses Anthropic for Named Entity Recognition (NER)
+  - Finds names and organizations embedded in prose text
+  - Falls back to regex patterns if AI extraction unavailable
+  - Increased confirmation threshold from 3 to 10 entities
+
+#### CI/CD Pipeline
+- **GitHub Actions workflows**: Automated testing and deployment
+  - `test.yml`: Runs pytest + TypeScript type check on PRs
+  - `deploy-staging.yml`: Auto-deploys to Cloud Run + Firebase on merge to `staging`
+  - `deploy-prod.yml`: Deploys to production on merge to `main` (requires approval)
+- **Post-deployment verification**: Health checks validate Anthropic, Smartsheet, and Gmail configuration
+- **Branch protection rules**: PRs required, status checks must pass
+
+### Changed
+
+#### Research Feature
+- **Improved prompt**: Research now focuses on deeper understanding, not generic tool comparisons
+  - Surfaces pros/cons, best practices, and alternative approaches
+  - New sections: Key Insights, Approach Options, Getting Started
+  - Explicitly avoids product/tool comparisons with pricing
+- **Better formatting**: Fixed bullet point line breaks in Research/Summarize output
+  - Removed Anthropic's internal reasoning from output
+  - Collapsed multiple newlines for cleaner display
+
+#### Email Draft
+- **Fixed JSON parsing**: Handles markdown code fences (` ```json `) in Anthropic responses
+
+#### Frontend
+- **Updated branding**: Tab title now "DATA - Task Assistant" with custom favicon
+- **Removed unused state**: Cleaned up `researchResults` and `summarizeResults` (now added directly to workspace)
+
+### Fixed
+- Backend tests now include test email in allowlist
+- Auth cache cleared before app import in tests
+- Contact status banner displays correctly regardless of workspace content
+
+### Infrastructure
+- **Staging URLs**:
+  - Frontend: https://daily-task-assistant-church.web.app
+  - Backend: https://daily-task-assistant-staging-368257400464.us-central1.run.app
+- **Secret Manager**: 10 secrets configured (Smartsheet, Anthropic, Church Gmail x4, Personal Gmail x4)
+
+---
+
+## [0.1.0] - 2025-11-XX
+
+### Added
+- Initial release with core functionality
+- Smartsheet integration for task management
+- Anthropic Claude integration for AI assistance
+- Gmail integration for email drafting and sending
+- React web dashboard with Google OAuth
+- FastAPI backend with conversation history
+- Activity logging to Firestore
+- CLI tools for task management
+
+### Features
+- Task list with priority sorting
+- AI-generated plans with next steps and efficiency tips
+- Research capability with web search
+- Task summarization
+- Contact search
+- Email draft generation and sending
+- Conversation history per task
+- Feedback collection system
+
+---
+
+## Version History
+
+| Version | Date | Milestone |
+|---------|------|-----------|
+| 0.2.0 | 2025-12-02 | First CI/CD staging deployment |
+| 0.1.0 | 2025-11-XX | Initial development release |
+

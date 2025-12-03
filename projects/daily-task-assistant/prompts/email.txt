@@ -1,0 +1,14 @@
+Subject: Aligning on next steps for {title}
+
+Hi {recipient},
+
+I wanted to follow up on "{title}" under the {project} workstream. This is a {priority} priority item with a due date of {due}.
+
+Recommended next move:
+- {next_step}
+
+Let me know if you would like me to send this on your behalf or tweak any of the wording.
+
+Thanks,
+Daily Task Assistant
+
