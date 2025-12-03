@@ -91,6 +91,7 @@ jobs:
           projectId: ${{ env.PROJECT_ID }}
           channelId: live
           entryPoint: projects/web-dashboard
+          target: staging
 
   verify-deployment:
     name: Verify Deployment

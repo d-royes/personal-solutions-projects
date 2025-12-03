@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "daily-task-assistant-church"
+  },
+  "targets": {
+    "daily-task-assistant-church": {
+      "hosting": {
+        "staging": [
+          "daily-task-assistant-church"
+        ],
+        "production": [
+          "daily-task-assistant-prod"
+        ]
+      }
+    }
+  }
+}
+
