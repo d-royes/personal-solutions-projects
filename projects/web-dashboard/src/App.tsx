@@ -163,10 +163,15 @@ function App() {
         source: dataSource,
         includeWork: true,  // Include work tasks in the response
       })
+      // X statuses to exclude from all views
+      const EXCLUDED_STATUSES = [
+        'completed', 'cancelled', 'delegated',
+        'create zd ticket', 'ticket created'
+      ]
       const activeTasks = response.tasks.filter(
         (task) => {
           const status = task.status?.toLowerCase() || ''
-          return status !== 'completed' && status !== 'cancelled'
+          return !EXCLUDED_STATUSES.includes(status)
         },
       )
       setTasks(activeTasks)

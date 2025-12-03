@@ -6,6 +6,18 @@ const PREVIEW_LIMIT = 240
 const BLOCKED_STATUSES = ['On Hold', 'Awaiting Reply', 'Needs Approval']
 const URGENT_PRIORITIES = ['Critical', 'Urgent']
 
+// Status category for sorting (A=Active first, B=Blocked second, S=Scheduled last)
+const STATUS_CATEGORY: Record<string, number> = {
+  'In Progress': 1, 'Follow-up': 1, 'Delivered': 1,                          // A - Active
+  'On Hold': 2, 'Awaiting Reply': 2, 'Needs Approval': 2,                    // B - Blocked
+  'Scheduled': 3, 'Recurring': 3, 'Validation': 3, 'Create ZD Ticket': 3,   // S - Scheduled
+}
+
+// Priority order for sorting (highest priority first)
+const PRIORITY_ORDER: Record<string, number> = {
+  'Critical': 1, 'Urgent': 2, 'Important': 3, 'Standard': 4, 'Low': 5
+}
+
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'needs_attention', label: 'Needs attention' },
@@ -82,7 +94,7 @@ export function TaskList({
   const [filter, setFilter] = useState('all')
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
+    const filtered = tasks.filter((task) => {
       const domain = deriveDomain(task)
       const status = task.status ?? ''
       switch (filter) {
@@ -109,6 +121,23 @@ export function TaskList({
           // ALL filter: exclude work tasks (they have their own filter)
           return task.source !== 'work'
       }
+    })
+
+    // Sort: Due Date → Priority → Status Category
+    return filtered.sort((a, b) => {
+      // 1. Due Date (earliest first)
+      const dueDiff = new Date(a.due).getTime() - new Date(b.due).getTime()
+      if (dueDiff !== 0) return dueDiff
+
+      // 2. Priority (highest first: Critical > Urgent > Important > Standard > Low)
+      const priorityA = PRIORITY_ORDER[a.priority ?? ''] ?? 99
+      const priorityB = PRIORITY_ORDER[b.priority ?? ''] ?? 99
+      if (priorityA !== priorityB) return priorityA - priorityB
+
+      // 3. Status category (Active > Blocked > Scheduled)
+      const statusA = STATUS_CATEGORY[a.status ?? ''] ?? 99
+      const statusB = STATUS_CATEGORY[b.status ?? ''] ?? 99
+      return statusA - statusB
     })
   }, [tasks, filter])
 
