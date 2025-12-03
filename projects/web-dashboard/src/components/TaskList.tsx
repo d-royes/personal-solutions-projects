@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { Task } from '../types'
+import type { Task, WorkBadge } from '../types'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
@@ -16,24 +16,23 @@ const FILTERS = [
 ]
 
 function previewText(task: Task) {
-  const source =
+  const textSource =
     (task.nextStep?.trim() || task.automationHint?.trim() || task.notes?.trim() || '')
       .trim()
-  if (!source) return 'No next step recorded yet.'
-  if (source.length <= PREVIEW_LIMIT) return source
-  return `${source.slice(0, PREVIEW_LIMIT)}…`
+  if (!textSource) return 'No next step recorded yet.'
+  if (textSource.length <= PREVIEW_LIMIT) return textSource
+  return `${textSource.slice(0, PREVIEW_LIMIT)}…`
 }
 
-function deriveDomain(project?: string | null) {
+function deriveDomain(task: Task): 'Personal' | 'Church' | 'Work' {
+  // Use source field if available (from multi-sheet), otherwise derive from project
+  if (task.source === 'work') return 'Work'
+
+  // For personal sheet, derive from project name
+  const project = task.project
   if (!project) return 'Personal'
   const value = project.toLowerCase()
   if (value.includes('church')) return 'Church'
-  if (value.includes('work') || value.includes('ticket') || value.includes('project')) {
-    return 'Work'
-  }
-  if (value.includes('family') || value.includes('home') || value.includes('house')) {
-    return 'Personal'
-  }
   return 'Personal'
 }
 
@@ -66,6 +65,7 @@ interface TaskListProps {
   warning?: string | null
   onRefresh?: () => void
   refreshing?: boolean
+  workBadge?: WorkBadge | null  // Work task counts for badge indicator
 }
 
 export function TaskList({
@@ -77,30 +77,37 @@ export function TaskList({
   warning,
   onRefresh,
   refreshing,
+  workBadge,
 }: TaskListProps) {
   const [filter, setFilter] = useState('all')
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
-      const domain = deriveDomain(task.project)
+      const domain = deriveDomain(task)
       const status = task.status ?? ''
       switch (filter) {
         case 'needs_attention':
+          // Exclude work tasks from "Needs attention" unless explicitly in Work filter
+          if (task.source === 'work') return false
           return (
             URGENT_PRIORITIES.includes(task.priority ?? '') ||
             isDueSoon(task.due) ||
             BLOCKED_STATUSES.includes(status)
           )
         case 'blocked':
+          // Exclude work tasks from "Blocked" unless explicitly in Work filter
+          if (task.source === 'work') return false
           return BLOCKED_STATUSES.includes(status)
         case 'personal':
           return domain === 'Personal'
         case 'church':
           return domain === 'Church'
         case 'work':
-          return domain === 'Work'
+          // Only show work tasks (from work sheet)
+          return task.source === 'work'
         default:
-          return true
+          // ALL filter: exclude work tasks (they have their own filter)
+          return task.source !== 'work'
       }
     })
   }, [tasks, filter])
@@ -130,15 +137,24 @@ export function TaskList({
       {warning && <p className="warning">{warning}</p>}
 
       <div className="task-filters">
-        {FILTERS.map((chip) => (
-          <button
-            key={chip.id}
-            className={filter === chip.id ? 'active' : ''}
-            onClick={() => setFilter(chip.id)}
-          >
-            {chip.label}
-          </button>
-        ))}
+        {FILTERS.map((chip) => {
+          // Show badge for Work filter when there are urgent/overdue items
+          const showWorkBadge = chip.id === 'work' && workBadge && workBadge.needsAttention > 0
+          return (
+            <button
+              key={chip.id}
+              className={`${filter === chip.id ? 'active' : ''} ${showWorkBadge ? 'has-badge' : ''}`}
+              onClick={() => setFilter(chip.id)}
+            >
+              {chip.label}
+              {showWorkBadge && (
+                <span className="work-badge" title={`${workBadge.needsAttention} work task(s) need attention`}>
+                  {workBadge.needsAttention}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {loading ? (
@@ -148,7 +164,7 @@ export function TaskList({
       ) : (
         <ul className="task-list">
           {filteredTasks.map((task) => {
-            const domain = deriveDomain(task.project)
+            const domain = deriveDomain(task)
             const status = task.status ?? 'Unknown'
             const next = previewText(task)
             return (

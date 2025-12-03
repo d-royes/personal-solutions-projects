@@ -4,6 +4,7 @@ import type {
   ConversationMessage,
   DataSource,
   TaskResponse,
+  WorkBadge,
 } from './types'
 import type { AuthConfig } from './auth/types'
 
@@ -16,6 +17,8 @@ const defaultSource: DataSource =
 export interface FetchTasksOptions {
   source?: DataSource
   limit?: number
+  sources?: string[]  // Filter to specific source keys (e.g., ['personal', 'work'])
+  includeWork?: boolean  // If true, include work tasks in ALL view
 }
 
 export async function fetchTasks(
@@ -28,11 +31,31 @@ export async function fetchTasks(
   if (typeof options.limit === 'number') {
     url.searchParams.set('limit', String(options.limit))
   }
+  if (options.sources && options.sources.length > 0) {
+    url.searchParams.set('sources', options.sources.join(','))
+  }
+  if (options.includeWork) {
+    url.searchParams.set('includeWork', 'true')
+  }
   const resp = await fetch(url, {
     headers: buildHeaders(auth),
   })
   if (!resp.ok) {
     throw new Error(`Tasks request failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function fetchWorkBadge(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<WorkBadge> {
+  const url = new URL('/work/badge', baseUrl)
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    throw new Error(`Work badge request failed: ${resp.statusText}`)
   }
   return resp.json()
 }

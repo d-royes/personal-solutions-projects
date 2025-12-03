@@ -12,6 +12,16 @@ export interface Task {
   notes?: string | null
   nextStep: string
   automationHint: string
+  source: 'personal' | 'work'  // Which sheet this task came from
+}
+
+export interface WorkBadge {
+  urgent: number
+  dueSoon: number
+  overdue: number
+  total: number
+  needsAttention: number
+  error?: string
 }
 
 export interface TaskResponse {

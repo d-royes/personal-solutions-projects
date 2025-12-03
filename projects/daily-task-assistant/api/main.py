@@ -70,6 +70,7 @@ def serialize_task(task: TaskDetail) -> dict:
         "notes": task.notes,
         "nextStep": task.next_step,
         "automationHint": task.automation_hint,
+        "source": task.source,  # "personal" or "work"
     }
 
 
@@ -268,10 +269,28 @@ def anthropic_test() -> dict:
 def list_tasks(
     source: Literal["auto", "live", "stub"] = Query("auto"),
     limit: Optional[int] = Query(None, ge=1, le=500),
+    sources: Optional[str] = Query(
+        None,
+        description="Comma-separated list of source keys to fetch (e.g., 'personal,work'). "
+                    "If not specified, fetches from sources included in 'ALL' filter (excludes work).",
+    ),
+    include_work: bool = Query(
+        False,
+        alias="includeWork",
+        description="If true, include work tasks in the response (overrides sources).",
+    ),
     user: str = Depends(get_current_user),
 ) -> dict:
+    # Parse sources parameter
+    source_list = None
+    if sources:
+        source_list = [s.strip() for s in sources.split(",") if s.strip()]
+
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=limit, source=source
+        limit=limit,
+        source=source,
+        sources=source_list,
+        include_work_in_all=include_work,
     )
     return {
         "tasks": [serialize_task(task) for task in tasks],
@@ -279,6 +298,39 @@ def list_tasks(
         "environment": settings.environment,
         "warning": warning,
     }
+
+
+@app.get("/work/badge")
+def get_work_badge(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get work task counts for the badge indicator.
+
+    Returns counts of urgent, due_soon, and overdue work tasks
+    to display as a notification badge in the UI.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+
+    try:
+        settings = _get_settings()
+        client = SmartsheetClient(settings)
+        counts = client.get_work_tasks_count()
+        return {
+            "urgent": counts["urgent"],
+            "dueSoon": counts["due_soon"],
+            "overdue": counts["overdue"],
+            "total": counts["total"],
+            "needsAttention": counts["urgent"] + counts["overdue"],
+        }
+    except Exception as e:
+        return {
+            "urgent": 0,
+            "dueSoon": 0,
+            "overdue": 0,
+            "total": 0,
+            "needsAttention": 0,
+            "error": str(e),
+        }
 
 
 @app.post("/assist/{task_id}")

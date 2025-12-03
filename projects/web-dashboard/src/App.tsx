@@ -10,6 +10,7 @@ import {
   fetchActivity,
   fetchConversationHistory,
   fetchTasks,
+  fetchWorkBadge,
   generatePlan,
   loadDraft,
   loadWorkspace,
@@ -40,6 +41,7 @@ import type {
   ConversationMessage,
   DataSource,
   Task,
+  WorkBadge,
 } from './types'
 import { useAuth } from './auth/AuthContext'
 
@@ -91,6 +93,7 @@ function App() {
 
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [activityError, setActivityError] = useState<string | null>(null)
+  const [workBadge, setWorkBadge] = useState<WorkBadge | null>(null)
   const [environmentName, setEnvironmentName] = useState(
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
@@ -155,8 +158,10 @@ function App() {
     setTasksLoading(true)
     setTasksWarning(null)
     try {
+      // Fetch tasks from all sheets (personal + work) so Work filter can show them
       const response = await fetchTasks(authConfig, apiBase, {
         source: dataSource,
+        includeWork: true,  // Include work tasks in the response
       })
       const activeTasks = response.tasks.filter(
         (task) => {
@@ -171,7 +176,18 @@ function App() {
         setEnvironmentName(response.environment.toUpperCase())
       }
       if (!selectedTaskId && activeTasks.length > 0) {
-        setSelectedTaskId(activeTasks[0].rowId)
+        // Default to first personal task (not work)
+        const firstPersonal = activeTasks.find(t => t.source !== 'work')
+        setSelectedTaskId(firstPersonal?.rowId ?? activeTasks[0].rowId)
+      }
+      
+      // Fetch work badge for notification indicator
+      try {
+        const badge = await fetchWorkBadge(authConfig, apiBase)
+        setWorkBadge(badge)
+      } catch {
+        // Work badge is optional - don't fail if it errors
+        setWorkBadge(null)
       }
     } catch (error) {
       setTasksWarning((error as Error).message)
@@ -861,6 +877,7 @@ function App() {
                 warning={tasksWarning}
                 onRefresh={refreshTasks}
                 refreshing={tasksLoading}
+                workBadge={workBadge}
               />
             )}
 

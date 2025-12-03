@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import re
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from .config import Settings, load_settings
 from .smartsheet_client import SchemaError, SmartsheetAPIError, SmartsheetClient
@@ -11,10 +11,21 @@ from .tasks import TaskDetail, fetch_stubbed_tasks
 
 
 def fetch_tasks(
-    *, limit: Optional[int], source: str
+    *,
+    limit: Optional[int],
+    source: str,
+    sources: Optional[List[str]] = None,
+    include_work_in_all: bool = False,
 ) -> Tuple[list[TaskDetail], bool, Settings, str | None]:
-    """Fetch tasks from Smartsheet or fallback stub."""
+    """Fetch tasks from Smartsheet or fallback stub.
 
+    Args:
+        limit: Maximum number of tasks to return (per sheet).
+        source: Data source mode - "auto", "live", or "stub".
+        sources: List of source keys to fetch from (e.g., ["personal", "work"]).
+                 If None, fetches from sources included in 'ALL' filter (excludes work by default).
+        include_work_in_all: If True, include work tasks even when sources is None.
+    """
     settings = load_settings()
     live_tasks = False
     warning: str | None = None
@@ -34,7 +45,12 @@ def fetch_tasks(
         return fetch_stubbed_tasks(limit=limit), live_tasks, settings, warning
 
     try:
-        tasks = client.list_tasks(limit=limit, fallback_to_stub=(source == "auto"))
+        tasks = client.list_tasks(
+            limit=limit,
+            fallback_to_stub=(source == "auto"),
+            sources=sources,
+            include_work_in_all=include_work_in_all,
+        )
         live_tasks = client.last_fetch_used_live
         if not live_tasks and source == "auto":
             warning = _merge_warning(

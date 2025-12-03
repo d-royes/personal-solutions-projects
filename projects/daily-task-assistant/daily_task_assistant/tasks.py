@@ -21,6 +21,7 @@ class TaskDetail:
     notes: Optional[str]
     next_step: str
     automation_hint: str
+    source: str = "personal"  # "personal" or "work" - identifies which sheet this task came from
 
 
 def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:

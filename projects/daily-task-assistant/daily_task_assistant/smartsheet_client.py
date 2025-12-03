@@ -1,10 +1,10 @@
 """Smartsheet connector scaffolding for the Daily Task Assistant."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
@@ -40,6 +40,9 @@ class ColumnDefinition:
 @dataclass(slots=True)
 class SheetSchema:
     sheet_id: str
+    name: str
+    source_key: str  # "personal" or "work"
+    include_in_all: bool
     columns: Dict[str, ColumnDefinition]
     required_fields: List[str]
     priority_values: List[str]
@@ -50,6 +53,28 @@ class SheetSchema:
         return all(
             not col.column_id.startswith("TODO") for col in self.columns.values()
         )
+
+
+@dataclass
+class MultiSheetConfig:
+    """Configuration for multiple Smartsheets."""
+    sheets: Dict[str, SheetSchema] = field(default_factory=dict)
+    required_fields: List[str] = field(default_factory=list)
+    priority_values: List[str] = field(default_factory=list)
+    project_values: List[str] = field(default_factory=list)
+
+    def get_all_sources(self) -> List[str]:
+        """Return all available source keys."""
+        return list(self.sheets.keys())
+
+    def get_sources_for_all_filter(self) -> List[str]:
+        """Return source keys that should be included in 'ALL' filter."""
+        return [key for key, schema in self.sheets.items() if schema.include_in_all]
+
+    @property
+    def primary_sheet(self) -> Optional[SheetSchema]:
+        """Return the primary (personal) sheet for backwards compatibility."""
+        return self.sheets.get("personal")
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -70,9 +95,60 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         return yaml.safe_load(handle)
 
 
-def load_schema(path: Optional[Path] = None) -> SheetSchema:
-    """Load the Smartsheet schema metadata from YAML."""
+def load_multi_sheet_config(path: Optional[Path] = None) -> MultiSheetConfig:
+    """Load multi-sheet configuration from YAML."""
+    path = path or DEFAULT_SCHEMA_PATH
+    data = _load_yaml(path)
 
+    required_fields = data.get("required_fields") or []
+    priority_values = data.get("priority_values", {}).get("ordered", [])
+    project_values = data.get("project_values", [])
+
+    sheets_data = data.get("sheets") or {}
+    sheets: Dict[str, SheetSchema] = {}
+
+    for source_key, sheet_cfg in sheets_data.items():
+        sheet_id = str(sheet_cfg.get("id", "")).strip()
+        if not sheet_id:
+            continue  # Skip sheets without ID
+
+        columns_data = sheet_cfg.get("columns") or {}
+        columns: Dict[str, ColumnDefinition] = {}
+        for field_name, column_cfg in columns_data.items():
+            column_id = str(column_cfg.get("column_id", ""))
+            columns[field_name] = ColumnDefinition(
+                field=field_name,
+                column_id=column_id,
+                optional=bool(column_cfg.get("optional", False)),
+                allowed_values=list(column_cfg.get("allowed_values", []) or []),
+            )
+
+        sheets[source_key] = SheetSchema(
+            sheet_id=sheet_id,
+            name=sheet_cfg.get("name", source_key),
+            source_key=source_key,
+            include_in_all=bool(sheet_cfg.get("include_in_all", True)),
+            columns=columns,
+            required_fields=list(required_fields),
+            priority_values=list(priority_values),
+            project_values=list(project_values),
+        )
+
+    return MultiSheetConfig(
+        sheets=sheets,
+        required_fields=list(required_fields),
+        priority_values=list(priority_values),
+        project_values=list(project_values),
+    )
+
+
+def load_schema(path: Optional[Path] = None) -> SheetSchema:
+    """Load the Smartsheet schema metadata from YAML (legacy single-sheet)."""
+    config = load_multi_sheet_config(path)
+    if config.primary_sheet:
+        return config.primary_sheet
+
+    # Fallback to legacy format if no multi-sheet config
     path = path or DEFAULT_SCHEMA_PATH
     data = _load_yaml(path)
 
@@ -98,6 +174,9 @@ def load_schema(path: Optional[Path] = None) -> SheetSchema:
 
     return SheetSchema(
         sheet_id=sheet_id,
+        name=sheet.get("name", "Unknown"),
+        source_key="personal",
+        include_in_all=True,
         columns=columns,
         required_fields=list(required_fields),
         priority_values=list(priority_values),
@@ -118,7 +197,8 @@ class SmartsheetClient:
         timeout_seconds: int = 15,
     ) -> None:
         self.settings = settings
-        self.schema = load_schema(schema_path)
+        self.multi_config = load_multi_sheet_config(schema_path)
+        self.schema = self.multi_config.primary_sheet or load_schema(schema_path)
         self.timeout_seconds = timeout_seconds
         self._last_fetch_used_live = False
         self._row_errors: List[str] = []
@@ -127,36 +207,125 @@ class SmartsheetClient:
     # Public API
     # ------------------------------------------------------------------
     def list_tasks(
-        self, *, limit: Optional[int] = None, fallback_to_stub: bool = True
+        self,
+        *,
+        limit: Optional[int] = None,
+        fallback_to_stub: bool = True,
+        sources: Optional[List[str]] = None,
+        include_work_in_all: bool = False,
     ) -> List[TaskDetail]:
-        """Return TaskDetail rows, pulling live data when schema is ready."""
+        """Return TaskDetail rows, pulling live data when schema is ready.
 
+        Args:
+            limit: Maximum number of tasks to return (per sheet).
+            fallback_to_stub: If True, fall back to stubbed data on API errors.
+            sources: List of source keys to fetch from (e.g., ["personal", "work"]).
+                     If None, fetches from sources included in 'ALL' filter.
+            include_work_in_all: If True, include work tasks even when sources is None.
+        """
         self._last_fetch_used_live = False
         self._row_errors = []
-        if not self.schema.ready_for_live:
-            if fallback_to_stub:
-                return fetch_stubbed_tasks(limit=limit)
-            raise SchemaError(
-                "Column IDs still use placeholder values. Update config/smartsheet.yml "
-                "with real columnId entries before attempting live reads."
+
+        # Determine which sheets to fetch from
+        if sources is not None:
+            target_sources = sources
+        elif include_work_in_all:
+            target_sources = self.multi_config.get_all_sources()
+        else:
+            target_sources = self.multi_config.get_sources_for_all_filter()
+
+        all_tasks: List[TaskDetail] = []
+        all_errors: List[str] = []
+        any_live = False
+
+        for source_key in target_sources:
+            schema = self.multi_config.sheets.get(source_key)
+            if not schema:
+                continue
+
+            if not schema.ready_for_live:
+                if fallback_to_stub and source_key == "personal":
+                    all_tasks.extend(fetch_stubbed_tasks(limit=limit))
+                continue
+
+            try:
+                payload = self._request(
+                    "GET",
+                    f"/sheets/{schema.sheet_id}",
+                    params={"include": "objectValue,rowNumbers,childIds"},
+                )
+                any_live = True
+            except SmartsheetAPIError:
+                if fallback_to_stub and source_key == "personal":
+                    all_tasks.extend(fetch_stubbed_tasks(limit=limit))
+                continue
+
+            details, errors = self._rows_to_details(
+                payload.get("rows", []),
+                limit=limit,
+                schema=schema,
+                source_key=source_key,
             )
+            all_tasks.extend(details)
+            all_errors.extend(errors)
+
+        self._last_fetch_used_live = any_live
+        self._row_errors = all_errors
+        return all_tasks
+
+    def get_available_sources(self) -> List[str]:
+        """Return list of available source keys."""
+        return self.multi_config.get_all_sources()
+
+    def get_work_tasks_count(self) -> Dict[str, int]:
+        """Return counts of work tasks by urgency for the badge indicator.
+
+        Returns dict with:
+            - urgent: count of Critical/Urgent priority tasks
+            - due_soon: count of tasks due within 3 days
+            - overdue: count of overdue tasks
+            - total: total work tasks
+        """
+        work_schema = self.multi_config.sheets.get("work")
+        if not work_schema or not work_schema.ready_for_live:
+            return {"urgent": 0, "due_soon": 0, "overdue": 0, "total": 0}
 
         try:
             payload = self._request(
                 "GET",
-                f"/sheets/{self.schema.sheet_id}",
+                f"/sheets/{work_schema.sheet_id}",
                 params={"include": "objectValue,rowNumbers,childIds"},
             )
-            self._last_fetch_used_live = True
         except SmartsheetAPIError:
-            if fallback_to_stub:
-                self._row_errors = []
-                return fetch_stubbed_tasks(limit=limit)
-            raise
+            return {"urgent": 0, "due_soon": 0, "overdue": 0, "total": 0}
 
-        details, errors = self._rows_to_details(payload.get("rows", []), limit=limit)
-        self._row_errors = errors
-        return details
+        details, _ = self._rows_to_details(
+            payload.get("rows", []),
+            limit=None,
+            schema=work_schema,
+            source_key="work",
+        )
+
+        # Filter out completed/cancelled tasks
+        active_tasks = [
+            t for t in details
+            if t.status.lower() not in ("completed", "cancelled")
+        ]
+
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        three_days = now + timedelta(days=3)
+
+        urgent = sum(1 for t in active_tasks if t.priority in ("Critical", "Urgent"))
+        due_soon = sum(1 for t in active_tasks if now <= t.due <= three_days)
+        overdue = sum(1 for t in active_tasks if t.due < now)
+
+        return {
+            "urgent": urgent,
+            "due_soon": due_soon,
+            "overdue": overdue,
+            "total": len(active_tasks),
+        }
 
     def post_comment(self, row_id: str, text: str) -> None:
         """Create a discussion comment on a row."""
@@ -247,8 +416,14 @@ class SmartsheetClient:
     # Internal helpers
     # ------------------------------------------------------------------
     def _rows_to_details(
-        self, rows: Iterable[Dict[str, Any]], *, limit: Optional[int]
+        self,
+        rows: Iterable[Dict[str, Any]],
+        *,
+        limit: Optional[int],
+        schema: Optional[SheetSchema] = None,
+        source_key: str = "personal",
     ) -> Tuple[List[TaskDetail], List[str]]:
+        schema = schema or self.schema
         summaries: List[TaskDetail] = []
         errors: List[str] = []
         for row in rows:
@@ -258,23 +433,24 @@ class SmartsheetClient:
             try:
                 summary = TaskDetail(
                     row_id=str(row.get("id")),
-                    title=self._cell_value(cell_map, "task"),
-                    status=self._cell_value(cell_map, "status"),
-                    due=self._parse_due_date(self._cell_value(cell_map, "due_date")),
-                    priority=self._cell_value(cell_map, "priority"),
-                    project=self._cell_value(cell_map, "project"),
+                    title=self._cell_value(cell_map, "task", schema=schema),
+                    status=self._cell_value(cell_map, "status", schema=schema),
+                    due=self._parse_due_date(self._cell_value(cell_map, "due_date", schema=schema)),
+                    priority=self._cell_value(cell_map, "priority", schema=schema),
+                    project=self._cell_value(cell_map, "project", schema=schema),
                     assigned_to=self._cell_value(
-                        cell_map, "assigned_to", allow_optional=True
+                        cell_map, "assigned_to", allow_optional=True, schema=schema
                     ),
                     estimated_hours=self._coerce_estimated_hours(
-                        self._cell_value(cell_map, "estimated_hours", allow_optional=True)
+                        self._cell_value(cell_map, "estimated_hours", allow_optional=True, schema=schema)
                     ),
-                    notes=self._cell_value(cell_map, "notes", allow_optional=True),
+                    notes=self._cell_value(cell_map, "notes", allow_optional=True, schema=schema),
                     next_step=self._cell_value(
-                        cell_map, "notes", allow_optional=True
+                        cell_map, "notes", allow_optional=True, schema=schema
                     )
                     or "Review notes",
-                    automation_hint=self._derive_hint(cell_map),
+                    automation_hint=self._derive_hint(cell_map, schema=schema),
+                    source=source_key,
                 )
             except (KeyError, ValueError) as exc:
                 errors.append(self._format_row_error(row, exc))
@@ -307,9 +483,15 @@ class SmartsheetClient:
         return lookup
 
     def _cell_value(
-        self, cell_map: Dict[str, Any], field_name: str, *, allow_optional: bool = False
+        self,
+        cell_map: Dict[str, Any],
+        field_name: str,
+        *,
+        allow_optional: bool = False,
+        schema: Optional[SheetSchema] = None,
     ) -> Any:
-        column = self.schema.columns.get(field_name)
+        schema = schema or self.schema
+        column = schema.columns.get(field_name)
         if not column:
             raise SchemaError(f"Field '{field_name}' missing from schema config.")
 
@@ -342,10 +524,13 @@ class SmartsheetClient:
                     continue
         raise ValueError(f"Unable to parse due date value: {value}")
 
-    def _derive_hint(self, cell_map: Dict[str, Any]) -> str:
-        priority = self._cell_value(cell_map, "priority")
-        status = self._cell_value(cell_map, "status")
-        project = self._cell_value(cell_map, "project")
+    def _derive_hint(
+        self, cell_map: Dict[str, Any], *, schema: Optional[SheetSchema] = None
+    ) -> str:
+        schema = schema or self.schema
+        priority = self._cell_value(cell_map, "priority", schema=schema)
+        status = self._cell_value(cell_map, "status", schema=schema)
+        project = self._cell_value(cell_map, "project", schema=schema)
         return f"{priority} {project} task currently {status.lower()}"
 
     def _coerce_estimated_hours(self, value: Any) -> Optional[float]:
