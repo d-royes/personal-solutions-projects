@@ -346,8 +346,9 @@ def assist_task(
     """
     from daily_task_assistant.conversations.history import get_latest_plan
     
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -410,8 +411,9 @@ def generate_plan(
     This is triggered explicitly by the user clicking the 'Plan' action button.
     The plan is stored in conversation history for persistence across sessions.
     """
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -527,8 +529,9 @@ def chat_with_task(
     """
     from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -694,8 +697,9 @@ def research_task_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import research_task, AnthropicError
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -776,8 +780,9 @@ def contact_search_endpoint(
     """
     from daily_task_assistant.contacts import search_contacts, ContactCard
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -881,8 +886,9 @@ def summarize_task_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import summarize_task, AnthropicError
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -960,8 +966,9 @@ def draft_email_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import generate_email_draft, AnthropicError
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1013,8 +1020,9 @@ def send_email_endpoint(
     """
     from daily_task_assistant.mailer import GmailError, load_account_from_env, send_email
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1081,6 +1089,7 @@ def send_email_endpoint(
             client.post_comment(
                 row_id=task_id,
                 text=f"Email sent: \"{request.subject}\" to {recipient_display} via {request.account} account",
+                source=target.source,
             )
             comment_posted = True
         except Exception as exc:
@@ -1291,6 +1300,13 @@ def update_task(
     
     settings = _get_settings()
     
+    # Get the task to determine which sheet it belongs to
+    tasks, _, _, _ = fetch_task_dataset(
+        limit=None, source="auto", include_work_in_all=True
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    task_source = target.source if target else "personal"
+    
     # Validate the action and required fields
     if request.action == "update_status":
         if not request.status:
@@ -1355,15 +1371,15 @@ def update_task(
         client = SmartsheetClient(settings)
         
         if request.action == "mark_complete":
-            client.mark_complete(task_id)
+            client.mark_complete(task_id, source=task_source)
         elif request.action == "update_status":
-            client.update_row(task_id, {"status": request.status})
+            client.update_row(task_id, {"status": request.status}, source=task_source)
         elif request.action == "update_priority":
-            client.update_row(task_id, {"priority": request.priority})
+            client.update_row(task_id, {"priority": request.priority}, source=task_source)
         elif request.action == "update_due_date":
-            client.update_row(task_id, {"due_date": request.due_date})
+            client.update_row(task_id, {"due_date": request.due_date}, source=task_source)
         elif request.action == "add_comment":
-            client.post_comment(task_id, request.comment)
+            client.post_comment(task_id, request.comment, source=task_source)
         
         # Log the action to conversation history
         action_description = preview["description"]

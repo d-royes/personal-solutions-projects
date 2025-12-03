@@ -327,28 +327,45 @@ class SmartsheetClient:
             "total": len(active_tasks),
         }
 
-    def post_comment(self, row_id: str, text: str) -> None:
-        """Create a discussion comment on a row."""
+    def _get_schema_for_source(self, source: str = "personal") -> SheetSchema:
+        """Get the schema for a given source key."""
+        schema = self.multi_config.sheets.get(source)
+        if not schema:
+            # Fall back to primary schema
+            return self.schema
+        return schema
 
+    def post_comment(self, row_id: str, text: str, *, source: str = "personal") -> None:
+        """Create a discussion comment on a row.
+
+        Args:
+            row_id: The Smartsheet row ID
+            text: Comment text
+            source: Source key ("personal" or "work") to determine which sheet
+        """
+        schema = self._get_schema_for_source(source)
         payload = {
             "comment": {"text": text},
         }
         try:
             self._request(
                 "POST",
-                f"/sheets/{self.schema.sheet_id}/rows/{row_id}/discussions",
+                f"/sheets/{schema.sheet_id}/rows/{row_id}/discussions",
                 body=payload,
             )
         except SmartsheetAPIError as exc:
             raise SmartsheetAPIError(f"Failed to post comment: {exc}") from exc
 
-    def update_row(self, row_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+    def update_row(
+        self, row_id: str, updates: Dict[str, Any], *, source: str = "personal"
+    ) -> Dict[str, Any]:
         """Update one or more cells in a row.
         
         Args:
             row_id: The Smartsheet row ID to update
             updates: Dict mapping field names to new values. Supported fields:
                      status, priority, due_date, notes, done, project, etc.
+            source: Source key ("personal" or "work") to determine which sheet
         
         Returns:
             The API response containing the updated row data.
@@ -360,9 +377,10 @@ class SmartsheetClient:
         if not updates:
             raise ValueError("No updates provided")
 
+        schema = self._get_schema_for_source(source)
         cells = []
         for field_name, value in updates.items():
-            column = self.schema.columns.get(field_name)
+            column = schema.columns.get(field_name)
             if not column:
                 raise ValueError(f"Unknown field: {field_name}")
 
@@ -383,18 +401,19 @@ class SmartsheetClient:
         try:
             response = self._request(
                 "PUT",
-                f"/sheets/{self.schema.sheet_id}/rows",
+                f"/sheets/{schema.sheet_id}/rows",
                 body=payload,
             )
             return response
         except SmartsheetAPIError as exc:
             raise SmartsheetAPIError(f"Failed to update row {row_id}: {exc}") from exc
 
-    def mark_complete(self, row_id: str) -> Dict[str, Any]:
+    def mark_complete(self, row_id: str, *, source: str = "personal") -> Dict[str, Any]:
         """Mark a task as complete by setting Status='Completed' and Done=true.
         
         Args:
             row_id: The Smartsheet row ID to mark complete
+            source: Source key ("personal" or "work") to determine which sheet
             
         Returns:
             The API response containing the updated row data.
@@ -402,7 +421,7 @@ class SmartsheetClient:
         return self.update_row(row_id, {
             "status": "Completed",
             "done": True,
-        })
+        }, source=source)
 
     @property
     def last_fetch_used_live(self) -> bool:
