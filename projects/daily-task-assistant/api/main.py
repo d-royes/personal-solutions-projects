@@ -395,9 +395,14 @@ def assist_task(
 
 class PlanRequest(BaseModel):
     """Request body for plan generation."""
+    model_config = {"populate_by_name": True}
+    
     source: Literal["auto", "live", "stub"] = "auto"
     anthropic_model: Optional[str] = Field(
         None, alias="anthropicModel", description="Override Anthropic model name."
+    )
+    workspace_context: Optional[str] = Field(
+        None, alias="workspaceContext", description="Additional context from workspace selections."
     )
 
 
@@ -434,6 +439,7 @@ def generate_plan(
         send_email_account=None,
         live_tasks=live_tasks,
         conversation_history=llm_history if llm_history else None,
+        workspace_context=request.workspace_context,
     )
 
     # Log the plan to conversation history for persistence

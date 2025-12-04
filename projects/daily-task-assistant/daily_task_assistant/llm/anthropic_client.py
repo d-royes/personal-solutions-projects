@@ -161,6 +161,7 @@ def generate_assist_suggestion(
     config: Optional[AnthropicConfig] = None,
     model_override: Optional[str] = None,
     history: Optional[List[Dict[str, str]]] = None,
+    workspace_context: Optional[str] = None,
 ) -> AnthropicSuggestion:
     """Call Anthropic Messages API for an assist suggestion."""
 
@@ -178,6 +179,17 @@ def generate_assist_suggestion(
         notes=task.notes or "No additional notes",
         automation_hint=task.automation_hint,
     )
+
+    # Append workspace context if provided (user-selected workspace items)
+    if workspace_context:
+        prompt += f"""
+
+---
+ADDITIONAL CONTEXT (selected by user from workspace):
+
+{workspace_context}
+
+Use this context to make your plan more specific and actionable. Reference specific details from this context in your next steps and suggestions."""
 
     try:
         messages = [

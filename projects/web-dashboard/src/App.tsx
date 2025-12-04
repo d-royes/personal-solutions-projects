@@ -276,8 +276,8 @@ function App() {
     }
   }
 
-  async function handleGeneratePlan() {
-    // Explicitly generate/update the plan based on task + conversation
+  async function handleGeneratePlan(workspaceContext?: string) {
+    // Explicitly generate/update the plan based on task + conversation + optional workspace context
     if (!selectedTask) return
     if (!authConfig) {
       setAssistError('Please sign in first.')
@@ -289,6 +289,7 @@ function App() {
       const response = await generatePlan(selectedTask.rowId, authConfig, apiBase, {
         source: dataSource,
         anthropicModel: import.meta.env.VITE_ANTHROPIC_MODEL,
+        workspaceContext,
       })
       setAssistPlan(response.plan)
       void refreshActivity()
