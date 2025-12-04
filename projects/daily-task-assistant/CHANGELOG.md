@@ -10,55 +10,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [0.3.0] - 2025-12-04
-
-### 🎯 Context-Aware Planning & Multi-Sheet Smartsheet Integration
-
-This release adds powerful context-awareness to DATA's planning and email capabilities, plus support for multiple Smartsheets.
-
-### Added
-
-#### Context-Aware Planning
-- **Workspace selection**: Checkbox UI on workspace items allows multi-select
-- **Add content button**: "+" button in workspace header creates empty items for direct input
-- **Context-informed plans**: Selected workspace content sent to Anthropic as additional context
-- **Context-informed emails**: Selected workspace items become source material for email drafts
-
-#### Multi-Sheet Smartsheet Support
-- **Work Smartsheet integration**: Added second Smartsheet for work tasks
-- **Source filtering**: Work tasks excluded from "All" view, shown in dedicated "Work" filter
-- **Work badge**: Shows count of urgent/overdue work tasks on Work filter button
-- **Source-aware updates**: All writes (comments, row updates) go to correct sheet
-
-#### Expanded Field Editing
-- DATA can now update **9 Smartsheet fields** via natural conversation:
-  - `#` (task number), `Priority`, `Contact` (flag), `Recurring`, `Project`
-  - `Task` (title), `Assigned To`, `Notes`, `Estimated Hours`
-- **Picklist validation**: Strict validation for select fields on write
-- **MULTI_PICKLIST support**: Proper handling for Recurring field column type
-- **MULTI_CONTACT support**: Proper handling for Assigned To field column type
-
-#### Recurring Task Handling
-- **Smart mark_complete**: When marking a recurring task complete, only checks "Done" box
-- **Preserves recurrence**: Status remains "Recurring" to maintain the recurrence pattern
-- **Done filter**: Tasks with "Done" checked are filtered out of all views
-
-### Changed
-- **Read-time validation removed**: Smartsheet field values only validated on write operations
-- **Numbered priorities for Work**: Work tasks use `5-Critical`, `4-Urgent`, etc. format
-- **Priority styling**: CSS attribute selectors for numbered priority classes
-
-### Fixed
-- **Pydantic v2 alias handling**: Added `populate_by_name=True` for proper camelCase field parsing
-- **Contact field alias**: Added proper alias for `contactFlag` field
-- **Work task sorting**: Updated priority order mappings for numbered work priorities
-
-### Infrastructure
-- **PR #12**: Deployed to staging (2m 45s)
-- **8 files changed**: 197 insertions, 48 deletions
-
----
-
 ## [0.2.1] - 2025-12-03
 
 ### 🚀 First Production Deployment!
@@ -170,8 +121,7 @@ This release marks the first successful automated deployment to staging using ou
 
 | Version | Date | Milestone |
 |---------|------|-----------|
-| 0.3.0 | 2025-12-04 | **Context-Aware Planning** + Multi-Sheet Smartsheet + 9 editable fields |
-| 0.2.1 | 2025-12-03 | First production deployment |
+| 0.2.1 | 2025-12-03 | **First production deployment** |
 | 0.2.0 | 2025-12-02 | First CI/CD staging deployment |
 | 0.1.0 | 2025-11-XX | Initial development release |
 

@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-04  
+> **Last Updated**: 2025-12-03  
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -45,11 +45,6 @@ Features that have been implemented and can be removed from backlog:
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
-| Context-Aware Planning | 2025-12-04 | Workspace selection provides context for plan generation |
-| Context-Aware Email Draft | 2025-12-04 | Selected workspace items become email source content |
-| Multi-Sheet Smartsheet | 2025-12-04 | Personal + Work sheets with source filtering |
-| Expanded Field Editing | 2025-12-04 | 9 Smartsheet fields editable via chat |
-| Recurring Task Handling | 2025-12-04 | Smart mark_complete preserves recurrence |
 | Dev → Staging → Prod Environments | 2025-12-03 | Full CI/CD pipeline with GitHub Actions, Cloud Run, Firebase Hosting |
 | Auth Persistence | 2025-12-02 | Login survives page refresh via localStorage |
 | Email Allowlist Security | 2025-12-02 | Only authorized emails can access the app |
