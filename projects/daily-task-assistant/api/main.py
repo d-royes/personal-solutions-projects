@@ -597,6 +597,14 @@ def chat_with_task(
             "priority": action.priority,
             "dueDate": action.due_date,
             "comment": action.comment,
+            "number": action.number,
+            "contactFlag": action.contact_flag,
+            "recurring": action.recurring,
+            "project": action.project,
+            "taskTitle": action.task_title,
+            "assignedTo": action.assigned_to,
+            "notes": action.notes,
+            "estimatedHours": action.estimated_hours,
             "reason": action.reason,
         }
     
