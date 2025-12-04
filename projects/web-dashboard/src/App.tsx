@@ -10,6 +10,7 @@ import {
   fetchActivity,
   fetchConversationHistory,
   fetchTasks,
+  fetchWorkBadge,
   generatePlan,
   loadDraft,
   loadWorkspace,
@@ -40,6 +41,7 @@ import type {
   ConversationMessage,
   DataSource,
   Task,
+  WorkBadge,
 } from './types'
 import { useAuth } from './auth/AuthContext'
 
@@ -91,6 +93,7 @@ function App() {
 
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [activityError, setActivityError] = useState<string | null>(null)
+  const [workBadge, setWorkBadge] = useState<WorkBadge | null>(null)
   const [environmentName, setEnvironmentName] = useState(
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
@@ -155,13 +158,23 @@ function App() {
     setTasksLoading(true)
     setTasksWarning(null)
     try {
+      // Fetch tasks from all sheets (personal + work) so Work filter can show them
       const response = await fetchTasks(authConfig, apiBase, {
         source: dataSource,
+        includeWork: true,  // Include work tasks in the response
       })
+      // X statuses to exclude from all views
+      const EXCLUDED_STATUSES = [
+        'completed', 'cancelled', 'delegated',
+        'create zd ticket', 'ticket created'
+      ]
       const activeTasks = response.tasks.filter(
         (task) => {
+          // Exclude tasks with Done checkbox checked
+          if (task.done === true) return false
+          // Exclude tasks with excluded statuses
           const status = task.status?.toLowerCase() || ''
-          return status !== 'completed' && status !== 'cancelled'
+          return !EXCLUDED_STATUSES.includes(status)
         },
       )
       setTasks(activeTasks)
@@ -171,7 +184,18 @@ function App() {
         setEnvironmentName(response.environment.toUpperCase())
       }
       if (!selectedTaskId && activeTasks.length > 0) {
-        setSelectedTaskId(activeTasks[0].rowId)
+        // Default to first personal task (not work)
+        const firstPersonal = activeTasks.find(t => t.source !== 'work')
+        setSelectedTaskId(firstPersonal?.rowId ?? activeTasks[0].rowId)
+      }
+      
+      // Fetch work badge for notification indicator
+      try {
+        const badge = await fetchWorkBadge(authConfig, apiBase)
+        setWorkBadge(badge)
+      } catch {
+        // Work badge is optional - don't fail if it errors
+        setWorkBadge(null)
       }
     } catch (error) {
       setTasksWarning((error as Error).message)
@@ -645,7 +669,11 @@ function App() {
   }
 
   async function handleConfirmUpdate() {
-    if (!selectedTaskId || !authConfig || !pendingAction) return
+    console.log('handleConfirmUpdate called', { selectedTaskId, authConfig: !!authConfig, pendingAction })
+    if (!selectedTaskId || !authConfig || !pendingAction) {
+      console.log('Early return - missing:', { selectedTaskId: !selectedTaskId, authConfig: !authConfig, pendingAction: !pendingAction })
+      return
+    }
     
     setUpdateExecuting(true)
     setAssistError(null)
@@ -659,6 +687,14 @@ function App() {
           priority: pendingAction.priority,
           dueDate: pendingAction.dueDate,
           comment: pendingAction.comment,
+          number: pendingAction.number,
+          contactFlag: pendingAction.contactFlag,
+          recurring: pendingAction.recurring,
+          project: pendingAction.project,
+          taskTitle: pendingAction.taskTitle,
+          assignedTo: pendingAction.assignedTo,
+          notes: pendingAction.notes,
+          estimatedHours: pendingAction.estimatedHours,
           confirmed: true,
         },
         authConfig,
@@ -861,6 +897,7 @@ function App() {
                 warning={tasksWarning}
                 onRefresh={refreshTasks}
                 refreshing={tasksLoading}
+                workBadge={workBadge}
               />
             )}
 

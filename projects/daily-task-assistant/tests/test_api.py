@@ -116,7 +116,8 @@ class TestTaskUpdateEndpoint:
         body = resp.json()
         assert body["status"] == "pending_confirmation"
         assert body["preview"]["action"] == "mark_complete"
-        assert body["preview"]["changes"]["status"] == "Complete"
+        # Non-recurring task should show status change to Completed
+        assert body["preview"]["changes"]["status"] == "Completed"
         assert body["preview"]["changes"]["done"] is True
 
     def test_update_status_requires_status_field(self):

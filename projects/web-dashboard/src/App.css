@@ -284,6 +284,35 @@ button:not(:disabled):hover {
   border-color: rgba(99, 102, 241, 0.6);
 }
 
+.task-filters button.has-badge {
+  position: relative;
+  padding-right: 2rem;
+}
+
+.work-badge {
+  position: absolute;
+  right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #ef4444;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.3rem;
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .task-item {
   padding: 0.85rem;
   border-radius: 12px;
@@ -335,7 +364,9 @@ button:not(:disabled):hover {
 }
 
 .badge.priority.critical,
-.badge.priority.urgent {
+.badge.priority.urgent,
+.badge.priority[class*="5-critical"],
+.badge.priority[class*="4-urgent"] {
   border-color: rgba(248, 113, 113, 0.6);
   color: #fecaca;
 }

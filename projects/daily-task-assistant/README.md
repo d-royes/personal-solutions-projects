@@ -155,7 +155,26 @@ Conversational history is stored per task under the Firestore collection `conver
 
 ## Deployment
 
-### Backend (Cloud Run)
+### Live Environments
+
+| Environment | Frontend | Backend |
+|-------------|----------|---------|
+| **Production** | https://daily-task-assistant-prod.web.app | https://daily-task-assistant-prod-368257400464.us-central1.run.app |
+| **Staging** | https://daily-task-assistant-church.web.app | https://daily-task-assistant-staging-368257400464.us-central1.run.app |
+
+### CI/CD Pipeline (Recommended)
+
+Deployments are automated via GitHub Actions:
+
+1. **Develop** → Push to `develop` branch, tests run automatically
+2. **Staging** → Create PR from `develop` to `staging`, merge to deploy
+3. **Production** → Create PR from `staging` to `main`, approve and merge to deploy
+
+See [`docs/CI_CD_Setup.md`](docs/CI_CD_Setup.md) for complete setup instructions.
+
+### Manual Deployment (Legacy)
+
+#### Backend (Cloud Run)
 
 1. **Build and push container**
    ```bash
@@ -174,7 +193,7 @@ Conversational history is stored per task under the Firestore collection `conver
    ```
    Supply any other env vars (e.g., `DTA_ENV`, Gmail config) via `--set-env-vars` or Secret Manager. The attached service account must have Firestore + Secret access.
 
-### Frontend (Firebase Hosting)
+#### Frontend (Firebase Hosting)
 
 1. Build the React dashboard:
    ```bash
