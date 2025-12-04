@@ -180,7 +180,7 @@ sheets:
           - Completed
       assigned_to:
         column_id: "8655926791038852"
-        type: text
+        type: contact
       estimated_hours:
         column_id: "480320769707908"
         type: picklist
