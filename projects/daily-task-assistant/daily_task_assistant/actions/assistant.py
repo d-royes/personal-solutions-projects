@@ -39,6 +39,7 @@ def plan_assist(
     *,
     model_override: str | None = None,
     history: list[dict[str, str]] | None = None,
+    workspace_context: str | None = None,
 ) -> AssistPlan:
     """Generate draft actions (next steps, efficiency tips, suggested actions)."""
 
@@ -60,6 +61,7 @@ def plan_assist(
         generator_notes,
         model_override=model_override,
         history=history,
+        workspace_context=workspace_context,
     )
     if llm_suggestion:
         generator = "anthropic"
@@ -104,10 +106,14 @@ def _maybe_call_llm(
     *,
     model_override: str | None = None,
     history: list[dict[str, str]] | None = None,
+    workspace_context: str | None = None,
 ) -> AnthropicSuggestion | None:
     try:
         return generate_assist_suggestion(
-            task, model_override=model_override, history=history
+            task,
+            model_override=model_override,
+            history=history,
+            workspace_context=workspace_context,
         )
     except AnthropicNotConfigured as exc:
         notes.append(str(exc))

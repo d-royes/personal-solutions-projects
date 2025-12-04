@@ -233,7 +233,7 @@ export async function generatePlan(
   taskId: string,
   auth: AuthConfig,
   baseUrl: string = defaultBase,
-  options: { source?: DataSource; anthropicModel?: string } = {},
+  options: { source?: DataSource; anthropicModel?: string; workspaceContext?: string } = {},
 ): Promise<PlanResponse> {
   const url = new URL(`/assist/${taskId}/plan`, baseUrl)
   const resp = await fetch(url, {
@@ -245,6 +245,7 @@ export async function generatePlan(
     body: JSON.stringify({
       source: options.source ?? defaultSource,
       anthropicModel: options.anthropicModel,
+      workspaceContext: options.workspaceContext,
     }),
   })
   if (!resp.ok) {
