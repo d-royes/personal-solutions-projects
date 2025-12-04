@@ -399,14 +399,26 @@ class SmartsheetClient:
             if column.col_type == "checkbox" and isinstance(value, bool):
                 cell_value = 1 if value else 0
 
-            # Handle MULTI_PICKLIST columns (recurring_pattern, etc.)
-            # These require objectValue format instead of plain value
+            # Handle special column types that require objectValue format
             if field_name == "recurring_pattern":
+                # MULTI_PICKLIST requires objectValue with values array
                 cells.append({
                     "columnId": int(column.column_id),
                     "objectValue": {
                         "objectType": "MULTI_PICKLIST",
                         "values": [cell_value] if cell_value else []
+                    },
+                })
+            elif column.col_type == "contact" and cell_value:
+                # Contact columns require objectValue with email
+                cells.append({
+                    "columnId": int(column.column_id),
+                    "objectValue": {
+                        "objectType": "MULTI_CONTACT",
+                        "values": [{
+                            "objectType": "CONTACT",
+                            "email": str(cell_value)
+                        }]
                     },
                 })
             else:
