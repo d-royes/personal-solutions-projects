@@ -371,6 +371,12 @@ button:not(:disabled):hover {
   color: #fecaca;
 }
 
+.badge.priority.important,
+[class*="3-important"] {
+  border-color: rgba(251, 191, 36, 0.5);
+  color: #fde68a;
+}
+
 .badge.due {
   border-color: rgba(99, 102, 241, 0.4);
   color: #c7d2fe;
@@ -2590,3 +2596,4 @@ button:not(:disabled):hover {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
