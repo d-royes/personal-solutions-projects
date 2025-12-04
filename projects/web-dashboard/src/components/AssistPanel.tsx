@@ -348,6 +348,22 @@ function formatPendingAction(action: PendingAction): string {
       return `Update due date to ${action.dueDate}`
     case 'add_comment':
       return `Add comment: "${(action.comment ?? '').slice(0, 50)}${(action.comment?.length ?? 0) > 50 ? '...' : ''}"`
+    case 'update_number':
+      return `Update task number to ${action.number}`
+    case 'update_contact_flag':
+      return `Set contact flag to ${action.contactFlag ? 'checked' : 'unchecked'}`
+    case 'update_recurring':
+      return `Set recurring pattern to "${action.recurring}"`
+    case 'update_project':
+      return `Change project to "${action.project}"`
+    case 'update_task':
+      return `Update task title to "${(action.taskTitle ?? '').slice(0, 50)}${(action.taskTitle?.length ?? 0) > 50 ? '...' : ''}"`
+    case 'update_assigned_to':
+      return `Assign to "${action.assignedTo}"`
+    case 'update_notes':
+      return `Update notes to "${(action.notes ?? '').slice(0, 50)}${(action.notes?.length ?? 0) > 50 ? '...' : ''}"`
+    case 'update_estimated_hours':
+      return `Set estimated hours to ${action.estimatedHours}`
     default:
       return `Perform action: ${action.action}`
   }

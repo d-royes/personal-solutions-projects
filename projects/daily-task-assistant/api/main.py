@@ -70,6 +70,8 @@ def serialize_task(task: TaskDetail) -> dict:
         "notes": task.notes,
         "nextStep": task.next_step,
         "automationHint": task.automation_hint,
+        "source": task.source,  # "personal" or "work"
+        "done": task.done,  # True if Done checkbox is checked
     }
 
 
@@ -268,10 +270,28 @@ def anthropic_test() -> dict:
 def list_tasks(
     source: Literal["auto", "live", "stub"] = Query("auto"),
     limit: Optional[int] = Query(None, ge=1, le=500),
+    sources: Optional[str] = Query(
+        None,
+        description="Comma-separated list of source keys to fetch (e.g., 'personal,work'). "
+                    "If not specified, fetches from sources included in 'ALL' filter (excludes work).",
+    ),
+    include_work: bool = Query(
+        False,
+        alias="includeWork",
+        description="If true, include work tasks in the response (overrides sources).",
+    ),
     user: str = Depends(get_current_user),
 ) -> dict:
+    # Parse sources parameter
+    source_list = None
+    if sources:
+        source_list = [s.strip() for s in sources.split(",") if s.strip()]
+
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=limit, source=source
+        limit=limit,
+        source=source,
+        sources=source_list,
+        include_work_in_all=include_work,
     )
     return {
         "tasks": [serialize_task(task) for task in tasks],
@@ -279,6 +299,39 @@ def list_tasks(
         "environment": settings.environment,
         "warning": warning,
     }
+
+
+@app.get("/work/badge")
+def get_work_badge(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get work task counts for the badge indicator.
+
+    Returns counts of urgent, due_soon, and overdue work tasks
+    to display as a notification badge in the UI.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+
+    try:
+        settings = _get_settings()
+        client = SmartsheetClient(settings)
+        counts = client.get_work_tasks_count()
+        return {
+            "urgent": counts["urgent"],
+            "dueSoon": counts["due_soon"],
+            "overdue": counts["overdue"],
+            "total": counts["total"],
+            "needsAttention": counts["urgent"] + counts["overdue"],
+        }
+    except Exception as e:
+        return {
+            "urgent": 0,
+            "dueSoon": 0,
+            "overdue": 0,
+            "total": 0,
+            "needsAttention": 0,
+            "error": str(e),
+        }
 
 
 @app.post("/assist/{task_id}")
@@ -294,8 +347,9 @@ def assist_task(
     """
     from daily_task_assistant.conversations.history import get_latest_plan
     
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -358,8 +412,9 @@ def generate_plan(
     This is triggered explicitly by the user clicking the 'Plan' action button.
     The plan is stored in conversation history for persistence across sessions.
     """
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -475,8 +530,9 @@ def chat_with_task(
     """
     from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -541,6 +597,14 @@ def chat_with_task(
             "priority": action.priority,
             "dueDate": action.due_date,
             "comment": action.comment,
+            "number": action.number,
+            "contactFlag": action.contact_flag,
+            "recurring": action.recurring,
+            "project": action.project,
+            "taskTitle": action.task_title,
+            "assignedTo": action.assigned_to,
+            "notes": action.notes,
+            "estimatedHours": action.estimated_hours,
             "reason": action.reason,
         }
     
@@ -642,8 +706,9 @@ def research_task_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import research_task, AnthropicError
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -724,8 +789,9 @@ def contact_search_endpoint(
     """
     from daily_task_assistant.contacts import search_contacts, ContactCard
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -829,8 +895,9 @@ def summarize_task_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import summarize_task, AnthropicError
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -908,8 +975,9 @@ def draft_email_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import generate_email_draft, AnthropicError
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -961,8 +1029,9 @@ def send_email_endpoint(
     """
     from daily_task_assistant.mailer import GmailError, load_account_from_env, send_email
 
+    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1029,6 +1098,7 @@ def send_email_endpoint(
             client.post_comment(
                 row_id=task_id,
                 text=f"Email sent: \"{request.subject}\" to {recipient_display} via {request.account} account",
+                source=target.source,
             )
             comment_posted = True
         except Exception as exc:
@@ -1206,11 +1276,23 @@ def clear_workspace_endpoint(
 
 class TaskUpdateRequest(BaseModel):
     """Request body for task update endpoint."""
-    action: Literal["mark_complete", "update_status", "update_priority", "update_due_date", "add_comment"]
+    action: Literal[
+        "mark_complete", "update_status", "update_priority", "update_due_date", "add_comment",
+        "update_number", "update_contact_flag", "update_recurring", "update_project",
+        "update_task", "update_assigned_to", "update_notes", "update_estimated_hours"
+    ]
     status: Optional[str] = Field(None, description="New status value (for update_status)")
     priority: Optional[str] = Field(None, description="New priority value (for update_priority)")
     due_date: Optional[str] = Field(None, description="New due date in YYYY-MM-DD format (for update_due_date)")
     comment: Optional[str] = Field(None, description="Comment text (for add_comment)")
+    number: Optional[int] = Field(None, description="New task number (for update_number)")
+    contact_flag: Optional[bool] = Field(None, alias="contactFlag", description="Contact flag value (for update_contact_flag)")
+    recurring: Optional[str] = Field(None, description="Recurring pattern (for update_recurring)")
+    project: Optional[str] = Field(None, description="Project name (for update_project)")
+    task_title: Optional[str] = Field(None, alias="taskTitle", description="Task title (for update_task)")
+    assigned_to: Optional[str] = Field(None, alias="assignedTo", description="Assigned to email (for update_assigned_to)")
+    notes: Optional[str] = Field(None, description="Notes text (for update_notes)")
+    estimated_hours: Optional[str] = Field(None, alias="estimatedHours", description="Estimated hours (for update_estimated_hours)")
     confirmed: bool = Field(False, description="User has confirmed this action")
 
 
@@ -1220,7 +1302,21 @@ VALID_STATUSES = [
     "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Create ZD Ticket",
     "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"
 ]
-VALID_PRIORITIES = ["Critical", "Urgent", "Important", "Standard", "Low"]
+VALID_PRIORITIES_PERSONAL = ["Critical", "Urgent", "Important", "Standard", "Low"]
+VALID_PRIORITIES_WORK = ["5-Critical", "4-Urgent", "3-Important", "2-Standard", "1-Low"]
+VALID_RECURRING = ["M", "T", "W", "H", "F", "Sa", "Monthly"]
+VALID_ESTIMATED_HOURS = [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"]
+VALID_PROJECTS_PERSONAL = [
+    "Around The House", "Church Tasks", "Family Time", 
+    "Shopping", "Sm. Projects & Tasks", "Zendesk Ticket"
+]
+VALID_PROJECTS_WORK = [
+    "Atlassian (Jira/Confluence)", "Crafter Studio", "Internal Application Support",
+    "Team Management", "Strategic Planning", "Stakeholder Relations",
+    "Process Improvement", "Daily Operations", "Zendesk Support",
+    "Intranet Management", "Vendor Management", "AI/Automation Projects",
+    "DTS Transformation", "New Technology Evaluation"
+]
 
 
 @app.post("/assist/{task_id}/update")
@@ -1239,6 +1335,13 @@ def update_task(
     
     settings = _get_settings()
     
+    # Get the task to determine which sheet it belongs to
+    tasks, _, _, _ = fetch_task_dataset(
+        limit=None, source="auto", include_work_in_all=True
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    task_source = target.source if target else "personal"
+    
     # Validate the action and required fields
     if request.action == "update_status":
         if not request.status:
@@ -1251,10 +1354,12 @@ def update_task(
     elif request.action == "update_priority":
         if not request.priority:
             raise HTTPException(status_code=400, detail="priority field required for update_priority action")
-        if request.priority not in VALID_PRIORITIES:
+        # Use different priority values for work vs personal sheets
+        valid_priorities = VALID_PRIORITIES_WORK if task_source == "work" else VALID_PRIORITIES_PERSONAL
+        if request.priority not in valid_priorities:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid priority '{request.priority}'. Valid: {VALID_PRIORITIES}"
+                detail=f"Invalid priority '{request.priority}'. Valid for {task_source}: {valid_priorities}"
             )
     elif request.action == "update_due_date":
         if not request.due_date:
@@ -1266,6 +1371,55 @@ def update_task(
     elif request.action == "add_comment":
         if not request.comment:
             raise HTTPException(status_code=400, detail="comment field required for add_comment action")
+    elif request.action == "update_number":
+        if request.number is None:
+            raise HTTPException(status_code=400, detail="number field required for update_number action")
+        if not isinstance(request.number, int) or request.number < 1:
+            raise HTTPException(status_code=400, detail="number must be a positive integer")
+    elif request.action == "update_contact_flag":
+        if request.contact_flag is None:
+            raise HTTPException(status_code=400, detail="contact_flag field required for update_contact_flag action")
+    elif request.action == "update_recurring":
+        if not request.recurring:
+            raise HTTPException(status_code=400, detail="recurring field required for update_recurring action")
+        if request.recurring not in VALID_RECURRING:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid recurring '{request.recurring}'. Valid: {VALID_RECURRING}"
+            )
+    elif request.action == "update_project":
+        if not request.project:
+            raise HTTPException(status_code=400, detail="project field required for update_project action")
+        # Validate based on sheet source
+        valid_projects = VALID_PROJECTS_WORK if task_source == "work" else VALID_PROJECTS_PERSONAL
+        if request.project not in valid_projects:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid project '{request.project}'. Valid for {task_source}: {valid_projects}"
+            )
+    elif request.action == "update_task":
+        if not request.task_title:
+            raise HTTPException(status_code=400, detail="taskTitle field required for update_task action")
+    elif request.action == "update_assigned_to":
+        if not request.assigned_to:
+            raise HTTPException(status_code=400, detail="assignedTo field required for update_assigned_to action")
+        # Basic email validation
+        if "@" not in request.assigned_to:
+            raise HTTPException(status_code=400, detail="assignedTo must be a valid email address")
+    elif request.action == "update_notes":
+        if request.notes is None:
+            raise HTTPException(status_code=400, detail="notes field required for update_notes action")
+    elif request.action == "update_estimated_hours":
+        if not request.estimated_hours:
+            raise HTTPException(status_code=400, detail="estimatedHours field required for update_estimated_hours action")
+        if request.estimated_hours not in VALID_ESTIMATED_HOURS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid estimatedHours '{request.estimated_hours}'. Valid: {VALID_ESTIMATED_HOURS}"
+            )
+    
+    # Check if task is recurring (for smart mark_complete behavior)
+    is_recurring = target and target.status and target.status.lower() == "recurring"
     
     # Build preview of proposed changes
     preview = {
@@ -1275,8 +1429,14 @@ def update_task(
     }
     
     if request.action == "mark_complete":
-        preview["changes"] = {"status": "Complete", "done": True}
-        preview["description"] = "Mark task as complete (Status → Complete, Done → checked)"
+        if is_recurring:
+            # For recurring tasks, only check Done box - don't change status
+            preview["changes"] = {"done": True}
+            preview["description"] = "Check Done box (status stays 'Recurring' to preserve recurrence)"
+        else:
+            # For non-recurring tasks, set status to Completed and check Done
+            preview["changes"] = {"status": "Completed", "done": True}
+            preview["description"] = "Mark task as complete (Status → Completed, Done → checked)"
     elif request.action == "update_status":
         preview["changes"] = {"status": request.status}
         preview["description"] = f"Update status to '{request.status}'"
@@ -1289,6 +1449,30 @@ def update_task(
     elif request.action == "add_comment":
         preview["changes"] = {"comment": request.comment}
         preview["description"] = f"Add comment: '{request.comment[:50]}...'" if len(request.comment or "") > 50 else f"Add comment: '{request.comment}'"
+    elif request.action == "update_number":
+        preview["changes"] = {"number": request.number}
+        preview["description"] = f"Update # to {request.number}"
+    elif request.action == "update_contact_flag":
+        preview["changes"] = {"contact_flag": request.contact_flag}
+        preview["description"] = f"Set Contact flag to {'checked' if request.contact_flag else 'unchecked'}"
+    elif request.action == "update_recurring":
+        preview["changes"] = {"recurring_pattern": request.recurring}
+        preview["description"] = f"Set Recurring pattern to '{request.recurring}'"
+    elif request.action == "update_project":
+        preview["changes"] = {"project": request.project}
+        preview["description"] = f"Update Project to '{request.project}'"
+    elif request.action == "update_task":
+        preview["changes"] = {"task": request.task_title}
+        preview["description"] = f"Update Task title to '{request.task_title[:50]}...'" if len(request.task_title or "") > 50 else f"Update Task title to '{request.task_title}'"
+    elif request.action == "update_assigned_to":
+        preview["changes"] = {"assigned_to": request.assigned_to}
+        preview["description"] = f"Assign to '{request.assigned_to}'"
+    elif request.action == "update_notes":
+        preview["changes"] = {"notes": request.notes}
+        preview["description"] = f"Update Notes to '{request.notes[:50]}...'" if len(request.notes or "") > 50 else f"Update Notes to '{request.notes}'"
+    elif request.action == "update_estimated_hours":
+        preview["changes"] = {"estimated_hours": request.estimated_hours}
+        preview["description"] = f"Set Estimated Hours to {request.estimated_hours}"
     
     # If not confirmed, return preview for user confirmation
     if not request.confirmed:
@@ -1303,15 +1487,36 @@ def update_task(
         client = SmartsheetClient(settings)
         
         if request.action == "mark_complete":
-            client.mark_complete(task_id)
+            if is_recurring:
+                # For recurring tasks, only check Done box - preserve status
+                client.update_row(task_id, {"done": True}, source=task_source)
+            else:
+                # For non-recurring tasks, full mark_complete (status + done)
+                client.mark_complete(task_id, source=task_source)
         elif request.action == "update_status":
-            client.update_row(task_id, {"status": request.status})
+            client.update_row(task_id, {"status": request.status}, source=task_source)
         elif request.action == "update_priority":
-            client.update_row(task_id, {"priority": request.priority})
+            client.update_row(task_id, {"priority": request.priority}, source=task_source)
         elif request.action == "update_due_date":
-            client.update_row(task_id, {"due_date": request.due_date})
+            client.update_row(task_id, {"due_date": request.due_date}, source=task_source)
         elif request.action == "add_comment":
-            client.post_comment(task_id, request.comment)
+            client.post_comment(task_id, request.comment, source=task_source)
+        elif request.action == "update_number":
+            client.update_row(task_id, {"number": request.number}, source=task_source)
+        elif request.action == "update_contact_flag":
+            client.update_row(task_id, {"contact_flag": request.contact_flag}, source=task_source)
+        elif request.action == "update_recurring":
+            client.update_row(task_id, {"recurring_pattern": request.recurring}, source=task_source)
+        elif request.action == "update_project":
+            client.update_row(task_id, {"project": request.project}, source=task_source)
+        elif request.action == "update_task":
+            client.update_row(task_id, {"task": request.task_title}, source=task_source)
+        elif request.action == "update_assigned_to":
+            client.update_row(task_id, {"assigned_to": request.assigned_to}, source=task_source)
+        elif request.action == "update_notes":
+            client.update_row(task_id, {"notes": request.notes}, source=task_source)
+        elif request.action == "update_estimated_hours":
+            client.update_row(task_id, {"estimated_hours": request.estimated_hours}, source=task_source)
         
         # Log the action to conversation history
         action_description = preview["description"]

@@ -4,6 +4,7 @@ import type {
   ConversationMessage,
   DataSource,
   TaskResponse,
+  WorkBadge,
 } from './types'
 import type { AuthConfig } from './auth/types'
 
@@ -16,6 +17,8 @@ const defaultSource: DataSource =
 export interface FetchTasksOptions {
   source?: DataSource
   limit?: number
+  sources?: string[]  // Filter to specific source keys (e.g., ['personal', 'work'])
+  includeWork?: boolean  // If true, include work tasks in ALL view
 }
 
 export async function fetchTasks(
@@ -28,11 +31,31 @@ export async function fetchTasks(
   if (typeof options.limit === 'number') {
     url.searchParams.set('limit', String(options.limit))
   }
+  if (options.sources && options.sources.length > 0) {
+    url.searchParams.set('sources', options.sources.join(','))
+  }
+  if (options.includeWork) {
+    url.searchParams.set('includeWork', 'true')
+  }
   const resp = await fetch(url, {
     headers: buildHeaders(auth),
   })
   if (!resp.ok) {
     throw new Error(`Tasks request failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function fetchWorkBadge(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<WorkBadge> {
+  const url = new URL('/work/badge', baseUrl)
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    throw new Error(`Work badge request failed: ${resp.statusText}`)
   }
   return resp.json()
 }
@@ -144,11 +167,19 @@ export async function unstrikeMessage(
 }
 
 export interface PendingAction {
-  action: 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
+  action: TaskUpdateAction
   status?: string
   priority?: string
   dueDate?: string
   comment?: string
+  number?: number
+  contactFlag?: boolean
+  recurring?: string
+  project?: string
+  taskTitle?: string
+  assignedTo?: string
+  notes?: string
+  estimatedHours?: string
   reason?: string
 }
 
@@ -610,7 +641,10 @@ export async function fetchFeedbackSummary(
 }
 
 // Task Update Types and Functions
-export type TaskUpdateAction = 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
+export type TaskUpdateAction = 
+  | 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
+  | 'update_number' | 'update_contact_flag' | 'update_recurring' | 'update_project'
+  | 'update_task' | 'update_assigned_to' | 'update_notes' | 'update_estimated_hours'
 
 export interface TaskUpdateRequest {
   action: TaskUpdateAction
@@ -618,6 +652,14 @@ export interface TaskUpdateRequest {
   priority?: string
   dueDate?: string
   comment?: string
+  number?: number
+  contactFlag?: boolean
+  recurring?: string
+  project?: string
+  taskTitle?: string
+  assignedTo?: string
+  notes?: string
+  estimatedHours?: string
   confirmed: boolean
 }
 
@@ -655,6 +697,14 @@ export async function updateTask(
       priority: request.priority,
       due_date: request.dueDate,
       comment: request.comment,
+      number: request.number,
+      contactFlag: request.contactFlag,
+      recurring: request.recurring,
+      project: request.project,
+      taskTitle: request.taskTitle,
+      assignedTo: request.assignedTo,
+      notes: request.notes,
+      estimatedHours: request.estimatedHours,
       confirmed: request.confirmed,
     }),
   })

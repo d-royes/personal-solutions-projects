@@ -21,6 +21,8 @@ class TaskDetail:
     notes: Optional[str]
     next_step: str
     automation_hint: str
+    source: str = "personal"  # "personal" or "work" - identifies which sheet this task came from
+    done: bool = False  # True if the Done checkbox is checked
 
 
 def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:

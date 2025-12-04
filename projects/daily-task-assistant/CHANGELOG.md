@@ -6,8 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+*No unreleased changes*
+
+---
+
+## [0.2.1] - 2025-12-03
+
+### 🚀 First Production Deployment!
+
+This release marks the **first production deployment** of the Daily Task Assistant.
+
 ### Added
-- Production deployment workflow (pending first production release)
+- **Production environment**: Fully operational at `daily-task-assistant-prod.web.app`
+- **Firebase multi-site hosting**: Separate staging and production hosting targets
+- **IAM configuration**: Production Cloud Run service account with Secret Manager access
+
+### Infrastructure
+- **Production URLs**:
+  - Frontend: https://daily-task-assistant-prod.web.app
+  - Backend: https://daily-task-assistant-prod-368257400464.us-central1.run.app
+- **OAuth configuration**: Production origin added to Google OAuth client
+- **Deployment time**: ~8 minutes via CI/CD pipeline
 
 ---
 
@@ -102,6 +121,7 @@ This release marks the first successful automated deployment to staging using ou
 
 | Version | Date | Milestone |
 |---------|------|-----------|
+| 0.2.1 | 2025-12-03 | **First production deployment** |
 | 0.2.0 | 2025-12-02 | First CI/CD staging deployment |
 | 0.1.0 | 2025-11-XX | Initial development release |
 

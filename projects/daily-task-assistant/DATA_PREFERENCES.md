@@ -1,8 +1,8 @@
 ---
 name: DATA
 description: Daily Autonomous Task Assistant - David's AI chief of staff for task management
-version: 1.0.0
-last_updated: 2025-11-30
+version: 1.4.0
+last_updated: 2025-12-03
 ---
 
 # DATA Preferences
@@ -229,33 +229,14 @@ Schedule regular (weekly/monthly) reviews of feedback data to:
 - **Admin Menu:** Feedback summary view (planned)
 - **Direct Query:** Firestore console or local file
 
-## Known Issues / Bugs
-
-| Issue | Description | Status | Date Logged |
-|-------|-------------|--------|-------------|
-| Smartsheet Comment on Email Send | When an email is sent, the system should post a comment to the Smartsheet task (e.g., "Email sent: [subject] to [recipient] via [account]"). Currently, comments may not be posting reliably. Requires investigation of `live_tasks` flag and `SmartsheetClient.post_comment()` execution path. | Open | 2025-12-01 |
-
-## Feature Backlog
-
-| Feature | Description | Priority | Documentation |
-|---------|-------------|----------|---------------|
-| Smartsheet Attachments | Enable DATA to access and understand task attachments (images, documents). Lazy load on task engage, full Claude vision integration for AI-assisted analysis. | Medium | [Feature_Smartsheet_Attachments.md](docs/Feature_Smartsheet_Attachments.md) |
-| Bulk Task Prioritization | Allow DATA to analyze all open tasks and propose realistic due date distribution over 1-2 weeks based on priority and estimated hours. Batch update capability. | Medium | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
-| Dev → Staging → Prod Environments | Finalize deployment pipeline with proper environment separation. GCP project setup, Firestore, Secret Manager, Cloud Run, Firebase Hosting, CI/CD. | Medium | - |
-| Feedback Summary View | Admin menu view to see aggregated feedback statistics and patterns. | Low | - |
-| Save Contact Feature | Save frequently used contacts for quick access in email drafting. Contact management in admin menu. | Low | - |
-| Conversation Strike/Reject | Allow users to "strike" poor DATA responses, collapsing them to a single line ("Response removed on [date]") while maintaining audit trail. | Low | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
-| Custom AI-Generated Actions | After Plan generation, DATA suggests context-specific action buttons (e.g., "Draft Template"). Hover tooltips, visual distinction from standard actions. | Low | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
-| Activity Feed Enhancement | Richer detail when clicking activity items - show conversation snippets, action results, full context. | Low | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
-| Header Cleanup / Environment Menu | Move API Base URL and Data Source to admin menu "Environment" view. Clean up header to just logo + menu button. | Low | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
-
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.3.0 | 2025-12-01 | Conversation archive gap analysis: Added 5 new backlog items, enhanced planning guidance |
-| 1.2.0 | 2025-12-01 | Added Feature Backlog section with Smartsheet Attachments plan |
-| 1.1.1 | 2025-12-01 | Added Known Issues section, documented Smartsheet comment bug |
+| 1.4.0 | 2025-12-03 | Moved Feature Backlog and Known Issues to `BACKLOG.md` - this file is for chatbot behavior only |
+| 1.3.0 | 2025-12-01 | Conversation archive gap analysis: Enhanced planning guidance |
+| 1.2.0 | 2025-12-01 | Added Smartsheet Attachments feature documentation |
+| 1.1.1 | 2025-12-01 | Documented Smartsheet comment bug |
 | 1.1.0 | 2025-11-30 | Added Feedback System section |
 | 1.0.0 | 2025-11-30 | Initial version based on GitHub agents.md best practices |
 

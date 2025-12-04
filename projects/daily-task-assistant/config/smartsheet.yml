@@ -1,3 +1,243 @@
+# Multi-sheet configuration for Daily Task Assistant
+# - personal: Church/Personal tasks (default, included in ALL view)
+# - work: Work tasks (separate context, excluded from ALL view)
+
+sheets:
+  personal:
+    id: 4543936291884932
+    name: Task Management Master
+    include_in_all: true  # Included in ALL filter
+    description: |
+      Church and personal tasks. Primary sheet for David's daily workflow.
+    columns:
+      task:
+        column_id: "1404910744326020"
+        type: text
+      project:
+        column_id: "7034410278539140"
+        type: picklist
+        allowed_values:
+          - Around The House
+          - Church Tasks
+          - Family Time
+          - Shopping
+          - Sm. Projects & Tasks
+          - Zendesk Ticket
+      due_date:
+        column_id: "3656710558011268"
+        type: date
+      priority:
+        column_id: "279010837483396"
+        type: picklist
+        allowed_values:
+          - Critical
+          - Urgent
+          - Important
+          - Standard
+          - Low
+      status:
+        column_id: "8863997627158404"
+        type: picklist
+        allowed_values:
+          - Scheduled
+          - Recurring
+          - On Hold
+          - In Progress
+          - Follow-up
+          - Awaiting Reply
+          - Delivered
+          - Create ZD Ticket
+          - Ticket Created
+          - Validation
+          - Needs Approval
+          - Cancelled
+          - Delegated
+          - Completed
+      assigned_to:
+        column_id: "5908510371696516"
+        type: contact
+      estimated_hours:
+        column_id: "8160310185381764"
+        type: picklist
+        allowed_values:
+          - ".05"
+          - ".15"
+          - ".25"
+          - ".50"
+          - ".75"
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+          - "6"
+          - "7"
+          - "8"
+      number:
+        column_id: "4360397999787908"
+        type: int
+      done:
+        column_id: "2108598186102660"
+        type: checkbox
+      notes:
+        column_id: "1967860697747332"
+        type: text
+        optional: true
+      contact_flag:
+        column_id: "4782610464853892"
+        type: checkbox
+        optional: true
+      deadline:
+        column_id: "841960790904708"
+        type: date
+        optional: true
+      recurring_pattern:
+        column_id: "2530810651168644"
+        type: picklist
+        optional: true
+        allowed_values:
+          - M
+          - T
+          - W
+          - H
+          - F
+          - Sa
+          - Monthly
+      completed_on:
+        column_id: "5345560418275204"
+        type: date
+        optional: true
+      ai_feedback:
+        column_id: "8541248033607556"
+        type: text
+        optional: true
+      ai_response:
+        column_id: "5502710606155652"
+        type: picklist
+        optional: true
+      last_modified:
+        column_id: "6471460325117828"
+        type: datetime
+        optional: true
+
+  work:
+    id: 5336144276678532
+    name: Project Task Tracker
+    include_in_all: false  # Excluded from ALL filter - only shown in Work filter
+    description: |
+      Work tasks from separate Smartsheet. Only visible when Work filter is active.
+    columns:
+      task:
+        column_id: "6404126977353604"
+        type: text
+      project:
+        column_id: "7248551907485572"
+        type: picklist
+        allowed_values:
+          - Atlassian (Jira/Confluence)
+          - Crafter Studio
+          - Internal Application Support
+          - Team Management
+          - Strategic Planning
+          - Stakeholder Relations
+          - Process Improvement
+          - Daily Operations
+          - Zendesk Support
+          - Intranet Management
+          - Vendor Management
+          - AI/Automation Projects
+          - DTS Transformation
+          - New Technology Evaluation
+      due_date:
+        column_id: "493152466429828"
+        type: date
+      priority:
+        column_id: "4152327163668356"
+        type: picklist
+        allowed_values:
+          - 5-Critical
+          - 4-Urgent
+          - 3-Important
+          - 2-Standard
+          - 1-Low
+      status:
+        column_id: "1775870219184004"
+        type: picklist
+        allowed_values:
+          - Scheduled
+          - Recurring
+          - On Hold
+          - In Progress
+          - Follow-up
+          - Awaiting Reply
+          - Delivered
+          - Create ZD Ticket
+          - Ticket Created
+          - Validation
+          - Needs Approval
+          - Cancelled
+          - Delegated
+          - Completed
+      assigned_to:
+        column_id: "8655926791038852"
+        type: contact
+      estimated_hours:
+        column_id: "480320769707908"
+        type: picklist
+        allowed_values:
+          - ".05"
+          - ".15"
+          - ".25"
+          - ".50"
+          - ".75"
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+          - "6"
+          - "7"
+          - "8"
+      number:
+        column_id: "7057747878406020"
+        type: int
+      done:
+        column_id: "802613450041220"
+        type: checkbox
+      notes:
+        column_id: "1619052373272452"
+        type: text
+        optional: true
+      contact_flag:
+        column_id: "1900527349983108"
+        type: checkbox
+        optional: true
+      deadline:
+        column_id: "6481745250936708"
+        type: date
+        optional: true
+      recurring_pattern:
+        column_id: "5106722439227268"
+        type: picklist
+        optional: true
+        allowed_values:
+          - M
+          - T
+          - W
+          - H
+          - F
+          - Sa
+          - Monthly
+      completed_on:
+        column_id: "2744952280115076"
+        type: date
+        optional: true
+      last_modified:
+        column_id: "3123003891443588"
+        type: datetime
+        optional: true
+
+# Legacy single-sheet reference (for backwards compatibility)
 sheet:
   id: 4543936291884932
   name: Task Management Master

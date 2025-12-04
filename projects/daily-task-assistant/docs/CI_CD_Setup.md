@@ -1,8 +1,8 @@
 # CI/CD Setup Guide
 
-> **Last Updated**: December 2, 2025  
-> **Status**: ✅ Staging environment fully operational  
-> **First Successful Deployment**: December 2, 2025 (PR #8, 2m 32s)
+> **Last Updated**: December 3, 2025  
+> **Status**: ✅ **Production and Staging fully operational**  
+> **First Production Deployment**: December 3, 2025 (PR #10, 8m 7s)
 
 This document describes how to set up the GitHub Actions CI/CD pipeline for the Daily Task Assistant.
 
@@ -10,7 +10,8 @@ This document describes how to set up the GitHub Actions CI/CD pipeline for the 
 
 | Date | PR | Environment | Duration | Notes |
 |------|-----|-------------|----------|-------|
-| 2025-12-02 | #8 | Staging | 2m 32s | First CI/CD deployment - 9 commits including auth persistence, email allowlist, Research improvements |
+| 2025-12-03 | #10 | **Production** | 8m 7s | 🚀 First production deployment |
+| 2025-12-02 | #8 | Staging | 2m 32s | First CI/CD deployment - auth persistence, email allowlist, Research improvements |
 
 ## Quick Reference
 
@@ -18,7 +19,7 @@ This document describes how to set up the GitHub Actions CI/CD pipeline for the 
 |-------------|--------------|-------------|
 | **Dev** | http://localhost:5173 | http://localhost:8000 |
 | **Staging** | https://daily-task-assistant-church.web.app | https://daily-task-assistant-staging-368257400464.us-central1.run.app |
-| **Production** | TBD | TBD |
+| **Production** | https://daily-task-assistant-prod.web.app | https://daily-task-assistant-prod-368257400464.us-central1.run.app |
 
 ## Branch Strategy
 
@@ -93,8 +94,16 @@ Firebase Hosting should already be configured from the previous setup. The workf
 - Staging: `daily-task-assistant-church.web.app`
 - Production: `daily-task-assistant-prod.web.app` (create when ready)
 
-### 5. Current Staging URLs
+### 5. Environment URLs
 
+#### Production
+| Service | URL |
+|---------|-----|
+| Frontend | https://daily-task-assistant-prod.web.app |
+| Backend | https://daily-task-assistant-prod-368257400464.us-central1.run.app |
+| Health Check | https://daily-task-assistant-prod-368257400464.us-central1.run.app/health |
+
+#### Staging
 | Service | URL |
 |---------|-----|
 | Frontend | https://daily-task-assistant-church.web.app |
