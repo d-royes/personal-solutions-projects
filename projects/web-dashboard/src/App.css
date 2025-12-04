@@ -364,7 +364,9 @@ button:not(:disabled):hover {
 }
 
 .badge.priority.critical,
-.badge.priority.urgent {
+.badge.priority.urgent,
+.badge.priority.5-critical,
+.badge.priority.4-urgent {
   border-color: rgba(248, 113, 113, 0.6);
   color: #fecaca;
 }

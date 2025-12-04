@@ -4,7 +4,7 @@ import '../App.css'
 
 const PREVIEW_LIMIT = 240
 const BLOCKED_STATUSES = ['On Hold', 'Awaiting Reply', 'Needs Approval']
-const URGENT_PRIORITIES = ['Critical', 'Urgent']
+const URGENT_PRIORITIES = ['Critical', 'Urgent', '5-Critical', '4-Urgent']
 
 // Status category for sorting (A=Active first, B=Blocked second, S=Scheduled last)
 const STATUS_CATEGORY: Record<string, number> = {
