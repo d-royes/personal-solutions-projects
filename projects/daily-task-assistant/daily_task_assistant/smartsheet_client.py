@@ -450,6 +450,10 @@ class SmartsheetClient:
                 continue
             cell_map = self._cells_by_column(row.get("cells", []))
             try:
+                # Parse done checkbox - convert to boolean
+                done_value = self._cell_value(cell_map, "done", allow_optional=True, schema=schema)
+                is_done = bool(done_value) if done_value is not None else False
+                
                 summary = TaskDetail(
                     row_id=str(row.get("id")),
                     title=self._cell_value(cell_map, "task", schema=schema),
@@ -470,6 +474,7 @@ class SmartsheetClient:
                     or "Review notes",
                     automation_hint=self._derive_hint(cell_map, schema=schema),
                     source=source_key,
+                    done=is_done,
                 )
             except (KeyError, ValueError) as exc:
                 errors.append(self._format_row_error(row, exc))

@@ -170,6 +170,9 @@ function App() {
       ]
       const activeTasks = response.tasks.filter(
         (task) => {
+          // Exclude tasks with Done checkbox checked
+          if (task.done === true) return false
+          // Exclude tasks with excluded statuses
           const status = task.status?.toLowerCase() || ''
           return !EXCLUDED_STATUSES.includes(status)
         },

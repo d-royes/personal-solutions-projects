@@ -71,6 +71,7 @@ def serialize_task(task: TaskDetail) -> dict:
         "nextStep": task.next_step,
         "automationHint": task.automation_hint,
         "source": task.source,  # "personal" or "work"
+        "done": task.done,  # True if Done checkbox is checked
     }
 
 

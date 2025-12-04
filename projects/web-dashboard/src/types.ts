@@ -13,6 +13,7 @@ export interface Task {
   nextStep: string
   automationHint: string
   source: 'personal' | 'work'  // Which sheet this task came from
+  done?: boolean  // True if Done checkbox is checked
 }
 
 export interface WorkBadge {
