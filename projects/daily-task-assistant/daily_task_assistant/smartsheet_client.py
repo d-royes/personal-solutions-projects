@@ -33,6 +33,7 @@ class SmartsheetAPIError(RuntimeError):
 class ColumnDefinition:
     field: str
     column_id: str
+    col_type: str = "text"  # text, picklist, checkbox, date, contact, etc.
     optional: bool = False
     allowed_values: Optional[List[str]] = None
 
@@ -119,6 +120,7 @@ def load_multi_sheet_config(path: Optional[Path] = None) -> MultiSheetConfig:
             columns[field_name] = ColumnDefinition(
                 field=field_name,
                 column_id=column_id,
+                col_type=str(column_cfg.get("type", "text")),
                 optional=bool(column_cfg.get("optional", False)),
                 allowed_values=list(column_cfg.get("allowed_values", []) or []),
             )
@@ -164,6 +166,7 @@ def load_schema(path: Optional[Path] = None) -> SheetSchema:
         columns[field_name] = ColumnDefinition(
             field=field_name,
             column_id=column_id,
+            col_type=str(column_cfg.get("type", "text")),
             optional=bool(column_cfg.get("optional", False)),
             allowed_values=list(column_cfg.get("allowed_values", []) or []),
         )
@@ -391,9 +394,14 @@ class SmartsheetClient:
                     f"Allowed: {column.allowed_values}"
                 )
 
+            # Convert boolean to int for checkbox columns (Smartsheet expects 1/0)
+            cell_value = value
+            if column.col_type == "checkbox" and isinstance(value, bool):
+                cell_value = 1 if value else 0
+
             cells.append({
                 "columnId": int(column.column_id),
-                "value": value,
+                "value": cell_value,
             })
 
         payload = [{"id": int(row_id), "cells": cells}]

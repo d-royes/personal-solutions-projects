@@ -105,11 +105,12 @@ class TestMarkComplete:
         assert len(cells) == 2
 
         # Find status and done cells
+        # Note: checkbox values are converted to 1/0 for Smartsheet API
         status_cell = next((c for c in cells if c["value"] == "Completed"), None)
-        done_cell = next((c for c in cells if c["value"] is True), None)
+        done_cell = next((c for c in cells if c["value"] == 1), None)
 
         assert status_cell is not None, "Status cell not found"
-        assert done_cell is not None, "Done cell not found"
+        assert done_cell is not None, "Done cell not found (expected value=1 for checkbox)"
 
     def test_mark_complete_returns_response(self, mock_client):
         """Test that mark_complete returns the API response."""
