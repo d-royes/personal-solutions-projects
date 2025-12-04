@@ -399,10 +399,21 @@ class SmartsheetClient:
             if column.col_type == "checkbox" and isinstance(value, bool):
                 cell_value = 1 if value else 0
 
-            cells.append({
-                "columnId": int(column.column_id),
-                "value": cell_value,
-            })
+            # Handle MULTI_PICKLIST columns (recurring_pattern, etc.)
+            # These require objectValue format instead of plain value
+            if field_name == "recurring_pattern":
+                cells.append({
+                    "columnId": int(column.column_id),
+                    "objectValue": {
+                        "objectType": "MULTI_PICKLIST",
+                        "values": [cell_value] if cell_value else []
+                    },
+                })
+            else:
+                cells.append({
+                    "columnId": int(column.column_id),
+                    "value": cell_value,
+                })
 
         payload = [{"id": int(row_id), "cells": cells}]
 

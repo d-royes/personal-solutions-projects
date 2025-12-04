@@ -669,7 +669,11 @@ function App() {
   }
 
   async function handleConfirmUpdate() {
-    if (!selectedTaskId || !authConfig || !pendingAction) return
+    console.log('handleConfirmUpdate called', { selectedTaskId, authConfig: !!authConfig, pendingAction })
+    if (!selectedTaskId || !authConfig || !pendingAction) {
+      console.log('Early return - missing:', { selectedTaskId: !selectedTaskId, authConfig: !authConfig, pendingAction: !pendingAction })
+      return
+    }
     
     setUpdateExecuting(true)
     setAssistError(null)
