@@ -15,7 +15,8 @@ const STATUS_CATEGORY: Record<string, number> = {
 
 // Priority order for sorting (highest priority first)
 const PRIORITY_ORDER: Record<string, number> = {
-  'Critical': 1, 'Urgent': 2, 'Important': 3, 'Standard': 4, 'Low': 5
+  'Critical': 1, 'Urgent': 2, 'Important': 3, 'Standard': 4, 'Low': 5,
+  '5-Critical': 1, '4-Urgent': 2, '3-Important': 3, '2-Standard': 4, '1-Low': 5
 }
 
 const FILTERS = [
