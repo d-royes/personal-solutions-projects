@@ -471,18 +471,22 @@ Help David accomplish this task. Be proactive - offer to draft communications, c
 # Tool definition for task updates
 TASK_UPDATE_TOOL = {
     "name": "update_task",
-    "description": "Update a task in Smartsheet when the user indicates they want to change the task status, mark it complete, change priority, update due date, or add a comment. Always use this tool when the user's intent is to modify the task.",
+    "description": "Update a task in Smartsheet when the user indicates they want to modify any task field. Always use this tool when the user's intent is to modify the task.",
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["mark_complete", "update_status", "update_priority", "update_due_date", "add_comment"],
+                "enum": [
+                    "mark_complete", "update_status", "update_priority", "update_due_date", "add_comment",
+                    "update_number", "update_contact_flag", "update_recurring", "update_project",
+                    "update_task", "update_assigned_to", "update_notes", "update_estimated_hours"
+                ],
                 "description": "The type of update to perform"
             },
             "status": {
                 "type": "string",
-                "enum": ["Scheduled", "In Progress", "Blocked", "Waiting", "Complete", "Recurring", "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Cancelled", "Delegated"],
+                "enum": ["Scheduled", "In Progress", "Blocked", "Waiting", "Complete", "Recurring", "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Cancelled", "Delegated", "Completed"],
                 "description": "New status value (required for update_status)"
             },
             "priority": {
@@ -497,6 +501,40 @@ TASK_UPDATE_TOOL = {
             "comment": {
                 "type": "string",
                 "description": "Comment text to add (required for add_comment)"
+            },
+            "number": {
+                "type": "integer",
+                "description": "Task number (positive integer, required for update_number)"
+            },
+            "contact_flag": {
+                "type": "boolean",
+                "description": "Contact checkbox value (required for update_contact_flag)"
+            },
+            "recurring": {
+                "type": "string",
+                "enum": ["M", "T", "W", "H", "F", "Sa", "Monthly"],
+                "description": "Recurring pattern (required for update_recurring)"
+            },
+            "project": {
+                "type": "string",
+                "description": "Project name - must be from allowed list (required for update_project)"
+            },
+            "task_title": {
+                "type": "string",
+                "description": "Task title text (required for update_task)"
+            },
+            "assigned_to": {
+                "type": "string",
+                "description": "Email address of assignee (required for update_assigned_to)"
+            },
+            "notes": {
+                "type": "string",
+                "description": "Notes text (required for update_notes)"
+            },
+            "estimated_hours": {
+                "type": "string",
+                "enum": [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"],
+                "description": "Estimated hours (required for update_estimated_hours)"
             },
             "reason": {
                 "type": "string",
@@ -541,15 +579,35 @@ YOU HAVE THE ABILITY TO UPDATE SMARTSHEET TASKS. You have an update_task tool th
 - Change priority (Critical, Urgent, Important, Standard, Low)
 - Update due dates
 - Add comments
+- Change task number (#)
+- Toggle Contact flag (checkbox)
+- Set Recurring pattern (M, T, W, H, F, Sa, Monthly)
+- Change Project (must be from allowed list)
+- Update Task title
+- Change Assigned To (email)
+- Update Notes
+- Set Estimated Hours (.05, .15, .25, .50, .75, 1, 2, 3, 4, 5, 6, 7, 8)
 
-CRITICAL INSTRUCTION: When David asks you to close, complete, finish, or update a task, you MUST call the update_task tool. Do NOT say "I can't do that" or "I don't have access" - YOU DO HAVE ACCESS through the update_task tool.
+CRITICAL INSTRUCTION: When David asks you to update ANY task field, you MUST call the update_task tool. Do NOT say "I can't do that" or "I don't have access" - YOU DO HAVE ACCESS through the update_task tool.
 
 TASK UPDATE TRIGGERS - CALL THE TOOL IMMEDIATELY:
-- "done", "finished", "complete", "close it", "mark it done", "close the task", "close this" → update_task(action="mark_complete", reason="User indicated task is complete")
-- "blocked", "stuck", "waiting on..." → update_task(action="update_status", status="Blocked", reason="User indicated blocker")
-- "push to...", "change due date", "move to next week" → update_task(action="update_due_date", due_date="YYYY-MM-DD", reason="User requested date change")
-- "make this urgent", "lower priority" → update_task(action="update_priority", priority="...", reason="User requested priority change")
-- "add note:", "note that...", "record that..." → update_task(action="add_comment", comment="...", reason="User added note")
+- "done", "finished", "complete", "close it", "mark it done" → update_task(action="mark_complete", reason="...")
+- "blocked", "stuck", "waiting on..." → update_task(action="update_status", status="Blocked", reason="...")
+- "push to...", "change due date" → update_task(action="update_due_date", due_date="YYYY-MM-DD", reason="...")
+- "make this urgent", "lower priority" → update_task(action="update_priority", priority="...", reason="...")
+- "add note:", "note that..." → update_task(action="add_comment", comment="...", reason="...")
+- "change project to...", "move to Church Tasks" → update_task(action="update_project", project="...", reason="...")
+- "rename task to...", "change title to..." → update_task(action="update_task", task_title="...", reason="...")
+- "assign to...", "give this to..." → update_task(action="update_assigned_to", assigned_to="email@...", reason="...")
+- "update notes to...", "set notes:" → update_task(action="update_notes", notes="...", reason="...")
+- "set hours to...", "estimate 2 hours" → update_task(action="update_estimated_hours", estimated_hours="2", reason="...")
+- "set recurring to Monday" → update_task(action="update_recurring", recurring="M", reason="...")
+- "mark as contact", "flag for contact" → update_task(action="update_contact_flag", contact_flag=true, reason="...")
+- "set number to 5" → update_task(action="update_number", number=5, reason="...")
+
+PROJECT VALUES (must use exact match):
+- Personal sheets: Around The House, Church Tasks, Family Time, Shopping, Sm. Projects & Tasks, Zendesk Ticket
+- Work sheets: Atlassian (Jira/Confluence), Crafter Studio, Internal Application Support, Team Management, Strategic Planning, Stakeholder Relations, Process Improvement, Daily Operations, Zendesk Support, Intranet Management, Vendor Management, AI/Automation Projects, DTS Transformation, New Technology Evaluation
 
 EXAMPLE - User says "close this task please":
 1. Call update_task(action="mark_complete", reason="User requested task closure")
@@ -604,6 +662,14 @@ class TaskUpdateAction:
     priority: Optional[str] = None
     due_date: Optional[str] = None
     comment: Optional[str] = None
+    number: Optional[int] = None
+    contact_flag: Optional[bool] = None
+    recurring: Optional[str] = None
+    project: Optional[str] = None
+    task_title: Optional[str] = None
+    assigned_to: Optional[str] = None
+    notes: Optional[str] = None
+    estimated_hours: Optional[str] = None
     reason: str = ""
 
 
@@ -718,6 +784,14 @@ def chat_with_tools(
                     priority=tool_input.get("priority"),
                     due_date=tool_input.get("due_date"),
                     comment=tool_input.get("comment"),
+                    number=tool_input.get("number"),
+                    contact_flag=tool_input.get("contact_flag"),
+                    recurring=tool_input.get("recurring"),
+                    project=tool_input.get("project"),
+                    task_title=tool_input.get("task_title"),
+                    assigned_to=tool_input.get("assigned_to"),
+                    notes=tool_input.get("notes"),
+                    estimated_hours=tool_input.get("estimated_hours"),
                     reason=tool_input.get("reason", ""),
                 )
             elif tool_name == "update_email_draft":
@@ -760,6 +834,24 @@ def _describe_action(action: TaskUpdateAction) -> str:
     elif action.action == "add_comment":
         preview = (action.comment or "")[:50]
         return f"add a comment: '{preview}...'" if len(action.comment or "") > 50 else f"add a comment: '{action.comment}'"
+    elif action.action == "update_number":
+        return f"change the task number to {action.number}"
+    elif action.action == "update_contact_flag":
+        return f"{'check' if action.contact_flag else 'uncheck'} the Contact flag"
+    elif action.action == "update_recurring":
+        return f"set the recurring pattern to '{action.recurring}'"
+    elif action.action == "update_project":
+        return f"change the project to '{action.project}'"
+    elif action.action == "update_task":
+        preview = (action.task_title or "")[:50]
+        return f"change the task title to '{preview}...'" if len(action.task_title or "") > 50 else f"change the task title to '{action.task_title}'"
+    elif action.action == "update_assigned_to":
+        return f"assign this task to '{action.assigned_to}'"
+    elif action.action == "update_notes":
+        preview = (action.notes or "")[:50]
+        return f"update the notes to '{preview}...'" if len(action.notes or "") > 50 else f"update the notes to '{action.notes}'"
+    elif action.action == "update_estimated_hours":
+        return f"set the estimated hours to {action.estimated_hours}"
     return f"perform action: {action.action}"
 
 

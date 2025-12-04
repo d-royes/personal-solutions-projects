@@ -16,6 +16,13 @@ sheets:
       project:
         column_id: "7034410278539140"
         type: picklist
+        allowed_values:
+          - Around The House
+          - Church Tasks
+          - Family Time
+          - Shopping
+          - Sm. Projects & Tasks
+          - Zendesk Ticket
       due_date:
         column_id: "3656710558011268"
         type: date
@@ -52,6 +59,20 @@ sheets:
       estimated_hours:
         column_id: "8160310185381764"
         type: picklist
+        allowed_values:
+          - ".05"
+          - ".15"
+          - ".25"
+          - ".50"
+          - ".75"
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+          - "6"
+          - "7"
+          - "8"
       number:
         column_id: "4360397999787908"
         type: int
@@ -72,8 +93,16 @@ sheets:
         optional: true
       recurring_pattern:
         column_id: "2530810651168644"
-        type: text
+        type: picklist
         optional: true
+        allowed_values:
+          - M
+          - T
+          - W
+          - H
+          - F
+          - Sa
+          - Monthly
       completed_on:
         column_id: "5345560418275204"
         type: date
@@ -104,21 +133,71 @@ sheets:
       project:
         column_id: "7248551907485572"
         type: picklist
+        allowed_values:
+          - Atlassian (Jira/Confluence)
+          - Crafter Studio
+          - Internal Application Support
+          - Team Management
+          - Strategic Planning
+          - Stakeholder Relations
+          - Process Improvement
+          - Daily Operations
+          - Zendesk Support
+          - Intranet Management
+          - Vendor Management
+          - AI/Automation Projects
+          - DTS Transformation
+          - New Technology Evaluation
       due_date:
         column_id: "493152466429828"
         type: date
       priority:
         column_id: "4152327163668356"
         type: picklist
+        allowed_values:
+          - Critical
+          - Urgent
+          - Important
+          - Standard
+          - Low
       status:
         column_id: "1775870219184004"
         type: picklist
+        allowed_values:
+          - Scheduled
+          - Recurring
+          - On Hold
+          - In Progress
+          - Follow-up
+          - Awaiting Reply
+          - Delivered
+          - Create ZD Ticket
+          - Ticket Created
+          - Validation
+          - Needs Approval
+          - Cancelled
+          - Delegated
+          - Completed
       assigned_to:
         column_id: "8655926791038852"
         type: text
       estimated_hours:
         column_id: "480320769707908"
         type: picklist
+        allowed_values:
+          - ".05"
+          - ".15"
+          - ".25"
+          - ".50"
+          - ".75"
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+          - "5"
+          - "6"
+          - "7"
+          - "8"
       number:
         column_id: "7057747878406020"
         type: int
@@ -139,8 +218,16 @@ sheets:
         optional: true
       recurring_pattern:
         column_id: "5106722439227268"
-        type: text
+        type: picklist
         optional: true
+        allowed_values:
+          - M
+          - T
+          - W
+          - H
+          - F
+          - Sa
+          - Monthly
       completed_on:
         column_id: "2744952280115076"
         type: date
