@@ -1406,6 +1406,9 @@ def update_task(
                 detail=f"Invalid estimatedHours '{request.estimated_hours}'. Valid: {VALID_ESTIMATED_HOURS}"
             )
     
+    # Check if task is recurring (for smart mark_complete behavior)
+    is_recurring = target and target.status and target.status.lower() == "recurring"
+    
     # Build preview of proposed changes
     preview = {
         "taskId": task_id,
@@ -1414,8 +1417,14 @@ def update_task(
     }
     
     if request.action == "mark_complete":
-        preview["changes"] = {"status": "Complete", "done": True}
-        preview["description"] = "Mark task as complete (Status → Complete, Done → checked)"
+        if is_recurring:
+            # For recurring tasks, only check Done box - don't change status
+            preview["changes"] = {"done": True}
+            preview["description"] = "Check Done box (status stays 'Recurring' to preserve recurrence)"
+        else:
+            # For non-recurring tasks, set status to Completed and check Done
+            preview["changes"] = {"status": "Completed", "done": True}
+            preview["description"] = "Mark task as complete (Status → Completed, Done → checked)"
     elif request.action == "update_status":
         preview["changes"] = {"status": request.status}
         preview["description"] = f"Update status to '{request.status}'"
@@ -1466,7 +1475,12 @@ def update_task(
         client = SmartsheetClient(settings)
         
         if request.action == "mark_complete":
-            client.mark_complete(task_id, source=task_source)
+            if is_recurring:
+                # For recurring tasks, only check Done box - preserve status
+                client.update_row(task_id, {"done": True}, source=task_source)
+            else:
+                # For non-recurring tasks, full mark_complete (status + done)
+                client.mark_complete(task_id, source=task_source)
         elif request.action == "update_status":
             client.update_row(task_id, {"status": request.status}, source=task_source)
         elif request.action == "update_priority":
