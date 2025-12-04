@@ -1,6 +1,6 @@
 # Project Directive — Daily Task Assistant (DATA)
 
-Version: 2025-12-03  
+Version: 2025-12-04  
 Owner: David Royes  
 AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 
@@ -57,6 +57,8 @@ AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 | 2025-12-02 | **CI/CD Pipeline**: GitHub Actions for test/staging/prod workflows. Branch protection configured. |
 | 2025-12-02 | **First Staging Deployment** (PR #8, 2m 32s). Auth persistence, email allowlist, Research improvements. |
 | 2025-12-03 | **First Production Deployment** (PR #10, 8m 7s). Firebase multi-site hosting, IAM configuration. |
+| 2025-12-04 | **Multi-Sheet Smartsheet Integration** + **Expanded Field Editing** (9 editable fields). |
+| 2025-12-04 | **Context-Aware Planning & Email** (PR #12). Workspace selection for AI context. |
 
 ---
 
@@ -82,12 +84,20 @@ AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 13. **Summarize**: Task + plan + conversation summary generation.
 14. **Contact search**: AI-powered Named Entity Recognition for finding contacts in task notes.
 15. **Email drafting**: Context-aware email generation with recipient detection.
+16. **Context-Aware Planning**: Selected workspace items inform plan generation for task-specific advice.
+17. **Context-Aware Email**: Selected workspace content becomes source material for email drafts.
+
+### Smartsheet Integration
+18. **Multi-sheet support**: Personal + Work Smartsheets with separate filtering (Work excluded from "All" view).
+19. **Expanded field editing**: DATA can update 9 fields via chat (#, Priority, Contact, Recurring, Project, Task, Assigned To, Notes, Estimated Hours).
+20. **Recurring task handling**: "Mark complete" on recurring tasks only checks Done box, preserving recurrence.
+21. **Work badge**: Urgent/overdue work task count displayed on Work filter button.
 
 ### Infrastructure
-16. **CI/CD Pipeline**: GitHub Actions with test.yml, deploy-staging.yml, deploy-prod.yml.
-17. **Multi-environment**: Dev, Staging, Production with branch-based deployment flow.
-18. **Health checks**: Post-deployment verification of Anthropic, Smartsheet, Gmail configuration.
-19. **Secret Manager**: 10 secrets for API keys and OAuth credentials.
+22. **CI/CD Pipeline**: GitHub Actions with test.yml, deploy-staging.yml, deploy-prod.yml.
+23. **Multi-environment**: Dev, Staging, Production with branch-based deployment flow.
+24. **Health checks**: Post-deployment verification of Anthropic, Smartsheet, Gmail configuration.
+25. **Secret Manager**: 10 secrets for API keys and OAuth credentials.
 
 ---
 
@@ -152,6 +162,23 @@ AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 ---
 
 ## 10. Recent Session Log
+
+### 2025-12-04: Context-Aware Planning & Multi-Sheet Integration
+- ✅ **Multi-Sheet Smartsheet**: Added Work Smartsheet alongside Personal
+  - Work tasks excluded from "All" filter, shown in dedicated "Work" view
+  - Work badge shows urgent/overdue count
+  - Source-aware writes (updates go to correct sheet)
+- ✅ **Expanded Field Editing**: DATA can now update 9 Smartsheet fields via chat
+  - #, Priority, Contact, Recurring, Project, Task, Assigned To, Notes, Estimated Hours
+  - Picklist validation, MULTI_PICKLIST and MULTI_CONTACT column type support
+- ✅ **Recurring Task Handling**: "Mark complete" preserves recurrence (only checks Done box)
+- ✅ **Context-Aware Planning**: Workspace selection informs plan generation
+  - Checkbox UI on workspace items for multi-select
+  - "+" button to add new workspace content directly
+  - Selected content passed to Anthropic as additional context
+- ✅ **Context-Aware Email Draft**: Selected workspace items become email source content
+- ✅ **Pydantic v2 Fix**: Added `populate_by_name=True` for proper alias handling
+- ✅ **Staging deployment** (PR #12, 2m 45s) - Context-Aware Planning feature
 
 ### 2025-12-03: Production Deployment
 - ✅ Created Firebase production hosting site (`daily-task-assistant-prod`)
