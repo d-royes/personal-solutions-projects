@@ -509,6 +509,13 @@ class SmartsheetClient:
         allow_optional: bool = False,
         schema: Optional[SheetSchema] = None,
     ) -> Any:
+        """Extract a cell value from the row data.
+        
+        Note: This method does NOT validate against allowed_values when reading.
+        Validation only happens in update_row() when writing changes.
+        This allows existing Smartsheet data to be read even if it doesn't
+        match the current picklist configuration.
+        """
         schema = schema or self.schema
         column = schema.columns.get(field_name)
         if not column:
@@ -520,11 +527,7 @@ class SmartsheetClient:
                 return None
             raise KeyError(f"Required field '{field_name}' missing in sheet row.")
 
-        if column.allowed_values and value not in column.allowed_values:
-            raise ValueError(
-                f"Field '{field_name}' has invalid value '{value}'. Expected one of {column.allowed_values}."
-            )
-
+        # No validation on read - only validate on write (in update_row)
         return value
 
     def _parse_due_date(self, value: Any):
