@@ -365,16 +365,10 @@ button:not(:disabled):hover {
 
 .badge.priority.critical,
 .badge.priority.urgent,
-[class*="5-critical"],
-[class*="4-urgent"] {
+.badge.priority[class*="5-critical"],
+.badge.priority[class*="4-urgent"] {
   border-color: rgba(248, 113, 113, 0.6);
   color: #fecaca;
-}
-
-.badge.priority.important,
-[class*="3-important"] {
-  border-color: rgba(251, 191, 36, 0.5);
-  color: #fde68a;
 }
 
 .badge.due {
@@ -2596,4 +2590,3 @@ button:not(:disabled):hover {
   opacity: 0.5;
   cursor: not-allowed;
 }
-

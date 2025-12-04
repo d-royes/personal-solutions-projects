@@ -1286,7 +1286,7 @@ class TaskUpdateRequest(BaseModel):
     due_date: Optional[str] = Field(None, description="New due date in YYYY-MM-DD format (for update_due_date)")
     comment: Optional[str] = Field(None, description="Comment text (for add_comment)")
     number: Optional[int] = Field(None, description="New task number (for update_number)")
-    contact_flag: Optional[bool] = Field(None, description="Contact flag value (for update_contact_flag)")
+    contact_flag: Optional[bool] = Field(None, alias="contactFlag", description="Contact flag value (for update_contact_flag)")
     recurring: Optional[str] = Field(None, description="Recurring pattern (for update_recurring)")
     project: Optional[str] = Field(None, description="Project name (for update_project)")
     task_title: Optional[str] = Field(None, alias="taskTitle", description="Task title (for update_task)")
