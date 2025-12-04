@@ -167,11 +167,19 @@ export async function unstrikeMessage(
 }
 
 export interface PendingAction {
-  action: 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
+  action: TaskUpdateAction
   status?: string
   priority?: string
   dueDate?: string
   comment?: string
+  number?: number
+  contactFlag?: boolean
+  recurring?: string
+  project?: string
+  taskTitle?: string
+  assignedTo?: string
+  notes?: string
+  estimatedHours?: string
   reason?: string
 }
 
@@ -633,7 +641,10 @@ export async function fetchFeedbackSummary(
 }
 
 // Task Update Types and Functions
-export type TaskUpdateAction = 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
+export type TaskUpdateAction = 
+  | 'mark_complete' | 'update_status' | 'update_priority' | 'update_due_date' | 'add_comment'
+  | 'update_number' | 'update_contact_flag' | 'update_recurring' | 'update_project'
+  | 'update_task' | 'update_assigned_to' | 'update_notes' | 'update_estimated_hours'
 
 export interface TaskUpdateRequest {
   action: TaskUpdateAction
@@ -641,6 +652,14 @@ export interface TaskUpdateRequest {
   priority?: string
   dueDate?: string
   comment?: string
+  number?: number
+  contactFlag?: boolean
+  recurring?: string
+  project?: string
+  taskTitle?: string
+  assignedTo?: string
+  notes?: string
+  estimatedHours?: string
   confirmed: boolean
 }
 
@@ -678,6 +697,14 @@ export async function updateTask(
       priority: request.priority,
       due_date: request.dueDate,
       comment: request.comment,
+      number: request.number,
+      contactFlag: request.contactFlag,
+      recurring: request.recurring,
+      project: request.project,
+      taskTitle: request.taskTitle,
+      assignedTo: request.assignedTo,
+      notes: request.notes,
+      estimatedHours: request.estimatedHours,
       confirmed: request.confirmed,
     }),
   })
