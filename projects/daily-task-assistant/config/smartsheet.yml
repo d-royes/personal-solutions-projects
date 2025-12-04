@@ -155,11 +155,11 @@ sheets:
         column_id: "4152327163668356"
         type: picklist
         allowed_values:
-          - Critical
-          - Urgent
-          - Important
-          - Standard
-          - Low
+          - 5-Critical
+          - 4-Urgent
+          - 3-Important
+          - 2-Standard
+          - 1-Low
       status:
         column_id: "1775870219184004"
         type: picklist

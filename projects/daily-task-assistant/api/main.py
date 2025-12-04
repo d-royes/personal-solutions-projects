@@ -1294,7 +1294,8 @@ VALID_STATUSES = [
     "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Create ZD Ticket",
     "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"
 ]
-VALID_PRIORITIES = ["Critical", "Urgent", "Important", "Standard", "Low"]
+VALID_PRIORITIES_PERSONAL = ["Critical", "Urgent", "Important", "Standard", "Low"]
+VALID_PRIORITIES_WORK = ["5-Critical", "4-Urgent", "3-Important", "2-Standard", "1-Low"]
 VALID_RECURRING = ["M", "T", "W", "H", "F", "Sa", "Monthly"]
 VALID_ESTIMATED_HOURS = [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"]
 VALID_PROJECTS_PERSONAL = [
@@ -1345,10 +1346,12 @@ def update_task(
     elif request.action == "update_priority":
         if not request.priority:
             raise HTTPException(status_code=400, detail="priority field required for update_priority action")
-        if request.priority not in VALID_PRIORITIES:
+        # Use different priority values for work vs personal sheets
+        valid_priorities = VALID_PRIORITIES_WORK if task_source == "work" else VALID_PRIORITIES_PERSONAL
+        if request.priority not in valid_priorities:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid priority '{request.priority}'. Valid: {VALID_PRIORITIES}"
+                detail=f"Invalid priority '{request.priority}'. Valid for {task_source}: {valid_priorities}"
             )
     elif request.action == "update_due_date":
         if not request.due_date:
