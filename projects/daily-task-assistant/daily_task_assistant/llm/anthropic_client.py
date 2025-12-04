@@ -491,8 +491,11 @@ TASK_UPDATE_TOOL = {
             },
             "priority": {
                 "type": "string",
-                "enum": ["Critical", "Urgent", "Important", "Standard", "Low"],
-                "description": "New priority value (required for update_priority)"
+                "enum": [
+                    "Critical", "Urgent", "Important", "Standard", "Low",
+                    "5-Critical", "4-Urgent", "3-Important", "2-Standard", "1-Low"
+                ],
+                "description": "New priority value (required for update_priority). Use numbered format (5-Critical, etc.) for work tasks, simple format (Critical, etc.) for personal tasks."
             },
             "due_date": {
                 "type": "string",
@@ -715,13 +718,15 @@ def chat_with_tools(
     client = client or build_anthropic_client()
     config = config or resolve_config()
 
-    # Build task context
+    # Build task context - include source for priority format guidance
+    priority_format = "numbered (5-Critical, 4-Urgent, 3-Important, 2-Standard, 1-Low)" if task.source == "work" else "simple (Critical, Urgent, Important, Standard, Low)"
     task_context = f"""Current Task:
 - Title: {task.title}
 - Status: {task.status}
 - Priority: {task.priority}
 - Due: {task.due.strftime("%Y-%m-%d")}
 - Project: {task.project}
+- Source: {task.source} (use {priority_format} priorities)
 - Notes: {task.notes or "None"}"""
 
     # Build messages
