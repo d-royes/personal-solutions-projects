@@ -1,6 +1,6 @@
 # Project Directive — Daily Task Assistant (DATA)
 
-Version: 2025-12-03  
+Version: 2025-12-05  
 Owner: David Royes  
 AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 
@@ -12,6 +12,54 @@ AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 - **Security**: Secrets never committed. All live sends require explicit confirmation. Google OAuth protects the web UI with email allowlist. Personal + church Gmail accounts run as separate OAuth clients.
 - **Deliverables**: Maintain a CLI + FastAPI backend + React web UI. Preserve traceability through Smartsheet comments and Firestore activity log.
 - **Primary Use Case**: DATA partners with David (across Personal / Church / Work domains) to surface the most important active tasks, collaborate on refining next steps, and execute assists while conversations accumulate intelligence.
+
+---
+
+## 1.5. DATA's Evolution Philosophy
+
+> **The North Star**: "The world's most effective personal AI."
+>
+> - **Personal** — Knows David specifically, not generic productivity advice
+> - **Effective** — Actually moves things forward, not just chatty
+> - **AI** — Gets smarter, not just configured once
+
+### Three Phases of Growth
+
+| Phase | Name | Description |
+|-------|------|-------------|
+| **1** | Better Tool | Task management, email drafting, research, planning. Human-initiated, human-reviewed. *(Current)* |
+| **2** | Daily Companion | Persistent memory, weekly reflections, quarterly interviews. DATA learns David deeply. *(Next)* |
+| **3** | Strategic Partner | Earned autonomy through demonstrated understanding. Proactive suggestions with voting, graduated trust levels. *(Future)* |
+
+### Trust Gradient (Earned Autonomy)
+
+Autonomy is earned, not granted. DATA progresses through trust levels:
+
+```
+Level 0: Suggest → Wait for command
+Level 1: Suggest with rationale → Vote to approve/reject
+Level 2: Act on small scope → Report after
+Level 3: Act on larger scope → Periodic review
+```
+
+Success thresholds determine when DATA can "climb" the ladder. Size and scope of autonomous tasks increases as trust is proven through consistent, quality suggestions.
+
+### Memory Architecture (Phase 2)
+
+DATA builds its own Firestore-native memory from scratch:
+- **David Profile**: Work patterns, communication preferences, priorities, quirks
+- **Session Notes**: Raw observations from interactions (7-day TTL)
+- **Weekly Digests**: Summarized learnings, pattern analysis
+- **Quarterly Interviews**: Structured updates about David's world AND DATA's performance
+- **Entities/Relations**: People, orgs, tools - emerging organically from conversations
+
+**Key Decision**: No migration from external memory graphs. DATA's memory is self-contained and production-grade.
+
+### Feedback Loop
+
+Performance feedback about DATA *is* data about David — it reveals his values, expectations, and evolving needs. Quarterly interview includes:
+- What do you think DATA is doing well?
+- What area(s) could DATA stand to improve the most?
 
 ---
 
