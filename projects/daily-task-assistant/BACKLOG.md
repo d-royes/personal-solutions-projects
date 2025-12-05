@@ -10,7 +10,7 @@
 | Issue | Description | Status | Date Logged |
 |-------|-------------|--------|-------------|
 | Smartsheet Comment on Email Send | When an email is sent, the system should post a comment to the Smartsheet task (e.g., "Email sent: [subject] to [recipient] via [account]"). Currently, comments may not be posting reliably. Requires investigation of `live_tasks` flag and `SmartsheetClient.post_comment()` execution path. | Open | 2025-12-01 |
-| Google OAuth blocks personal Gmail | `david.a.royes@gmail.com` gets "user not in org" error. OAuth consent screen in GCP is likely set to "Internal" (Workspace only) instead of "External", or email isn't added as test user. | Open | 2025-12-05 |
+| Google OAuth blocks personal Gmail | `david.a.royes@gmail.com` gets "user not in org" error. OAuth consent screen in GCP is likely set to "Internal" (Workspace only) instead of "External", or email isn't added as test user. | **Resolved** - Changed to External | 2025-12-05 |
 
 ---
 
