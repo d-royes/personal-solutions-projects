@@ -23,6 +23,33 @@ def test_build_raw_message_encodes_email_headers():
     assert "Hello world" in text
 
 
+def test_build_raw_message_includes_cc_header():
+    raw = _build_raw_message(
+        from_address="from@example.com",
+        to_address="to@example.com",
+        subject="Test with CC",
+        body="Hello world",
+        cc_address="cc1@example.com, cc2@example.com",
+    )
+    decoded = base64.urlsafe_b64decode(raw.encode("utf-8"))
+    text = decoded.decode("utf-8")
+    assert "Cc: cc1@example.com, cc2@example.com" in text
+    assert "To: to@example.com" in text
+
+
+def test_build_raw_message_without_cc():
+    raw = _build_raw_message(
+        from_address="from@example.com",
+        to_address="to@example.com",
+        subject="No CC",
+        body="Hello world",
+        cc_address=None,
+    )
+    decoded = base64.urlsafe_b64decode(raw.encode("utf-8"))
+    text = decoded.decode("utf-8")
+    assert "Cc:" not in text
+
+
 def test_load_account_from_env_happy_path(monkeypatch):
     monkeypatch.setenv("CHURCH_GMAIL_CLIENT_ID", "abc")
     monkeypatch.setenv("CHURCH_GMAIL_CLIENT_SECRET", "def")

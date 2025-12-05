@@ -1049,28 +1049,17 @@ def send_email_endpoint(
     except GmailError as exc:
         raise HTTPException(status_code=400, detail=f"Gmail configuration error: {exc}")
 
-    # Combine recipients for sending
-    all_recipients = request.to.copy()
-    if request.cc:
-        all_recipients.extend(request.cc)
-
-    # Send to primary recipient (Gmail API sends one at a time for simple case)
-    # For multiple recipients, we include them all in the To field
+    # Build recipient addresses
     to_address = ", ".join(request.to)
-    
-    # Build body with CC note if applicable
-    email_body = request.body
-    if request.cc:
-        cc_line = f"CC: {', '.join(request.cc)}\n\n"
-        # Note: For proper CC handling, we'd need to modify the email builder
-        # For now, we'll send to all recipients in To field
+    cc_address = ", ".join(request.cc) if request.cc else None
 
     try:
         message_id = send_email(
             account=gmail_config,
             to_address=to_address,
             subject=request.subject,
-            body=email_body,
+            body=request.body,
+            cc_address=cc_address,
         )
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Email send failed: {exc}")
