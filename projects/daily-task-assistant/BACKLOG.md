@@ -10,6 +10,7 @@
 | Issue | Description | Status | Date Logged |
 |-------|-------------|--------|-------------|
 | Smartsheet Comment on Email Send | When an email is sent, the system should post a comment to the Smartsheet task (e.g., "Email sent: [subject] to [recipient] via [account]"). Currently, comments may not be posting reliably. Requires investigation of `live_tasks` flag and `SmartsheetClient.post_comment()` execution path. | Open | 2025-12-01 |
+| Google OAuth blocks personal Gmail | `david.a.royes@gmail.com` gets "user not in org" error. OAuth consent screen in GCP is likely set to "Internal" (Workspace only) instead of "External", or email isn't added as test user. | Open | 2025-12-05 |
 
 ---
 
@@ -32,7 +33,6 @@
 |---------|-------------|---------------|
 | Feedback Summary View | Admin menu view to see aggregated feedback statistics and patterns. | - |
 | Save Contact Feature | Save frequently used contacts for quick access in email drafting. Contact management in admin menu. | - |
-| Conversation Strike/Reject | Allow users to "strike" poor DATA responses, collapsing them to a single line ("Response removed on [date]") while maintaining audit trail. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
 | Custom AI-Generated Actions | After Plan generation, DATA suggests context-specific action buttons (e.g., "Draft Template"). Hover tooltips, visual distinction from standard actions. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
 | Activity Feed Enhancement | Richer detail when clicking activity items - show conversation snippets, action results, full context. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
 | Header Cleanup / Environment Menu | Move API Base URL and Data Source to admin menu "Environment" view. Clean up header to just logo + menu button. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
@@ -45,6 +45,7 @@ Features that have been implemented and can be removed from backlog:
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Conversation Strike/Reject | 2025-12-05 | Users can strike poor DATA responses, collapsing to single line with audit trail |
 | Dev → Staging → Prod Environments | 2025-12-03 | Full CI/CD pipeline with GitHub Actions, Cloud Run, Firebase Hosting |
 | Auth Persistence | 2025-12-02 | Login survives page refresh via localStorage |
 | Email Allowlist Security | 2025-12-02 | Only authorized emails can access the app |
