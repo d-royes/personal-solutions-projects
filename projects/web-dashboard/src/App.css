@@ -289,22 +289,37 @@ button:not(:disabled):hover {
   padding-right: 2rem;
 }
 
-.work-badge {
+.filter-badge {
   position: absolute;
   right: 0.4rem;
   top: 50%;
   transform: translateY(-50%);
-  background: #ef4444;
-  color: white;
-  font-size: 0.7rem;
+  background: transparent;
+  font-size: 0.65rem;
   font-weight: 600;
-  min-width: 1.2rem;
-  height: 1.2rem;
+  min-width: 1.1rem;
+  height: 1.1rem;
   border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 0.3rem;
+  padding: 0 0.25rem;
+  border: 1.5px solid;
+}
+
+.filter-badge.work {
+  border-color: #f87171;
+  color: #f87171;
+}
+
+.filter-badge.personal {
+  border-color: #60a5fa;
+  color: #60a5fa;
+}
+
+.filter-badge.church {
+  border-color: #a78bfa;
+  color: #a78bfa;
   animation: pulse-badge 2s ease-in-out infinite;
 }
 
@@ -364,11 +379,21 @@ button:not(:disabled):hover {
 }
 
 .badge.priority.critical,
+.badge.priority[class*="5-critical"] {
+  border-color: rgba(239, 68, 68, 0.7);
+  color: #f87171;
+}
+
 .badge.priority.urgent,
-.badge.priority[class*="5-critical"],
 .badge.priority[class*="4-urgent"] {
-  border-color: rgba(248, 113, 113, 0.6);
-  color: #fecaca;
+  border-color: rgba(251, 146, 60, 0.6);
+  color: #fdba74;
+}
+
+.badge.priority.important,
+.badge.priority[class*="3-important"] {
+  border-color: rgba(251, 191, 36, 0.5);
+  color: #fcd34d;
 }
 
 .badge.due {
@@ -599,6 +624,34 @@ button:not(:disabled):hover {
 .refresh-btn {
   padding: 0.4rem 0.8rem;
   font-size: 0.85rem;
+}
+
+/* Task search - minimal inline style */
+.header-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.task-search {
+  width: 120px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.5);
+  color: #e2e8f0;
+  transition: width 0.2s, border-color 0.2s;
+}
+
+.task-search:focus {
+  outline: none;
+  width: 160px;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.task-search::placeholder {
+  color: #64748b;
 }
 
 .menu-view .menu-panel {
