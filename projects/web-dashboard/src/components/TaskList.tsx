@@ -186,18 +186,33 @@ export function TaskList({
 
       <div className="task-filters">
         {FILTERS.map((chip) => {
-          // Show badge for Work filter when there are urgent/overdue items
-          const showWorkBadge = chip.id === 'work' && workBadge && workBadge.needsAttention > 0
+          // Calculate badge counts for each filter type
+          let badgeCount = 0
+          let badgeClass = ''
+          
+          if (chip.id === 'work' && workBadge) {
+            badgeCount = workBadge.needsAttention
+            badgeClass = 'work'
+          } else if (chip.id === 'personal') {
+            badgeCount = tasks.filter(t => t.source !== 'work' && deriveDomain(t) === 'Personal').length
+            badgeClass = 'personal'
+          } else if (chip.id === 'church') {
+            badgeCount = tasks.filter(t => t.source !== 'work' && deriveDomain(t) === 'Church').length
+            badgeClass = 'church'
+          }
+          
+          const showBadge = badgeCount > 0
+          
           return (
             <button
               key={chip.id}
-              className={`${filter === chip.id ? 'active' : ''} ${showWorkBadge ? 'has-badge' : ''}`}
+              className={`${filter === chip.id ? 'active' : ''} ${showBadge ? 'has-badge' : ''}`}
               onClick={() => setFilter(chip.id)}
             >
               {chip.label}
-              {showWorkBadge && (
-                <span className="work-badge" title={`${workBadge.needsAttention} work task(s) need attention`}>
-                  {workBadge.needsAttention}
+              {showBadge && (
+                <span className={`filter-badge ${badgeClass}`} title={`${badgeCount} task(s)`}>
+                  {badgeCount}
                 </span>
               )}
             </button>
