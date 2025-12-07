@@ -1,11 +1,14 @@
 """Anthropic client wrappers for Daily Task Assistant."""
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib import request as urlrequest
+from urllib import error as urlerror
 
 try:  # Optional dependency loaded via requirements.txt
     from anthropic import Anthropic, APIStatusError  # type: ignore
@@ -18,7 +21,29 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     load_dotenv = None
 
-from ..tasks import TaskDetail
+from ..tasks import AttachmentDetail, TaskDetail
+
+
+# Supported image types for Claude Vision
+VISION_SUPPORTED_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
+
+
+def download_and_encode_image(url: str) -> Optional[str]:
+    """Download an image from URL and return base64-encoded data.
+    
+    Returns None if download fails or times out.
+    """
+    try:
+        with urlrequest.urlopen(url, timeout=10) as response:
+            data = response.read()
+            return base64.standard_b64encode(data).decode('utf-8')
+    except (urlerror.URLError, urlerror.HTTPError, TimeoutError):
+        return None
+
+
+def is_vision_supported(mime_type: str) -> bool:
+    """Check if a MIME type is supported by Claude Vision."""
+    return mime_type.lower() in VISION_SUPPORTED_TYPES
 
 
 # Load DATA preferences from markdown file
@@ -709,6 +734,7 @@ def chat_with_tools(
     user_message: str,
     history: Optional[List[Dict[str, str]]] = None,
     *,
+    attachments: Optional[List[AttachmentDetail]] = None,
     client: Optional[Anthropic] = None,
     config: Optional[AnthropicConfig] = None,
 ) -> ChatResponse:
@@ -721,6 +747,7 @@ def chat_with_tools(
         task: The current task being discussed
         user_message: The user's latest message
         history: Previous conversation messages
+        attachments: Optional list of task attachments (images will be included)
         client: Optional pre-built Anthropic client
         config: Optional configuration override
     
@@ -744,10 +771,31 @@ def chat_with_tools(
     # Build messages
     messages: List[Dict[str, Any]] = []
     
+    # Build task context content with optional images
+    context_content: List[Dict[str, Any]] = []
+    
+    # Add images first (Claude vision best practice)
+    if attachments:
+        for att in attachments:
+            if is_vision_supported(att.mime_type):
+                image_data = download_and_encode_image(att.download_url)
+                if image_data:
+                    context_content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": att.mime_type,
+                            "data": image_data,
+                        }
+                    })
+    
+    # Add task context text
+    context_content.append({"type": "text", "text": task_context})
+    
     # Task context as priming
     messages.append({
         "role": "user",
-        "content": [{"type": "text", "text": task_context}]
+        "content": context_content
     })
     messages.append({
         "role": "assistant",

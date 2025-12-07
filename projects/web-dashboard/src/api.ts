@@ -547,6 +547,40 @@ export async function clearWorkspace(
   return resp.json()
 }
 
+// --- Attachments API ---
+
+export interface AttachmentInfo {
+  attachmentId: string
+  name: string
+  mimeType: string
+  sizeBytes: number
+  createdAt: string
+  attachmentType: string
+  downloadUrl: string
+  isImage: boolean
+}
+
+export interface AttachmentsResponse {
+  taskId: string
+  attachments: AttachmentInfo[]
+}
+
+export async function fetchAttachments(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<AttachmentsResponse> {
+  const url = new URL(`/assist/${taskId}/attachments`, baseUrl)
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Fetch attachments failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 function buildHeaders(auth: AuthConfig): HeadersInit {
   if (auth.mode === 'idToken') {
     if (!auth.idToken) {

@@ -1772,6 +1772,79 @@ button:not(:disabled):hover {
   min-width: 0;
 }
 
+/* Attachments row */
+.attachments-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.attachments-row.loading {
+  opacity: 0.6;
+}
+
+.attachments-label {
+  color: rgba(148, 163, 184, 0.7);
+  flex-shrink: 0;
+}
+
+.attachments-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.attachment-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.25rem;
+  border-radius: 4px;
+  text-decoration: none;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  transition: all 0.2s ease;
+  max-width: 80px;
+}
+
+.attachment-item:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+.attachment-thumbnail {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.attachment-icon {
+  font-size: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+}
+
+.attachment-name {
+  font-size: 0.65rem;
+  color: rgba(226, 232, 240, 0.7);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70px;
+  margin-top: 0.25rem;
+}
+
 /* Three-zone container */
 .three-zone-container {
   flex: 1;

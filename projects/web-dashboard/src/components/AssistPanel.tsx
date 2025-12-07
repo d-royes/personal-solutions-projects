@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
-import type { ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import type { AttachmentInfo, ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 
 // Feedback callback type
@@ -285,6 +285,9 @@ interface AssistPanelProps {
   // Strike/unstrike message handlers
   onStrikeMessage?: (messageTs: string) => Promise<void>
   onUnstrikeMessage?: (messageTs: string) => Promise<void>
+  // Attachments
+  attachments?: AttachmentInfo[]
+  attachmentsLoading?: boolean
 }
 
 // Draggable divider component
@@ -410,6 +413,8 @@ export function AssistPanel({
   setEmailDraftOpen: setEmailDraftOpenProp,
   onStrikeMessage,
   onUnstrikeMessage,
+  attachments,
+  attachmentsLoading,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
@@ -901,6 +906,41 @@ export function AssistPanel({
               {showFullNotes ? 'less' : 'more'}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Attachments row */}
+      {(attachments && attachments.length > 0) && (
+        <div className="attachments-row">
+          <span className="attachments-label">📎 Attachments ({attachments.length}):</span>
+          <div className="attachments-grid">
+            {attachments.map((att) => (
+              <a
+                key={att.attachmentId}
+                href={att.downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`attachment-item ${att.isImage ? 'image' : 'file'}`}
+                title={`${att.name} (${Math.round(att.sizeBytes / 1024)}KB)`}
+              >
+                {att.isImage ? (
+                  <img
+                    src={att.downloadUrl}
+                    alt={att.name}
+                    className="attachment-thumbnail"
+                  />
+                ) : (
+                  <span className="attachment-icon">📄</span>
+                )}
+                <span className="attachment-name">{att.name}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+      {attachmentsLoading && (
+        <div className="attachments-row loading">
+          <span className="attachments-label">📎 Loading attachments...</span>
         </div>
       )}
 

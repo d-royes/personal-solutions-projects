@@ -535,14 +535,26 @@ def chat_with_task(
     frontend can use to show a confirmation dialog.
     """
     from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
 
+    settings = _get_settings()
+    
     # Include work tasks when searching by specific task_id
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
+    tasks, live_tasks, _, warning = fetch_task_dataset(
         limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
         raise HTTPException(status_code=404, detail="Task not found.")
+
+    # Fetch attachments for vision context
+    client = SmartsheetClient(settings)
+    attachment_infos = client.list_attachments(task_id, source=target.source)
+    attachment_details = []
+    for att in attachment_infos:
+        detail = client.get_attachment_url(att.attachment_id, source=target.source)
+        if detail:
+            attachment_details.append(detail)
 
     # Fetch existing conversation history (full history for logging, filtered for LLM)
     history = fetch_conversation(task_id, limit=50)
@@ -561,12 +573,13 @@ def chat_with_task(
         {"role": msg.role, "content": msg.content} for msg in llm_history_messages
     ]
 
-    # Call Anthropic with tool support for task updates
+    # Call Anthropic with tool support for task updates + image context
     try:
         chat_response = chat_with_tools(
             task=target,
             user_message=request.message,
             history=llm_history,
+            attachments=attachment_details if attachment_details else None,
         )
     except AnthropicError as exc:
         raise HTTPException(status_code=502, detail=f"AI service error: {exc}")
@@ -1266,6 +1279,56 @@ def clear_workspace_endpoint(
     return {
         "taskId": task_id,
         "cleared": True,
+    }
+
+
+@app.get("/assist/{task_id}/attachments")
+def get_task_attachments(
+    task_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Fetch attachments for a specific task from Smartsheet.
+    
+    Returns a list of attachment metadata with download URLs for each.
+    Images are fetched with full download URLs for Claude vision integration.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    
+    settings = _get_settings()
+    
+    # Get the task to determine which sheet it belongs to
+    tasks, _, _, _ = fetch_task_dataset(
+        limit=None, source="auto", include_work_in_all=True
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    
+    task_source = target.source
+    client = SmartsheetClient(settings)
+    
+    # Fetch attachment list
+    attachments = client.list_attachments(task_id, source=task_source)
+    
+    # Fetch download URLs for each attachment
+    attachment_details = []
+    for att in attachments:
+        detail = client.get_attachment_url(att.attachment_id, source=task_source)
+        if detail:
+            attachment_details.append({
+                "attachmentId": detail.attachment_id,
+                "name": detail.name,
+                "mimeType": detail.mime_type,
+                "sizeBytes": detail.size_bytes,
+                "createdAt": detail.created_at,
+                "attachmentType": detail.attachment_type,
+                "downloadUrl": detail.download_url,
+                "isImage": detail.mime_type.startswith("image/"),
+            })
+    
+    return {
+        "taskId": task_id,
+        "attachments": attachment_details,
     }
 
 

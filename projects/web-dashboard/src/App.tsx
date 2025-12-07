@@ -8,6 +8,7 @@ import {
   deleteDraft,
   draftEmail,
   fetchActivity,
+  fetchAttachments,
   fetchConversationHistory,
   fetchTasks,
   fetchWorkBadge,
@@ -27,6 +28,7 @@ import {
   unstrikeMessage,
   updateTask,
 } from './api'
+import type { AttachmentInfo } from './api'
 import type { SavedEmailDraft } from './api'
 import type {
   ContactCard,
@@ -79,6 +81,10 @@ function App() {
   const [workspaceItems, setWorkspaceItems] = useState<string[]>([])
   const [workspaceSaveTimeout, setWorkspaceSaveTimeout] = useState<ReturnType<typeof setTimeout> | null>(null)
   const [sendingMessage, setSendingMessage] = useState(false)
+  
+  // Attachments state
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([])
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
   
   // Task update state
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
@@ -269,6 +275,19 @@ function App() {
         // Workspace load failed - start with empty
         setWorkspaceItems([])
       }
+      
+      // Load attachments (non-blocking)
+      setAttachmentsLoading(true)
+      fetchAttachments(selectedTask.rowId, authConfig, apiBase)
+        .then(response => {
+          setAttachments(response.attachments ?? [])
+        })
+        .catch(() => {
+          setAttachments([])
+        })
+        .finally(() => {
+          setAttachmentsLoading(false)
+        })
     } catch (error) {
       setAssistError((error as Error).message)
     } finally {
@@ -949,6 +968,8 @@ function App() {
               setEmailDraftOpen={setEmailDraftOpen}
               onStrikeMessage={handleStrikeMessage}
               onUnstrikeMessage={handleUnstrikeMessage}
+              attachments={attachments}
+              attachmentsLoading={attachmentsLoading}
             />
           </>
         )}
