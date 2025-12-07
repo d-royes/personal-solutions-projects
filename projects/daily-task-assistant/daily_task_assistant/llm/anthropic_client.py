@@ -28,16 +28,74 @@ from ..tasks import AttachmentDetail, TaskDetail
 VISION_SUPPORTED_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
 
 
-def download_and_encode_image(url: str) -> Optional[str]:
+def download_and_encode_image(url: str, max_size_bytes: int = 4_500_000) -> Optional[str]:
     """Download an image from URL and return base64-encoded data.
     
+    If the image exceeds max_size_bytes, it will be resized to fit.
     Returns None if download fails or times out.
     """
     try:
-        with urlrequest.urlopen(url, timeout=10) as response:
+        with urlrequest.urlopen(url, timeout=15) as response:
             data = response.read()
+            
+            # If image is too large, try to resize it
+            if len(data) > max_size_bytes:
+                data = _resize_image(data, max_size_bytes)
+                if data is None:
+                    return None
+            
             return base64.standard_b64encode(data).decode('utf-8')
-    except (urlerror.URLError, urlerror.HTTPError, TimeoutError):
+    except Exception:
+        # Catch any error - network issues, expired URLs, etc.
+        return None
+
+
+def _resize_image(image_data: bytes, max_size_bytes: int) -> Optional[bytes]:
+    """Resize image to fit within max_size_bytes.
+    
+    Uses PIL/Pillow if available, otherwise returns None.
+    """
+    try:
+        from PIL import Image
+        import io
+        
+        # Open image
+        img = Image.open(io.BytesIO(image_data))
+        
+        # Convert to RGB if necessary (for JPEG output)
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+        
+        # Start with current size and reduce until it fits
+        quality = 85
+        scale = 1.0
+        
+        for _ in range(10):  # Max 10 attempts
+            output = io.BytesIO()
+            
+            if scale < 1.0:
+                new_size = (int(img.width * scale), int(img.height * scale))
+                resized = img.resize(new_size, Image.Resampling.LANCZOS)
+            else:
+                resized = img
+            
+            resized.save(output, format='JPEG', quality=quality, optimize=True)
+            result = output.getvalue()
+            
+            if len(result) <= max_size_bytes:
+                return result
+            
+            # Reduce quality first, then scale
+            if quality > 50:
+                quality -= 10
+            else:
+                scale *= 0.8
+        
+        return None  # Couldn't get it small enough
+    except ImportError:
+        # Pillow not installed
+        return None
+    except Exception:
         return None
 
 

@@ -558,6 +558,15 @@ export interface AttachmentInfo {
   attachmentType: string
   downloadUrl: string
   isImage: boolean
+  source?: string
+}
+
+export function getAttachmentDownloadUrl(
+  taskId: string,
+  attachmentId: string,
+  baseUrl: string = defaultBase,
+): string {
+  return `${baseUrl}/assist/${taskId}/attachment/${attachmentId}/download`
 }
 
 export interface AttachmentsResponse {

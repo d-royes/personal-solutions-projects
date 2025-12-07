@@ -4,8 +4,19 @@ from __future__ import annotations
 import os
 from dataclasses import asdict
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime, timezone
+
+# Load .env file early (for local development - staging uses Cloud Run secrets)
+try:
+    from dotenv import load_dotenv
+    # Load from the daily-task-assistant directory
+    env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass  # dotenv not installed, rely on environment variables
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -547,14 +558,18 @@ def chat_with_task(
     if not target:
         raise HTTPException(status_code=404, detail="Task not found.")
 
-    # Fetch attachments for vision context
-    client = SmartsheetClient(settings)
-    attachment_infos = client.list_attachments(task_id, source=target.source)
+    # Fetch attachments for vision context (non-blocking - chat works even if this fails)
     attachment_details = []
-    for att in attachment_infos:
-        detail = client.get_attachment_url(att.attachment_id, source=target.source)
-        if detail:
-            attachment_details.append(detail)
+    try:
+        client = SmartsheetClient(settings)
+        attachment_infos = client.list_attachments(task_id, source=target.source)
+        for att in attachment_infos:
+            detail = client.get_attachment_url(att.attachment_id, source=target.source)
+            if detail:
+                attachment_details.append(detail)
+    except Exception as e:
+        # Log but don't fail - chat can work without images
+        print(f"Warning: Failed to fetch attachments for vision: {e}")
 
     # Fetch existing conversation history (full history for logging, filtered for LLM)
     history = fetch_conversation(task_id, limit=50)
@@ -1289,8 +1304,8 @@ def get_task_attachments(
 ) -> dict:
     """Fetch attachments for a specific task from Smartsheet.
     
-    Returns a list of attachment metadata with download URLs for each.
-    Images are fetched with full download URLs for Claude vision integration.
+    Returns a list of attachment metadata. Use the /attachment/{id}/url endpoint
+    to get fresh download URLs (Smartsheet URLs expire in ~2 minutes).
     """
     from daily_task_assistant.smartsheet_client import SmartsheetClient
     
@@ -1310,7 +1325,7 @@ def get_task_attachments(
     # Fetch attachment list
     attachments = client.list_attachments(task_id, source=task_source)
     
-    # Fetch download URLs for each attachment
+    # Fetch download URLs for each attachment (for initial display)
     attachment_details = []
     for att in attachments:
         detail = client.get_attachment_url(att.attachment_id, source=task_source)
@@ -1324,12 +1339,61 @@ def get_task_attachments(
                 "attachmentType": detail.attachment_type,
                 "downloadUrl": detail.download_url,
                 "isImage": detail.mime_type.startswith("image/"),
+                "source": task_source,  # Include source for fresh URL fetching
             })
     
     return {
         "taskId": task_id,
         "attachments": attachment_details,
     }
+
+
+@app.get("/assist/{task_id}/attachment/{attachment_id}/download")
+def download_attachment(
+    task_id: str,
+    attachment_id: str,
+    user: str = Depends(get_current_user),
+):
+    """Download an attachment by proxying through the backend.
+    
+    This avoids CORS issues by fetching from Smartsheet/S3 server-side
+    and returning the file content directly.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    from fastapi.responses import Response
+    import urllib.request
+    
+    settings = _get_settings()
+    
+    # Get the task to determine which sheet it belongs to
+    tasks, _, _, _ = fetch_task_dataset(
+        limit=None, source="auto", include_work_in_all=True
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    
+    task_source = target.source
+    client = SmartsheetClient(settings)
+    
+    # Get fresh download URL
+    detail = client.get_attachment_url(attachment_id, source=task_source)
+    if not detail or not detail.download_url:
+        raise HTTPException(status_code=404, detail="Attachment not found.")
+    
+    # Fetch the file from S3 and return it
+    try:
+        with urllib.request.urlopen(detail.download_url, timeout=30) as response:
+            content = response.read()
+            return Response(
+                content=content,
+                media_type=detail.mime_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{detail.name}"'
+                }
+            )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to download attachment: {e}")
 
 
 class TaskUpdateRequest(BaseModel):

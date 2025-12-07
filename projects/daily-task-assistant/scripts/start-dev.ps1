@@ -7,9 +7,13 @@ param (
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$backendPath = Join-Path $repoRoot "projects\daily-task-assistant"
-$frontendPath = Join-Path $repoRoot "projects\web-dashboard"
+# Script is at: projects/daily-task-assistant/scripts/start-dev.ps1
+# Go up 3 levels to get repo root: scripts -> daily-task-assistant -> projects -> repo root
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$backendPath = Split-Path -Parent $scriptDir  # daily-task-assistant
+$projectsDir = Split-Path -Parent $backendPath  # projects
+$repoRoot = Split-Path -Parent $projectsDir  # repo root
+$frontendPath = Join-Path $projectsDir "web-dashboard"
 
 Write-Host "Starting backend from $backendPath..." -ForegroundColor Cyan
 

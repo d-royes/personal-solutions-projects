@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
 import type { AttachmentInfo, ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import { getAttachmentDownloadUrl } from '../api'
+import { useAuth } from '../auth/AuthContext'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 
 // Feedback callback type
@@ -416,10 +418,37 @@ export function AssistPanel({
   attachments,
   attachmentsLoading,
 }: AssistPanelProps) {
+  const { authConfig } = useAuth()
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [attachmentsExpanded, setAttachmentsExpanded] = useState(false)
   const [message, setMessage] = useState('')
   const [activeAction, setActiveAction] = useState<string | null>(null)
+  
+  // Download attachment with proper auth headers
+  const handleDownloadAttachment = async (downloadUrl: string, filename: string) => {
+    if (!authConfig) return
+    
+    try {
+      const headers: HeadersInit = authConfig.mode === 'idToken' && authConfig.idToken
+        ? { Authorization: `Bearer ${authConfig.idToken}` }
+        : { 'X-User-Email': authConfig.userEmail || '' }
+      
+      const response = await fetch(downloadUrl, { headers, redirect: 'follow' })
+      if (!response.ok) throw new Error('Download failed')
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Download failed:', error)
+    }
+  }
   
   // Email draft panel state - use props if provided, otherwise local state
   const [localEmailDraftOpen, setLocalEmailDraftOpen] = useState(false)
@@ -910,8 +939,8 @@ export function AssistPanel({
         </div>
       )}
 
-      {/* Attachments row - collapsible */}
-      {(attachments && attachments.length > 0) && (
+      {/* Attachments row - collapsible with hover preview */}
+      {(attachments && attachments.length > 0 && selectedTask) && (
         <div className={`attachments-row ${attachmentsExpanded ? 'expanded' : 'collapsed'}`}>
           <button 
             className="attachments-toggle"
@@ -923,27 +952,44 @@ export function AssistPanel({
           </button>
           {attachmentsExpanded && (
             <div className="attachments-grid">
-              {attachments.map((att) => (
-                <a
-                  key={att.attachmentId}
-                  href={att.downloadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`attachment-item ${att.isImage ? 'image' : 'file'}`}
-                  title={`${att.name} (${Math.round(att.sizeBytes / 1024)}KB)`}
-                >
-                  {att.isImage ? (
-                    <img
-                      src={att.downloadUrl}
-                      alt={att.name}
-                      className="attachment-thumbnail"
-                    />
-                  ) : (
-                    <span className="attachment-icon">📄</span>
-                  )}
-                  <span className="attachment-name">{att.name}</span>
-                </a>
-              ))}
+              {attachments.map((att) => {
+                const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+                const freshDownloadUrl = getAttachmentDownloadUrl(selectedTask.rowId, att.attachmentId, apiBase)
+                return (
+                  <div
+                    key={att.attachmentId}
+                    className={`attachment-item ${att.isImage ? 'image' : 'file'}`}
+                    title={`${att.name} (${Math.round(att.sizeBytes / 1024)}KB) - Click to download`}
+                  >
+                    {att.isImage ? (
+                      <>
+                        <button 
+                          className="attachment-download-link"
+                          onClick={() => handleDownloadAttachment(freshDownloadUrl, att.name)}
+                        >
+                          <img
+                            src={att.downloadUrl}
+                            alt={att.name}
+                            className="attachment-thumbnail"
+                          />
+                        </button>
+                        {/* Hover preview */}
+                        <div className="attachment-preview">
+                          <img src={att.downloadUrl} alt={att.name} />
+                        </div>
+                      </>
+                    ) : (
+                      <button 
+                        className="attachment-download-link"
+                        onClick={() => handleDownloadAttachment(freshDownloadUrl, att.name)}
+                      >
+                        <span className="attachment-icon">📄</span>
+                      </button>
+                    )}
+                    <span className="attachment-name">{att.name}</span>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
