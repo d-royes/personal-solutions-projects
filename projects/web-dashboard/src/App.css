@@ -1775,7 +1775,7 @@ button:not(:disabled):hover {
 /* Attachments row */
 .attachments-row {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 0.5rem;
   padding: 0.4rem 1rem;
   border-bottom: 1px solid rgba(99, 102, 241, 0.1);
@@ -1784,19 +1784,46 @@ button:not(:disabled):hover {
   background: rgba(99, 102, 241, 0.03);
 }
 
+.attachments-row.collapsed {
+  padding: 0.25rem 1rem;
+}
+
 .attachments-row.loading {
   opacity: 0.6;
+}
+
+.attachments-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.attachments-toggle:hover .attachments-label {
+  color: rgba(148, 163, 184, 1);
+}
+
+.attachments-toggle .toggle-icon {
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 0.6rem;
+  transition: transform 0.2s ease;
 }
 
 .attachments-label {
   color: rgba(148, 163, 184, 0.7);
   flex-shrink: 0;
+  transition: color 0.2s ease;
 }
 
 .attachments-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  margin-top: 0.25rem;
 }
 
 .attachment-item {

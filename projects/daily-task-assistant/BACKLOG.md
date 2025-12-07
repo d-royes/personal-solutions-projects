@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-05  
+> **Last Updated**: 2025-12-07  
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
