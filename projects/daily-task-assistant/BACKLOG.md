@@ -1,7 +1,51 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-03  
+> **Last Updated**: 2025-12-07  
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
+
+---
+
+## DATA 2.0 Roadmap
+
+### The North Star
+> "The world's most effective personal AI."
+
+DATA's evolution follows three phases, each building on the last:
+
+### Phase 1: Better Tool (Current)
+Task management, email drafting, research, planning. All human-initiated, human-reviewed.
+
+- ✅ Task ingestion & scoring
+- ✅ AI-powered planning & research
+- ✅ Email drafting & sending
+- ✅ Conversation history
+- ✅ Feedback collection
+
+### Phase 2: Daily Companion (Next)
+DATA learns David specifically through persistent memory and weekly reflection cycles.
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **David Profile (Firestore)** | Work patterns, communication preferences, priorities, quirks | Planned |
+| **Session Observation Logging** | Automatic capture of learnings from each interaction | Planned |
+| **Weekly Digest Generation** | Summarize patterns, confirm/challenge preferences | Planned |
+| **Quarterly Interview Process** | Structured Q&A about David's world AND DATA's performance | Planned |
+| **Knowledge Graph (Entities/Relations)** | People, orgs, tools, projects - built organically over time | Planned |
+
+**Key Design Decision**: DATA builds its own memory from scratch in Firestore. No external file dependencies. Entities/relations emerge naturally from task conversations.
+
+### Phase 3: Strategic Partner (Future)
+Earned autonomy through demonstrated understanding and tracked success.
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Suggestion/Voting System** | DATA surfaces proactive suggestions, David votes approve/reject | Planned |
+| **Success Threshold Tracking** | Measure suggestion accuracy over time | Planned |
+| **Graduated Trust Levels** | Level 0 (suggest) → Level 1 (vote) → Level 2 (act + report) → Level 3 (periodic review) | Planned |
+| **Proactive Task Reprioritization** | "You haven't touched X in 2 weeks" | Planned |
+| **Autonomous Small Actions** | Mark tasks complete, reorder due dates (after earning trust) | Planned |
+
+**Trust Gradient**: Autonomy is earned, not granted. Size/scope of autonomous tasks increases as success thresholds are met.
 
 ---
 
@@ -10,7 +54,7 @@
 | Issue | Description | Status | Date Logged |
 |-------|-------------|--------|-------------|
 | Smartsheet Comment on Email Send | When an email is sent, the system should post a comment to the Smartsheet task (e.g., "Email sent: [subject] to [recipient] via [account]"). Currently, comments may not be posting reliably. Requires investigation of `live_tasks` flag and `SmartsheetClient.post_comment()` execution path. | Open | 2025-12-01 |
-| Google OAuth blocks personal Gmail | `david.a.royes@gmail.com` gets "user not in org" error. OAuth consent screen in GCP is likely set to "Internal" (Workspace only) instead of "External", or email isn't added as test user. | Open | 2025-12-05 |
+| Google OAuth blocks personal Gmail | `david.a.royes@gmail.com` gets "user not in org" error. OAuth consent screen in GCP is likely set to "Internal" (Workspace only) instead of "External", or email isn't added as test user. | **Resolved** - Changed to External | 2025-12-05 |
 
 ---
 

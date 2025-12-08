@@ -184,6 +184,8 @@ export interface PendingAction {
 }
 
 export interface EmailDraftUpdate {
+  to?: string
+  cc?: string
   subject?: string
   body?: string
   reason: string
@@ -196,12 +198,18 @@ export interface ChatResponse {
   emailDraftUpdate?: EmailDraftUpdate
 }
 
+export interface ChatMessageOptions {
+  source?: DataSource
+  selectedAttachments?: string[]  // IDs of images to include in context
+  workspaceContext?: string  // Checked workspace content
+}
+
 export async function sendChatMessage(
   taskId: string,
   message: string,
   auth: AuthConfig,
   baseUrl: string = defaultBase,
-  source: DataSource = 'auto',
+  options: ChatMessageOptions = {},
 ): Promise<ChatResponse> {
   const url = new URL(`/assist/${taskId}/chat`, baseUrl)
   const resp = await fetch(url, {
@@ -212,7 +220,9 @@ export async function sendChatMessage(
     },
     body: JSON.stringify({
       message,
-      source,
+      source: options.source ?? 'auto',
+      selectedAttachments: options.selectedAttachments,
+      workspaceContext: options.workspaceContext,
     }),
   })
   if (!resp.ok) {
@@ -543,6 +553,49 @@ export async function clearWorkspace(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Clear workspace failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Attachments API ---
+
+export interface AttachmentInfo {
+  attachmentId: string
+  name: string
+  mimeType: string
+  sizeBytes: number
+  createdAt: string
+  attachmentType: string
+  downloadUrl: string
+  isImage: boolean
+  source?: string
+}
+
+export function getAttachmentDownloadUrl(
+  taskId: string,
+  attachmentId: string,
+  baseUrl: string = defaultBase,
+): string {
+  return `${baseUrl}/assist/${taskId}/attachment/${attachmentId}/download`
+}
+
+export interface AttachmentsResponse {
+  taskId: string
+  attachments: AttachmentInfo[]
+}
+
+export async function fetchAttachments(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<AttachmentsResponse> {
+  const url = new URL(`/assist/${taskId}/attachments`, baseUrl)
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Fetch attachments failed: ${resp.statusText}`)
   }
   return resp.json()
 }

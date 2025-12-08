@@ -25,6 +25,32 @@ class TaskDetail:
     done: bool = False  # True if the Done checkbox is checked
 
 
+@dataclass(slots=True)
+class AttachmentInfo:
+    """Represents a Smartsheet attachment metadata."""
+
+    attachment_id: str
+    name: str
+    mime_type: str
+    size_bytes: int
+    created_at: str
+    attachment_type: str  # FILE, LINK, BOX_COM, etc.
+
+
+@dataclass(slots=True)
+class AttachmentDetail:
+    """Extended attachment info with download URL."""
+
+    attachment_id: str
+    name: str
+    mime_type: str
+    size_bytes: int
+    created_at: str
+    attachment_type: str
+    download_url: str  # Temporary signed URL from Smartsheet
+    thumbnail_url: Optional[str] = None  # For images (future use)
+
+
 def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:
     """Return a deterministic list of placeholder tasks."""
 

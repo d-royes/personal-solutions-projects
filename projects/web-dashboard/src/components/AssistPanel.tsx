@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
-import type { ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import type { AttachmentInfo, ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import { getAttachmentDownloadUrl } from '../api'
+import { useAuth } from '../auth/AuthContext'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 
 // Feedback callback type
@@ -248,7 +250,7 @@ interface AssistPanelProps {
   error?: string | null
   conversation: ConversationMessage[]
   conversationLoading: boolean
-  onSendMessage: (message: string) => Promise<void> | void
+  onSendMessage: (message: string, context?: { selectedAttachments?: string[], workspaceContext?: string }) => Promise<void> | void
   sendingMessage: boolean
   taskPanelCollapsed: boolean
   onExpandTasks: () => void
@@ -285,6 +287,9 @@ interface AssistPanelProps {
   // Strike/unstrike message handlers
   onStrikeMessage?: (messageTs: string) => Promise<void>
   onUnstrikeMessage?: (messageTs: string) => Promise<void>
+  // Attachments
+  attachments?: AttachmentInfo[]
+  attachmentsLoading?: boolean
 }
 
 // Draggable divider component
@@ -410,10 +415,59 @@ export function AssistPanel({
   setEmailDraftOpen: setEmailDraftOpenProp,
   onStrikeMessage,
   onUnstrikeMessage,
+  attachments,
+  attachmentsLoading,
 }: AssistPanelProps) {
+  const { authConfig } = useAuth()
   const [showFullNotes, setShowFullNotes] = useState(false)
+  const [attachmentsExpanded, setAttachmentsExpanded] = useState(false)
+  const [selectedAttachments, setSelectedAttachments] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
+  
+  // Clear selected attachments when task changes
+  useEffect(() => {
+    setSelectedAttachments(new Set())
+  }, [selectedTask?.rowId])
   const [activeAction, setActiveAction] = useState<string | null>(null)
+  
+  // Download attachment with proper auth headers
+  const handleDownloadAttachment = async (downloadUrl: string, filename: string) => {
+    if (!authConfig) return
+    
+    try {
+      const headers: HeadersInit = authConfig.mode === 'idToken' && authConfig.idToken
+        ? { Authorization: `Bearer ${authConfig.idToken}` }
+        : { 'X-User-Email': authConfig.userEmail || '' }
+      
+      const response = await fetch(downloadUrl, { headers, redirect: 'follow' })
+      if (!response.ok) throw new Error('Download failed')
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Download failed:', error)
+    }
+  }
+  
+  // Toggle attachment selection for context inclusion
+  const toggleAttachmentSelection = useCallback((attachmentId: string) => {
+    setSelectedAttachments(prev => {
+      const next = new Set(prev)
+      if (next.has(attachmentId)) {
+        next.delete(attachmentId)
+      } else {
+        next.add(attachmentId)
+      }
+      return next
+    })
+  }, [])
   
   // Email draft panel state - use props if provided, otherwise local state
   const [localEmailDraftOpen, setLocalEmailDraftOpen] = useState(false)
@@ -437,6 +491,13 @@ export function AssistPanel({
     }
     return []
   })
+  
+  // Get selected workspace content for context (must be after workspaceItems)
+  const getSelectedWorkspaceContent = useCallback(() => {
+    const selectedItems = workspaceItems.filter(item => item.selected && item.content.trim())
+    if (selectedItems.length === 0) return undefined
+    return selectedItems.map(item => item.content.trim()).join('\n\n---\n\n')
+  }, [workspaceItems])
   
   const containerRef = useRef<HTMLDivElement>(null)
   
@@ -753,13 +814,6 @@ export function AssistPanel({
     setWorkspaceItems(prev => [...prev, newItem])
   }
 
-  // Get selected workspace content as combined string
-  const getSelectedWorkspaceContent = (): string | undefined => {
-    const selectedItems = workspaceItems.filter(item => item.selected && item.content.trim())
-    if (selectedItems.length === 0) return undefined
-    return selectedItems.map(item => item.content).join('\n\n---\n\n')
-  }
-
   // Count of selected items for display
   const selectedCount = workspaceItems.filter(item => item.selected).length
 
@@ -901,6 +955,85 @@ export function AssistPanel({
               {showFullNotes ? 'less' : 'more'}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Attachments row - collapsible with hover preview and selection */}
+      {(attachments && attachments.length > 0 && selectedTask) && (
+        <div className={`attachments-row ${attachmentsExpanded ? 'expanded' : 'collapsed'}`}>
+          <button 
+            className="attachments-toggle"
+            onClick={() => setAttachmentsExpanded(!attachmentsExpanded)}
+            title={attachmentsExpanded ? 'Collapse attachments' : 'Expand attachments'}
+          >
+            <span className="toggle-icon">{attachmentsExpanded ? '▼' : '▶'}</span>
+            <span className="attachments-label">
+              📎 Attachments ({attachments.length})
+              {selectedAttachments.size > 0 && (
+                <span className="attachments-selected"> · {selectedAttachments.size} selected</span>
+              )}
+            </span>
+          </button>
+          {attachmentsExpanded && (
+            <div className="attachments-grid">
+              {attachments.map((att) => {
+                const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+                const freshDownloadUrl = getAttachmentDownloadUrl(selectedTask.rowId, att.attachmentId, apiBase)
+                const isSelected = selectedAttachments.has(att.attachmentId)
+                return (
+                  <div
+                    key={att.attachmentId}
+                    className={`attachment-item ${att.isImage ? 'image' : 'file'} ${isSelected ? 'selected' : ''}`}
+                    title={`${att.name} (${Math.round(att.sizeBytes / 1024)}KB)`}
+                  >
+                    {/* Selection checkbox - only for images */}
+                    {att.isImage && (
+                      <input
+                        type="checkbox"
+                        className="attachment-checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleAttachmentSelection(att.attachmentId)}
+                        title="Include in chat context"
+                      />
+                    )}
+                    {att.isImage ? (
+                      <>
+                        <button 
+                          className="attachment-download-link"
+                          onClick={() => handleDownloadAttachment(freshDownloadUrl, att.name)}
+                          title="Click to download"
+                        >
+                          <img
+                            src={att.downloadUrl}
+                            alt={att.name}
+                            className="attachment-thumbnail"
+                          />
+                        </button>
+                        {/* Hover preview */}
+                        <div className="attachment-preview">
+                          <img src={att.downloadUrl} alt={att.name} />
+                        </div>
+                      </>
+                    ) : (
+                      <button 
+                        className="attachment-download-link"
+                        onClick={() => handleDownloadAttachment(freshDownloadUrl, att.name)}
+                        title="Click to download"
+                      >
+                        <span className="attachment-icon">📄</span>
+                      </button>
+                    )}
+                    <span className="attachment-name">{att.name}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      {attachmentsLoading && (
+        <div className="attachments-row loading">
+          <span className="attachments-label">📎 Loading attachments...</span>
         </div>
       )}
 
@@ -1281,7 +1414,16 @@ export function AssistPanel({
           if (!message.trim()) return
           const payload = message.trim()
           setMessage('')
-          await onSendMessage(payload)
+          // Build context to include with message
+          const context: { selectedAttachments?: string[], workspaceContext?: string } = {}
+          if (selectedAttachments.size > 0) {
+            context.selectedAttachments = Array.from(selectedAttachments)
+          }
+          const wsContent = getSelectedWorkspaceContent()
+          if (wsContent) {
+            context.workspaceContext = wsContent
+          }
+          await onSendMessage(payload, Object.keys(context).length > 0 ? context : undefined)
         }}
       >
         <textarea

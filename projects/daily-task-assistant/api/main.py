@@ -4,8 +4,19 @@ from __future__ import annotations
 import os
 from dataclasses import asdict
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime, timezone
+
+# Load .env file early (for local development - staging uses Cloud Run secrets)
+try:
+    from dotenv import load_dotenv
+    # Load from the daily-task-assistant directory
+    env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass  # dotenv not installed, rely on environment variables
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +48,9 @@ app = FastAPI(
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://localhost:5174",  # Vite fallback port
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
     os.getenv("DTA_ALLOWED_FRONTEND", "").strip(),
 ]
 origins = [origin for origin in ALLOWED_ORIGINS if origin]
@@ -521,6 +534,18 @@ class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
     message: str = Field(..., description="The user's message")
     source: Literal["auto", "live", "stub"] = "auto"
+    selected_attachments: Optional[List[str]] = Field(
+        None, 
+        alias="selectedAttachments",
+        description="IDs of attachments user selected to include"
+    )
+    workspace_context: Optional[str] = Field(
+        None,
+        alias="workspaceContext", 
+        description="Checked workspace content to include"
+    )
+    
+    model_config = {"populate_by_name": True}
 
 
 @app.post("/assist/{task_id}/chat")
@@ -531,53 +556,92 @@ def chat_with_task(
 ) -> dict:
     """Send a conversational message about a task and get a response from DATA.
     
-    If DATA detects a task update intent, returns a pending_action that the
-    frontend can use to show a confirmation dialog.
+    Uses intent classification to determine what context to load, optimizing
+    token usage. If DATA detects a task update intent, returns a pending_action.
     """
-    from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
+    from daily_task_assistant.llm.anthropic_client import AnthropicError
+    from daily_task_assistant.llm.intent_classifier import classify_intent
+    from daily_task_assistant.llm.context_assembler import assemble_context
+    from daily_task_assistant.llm.chat_executor import execute_chat
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
 
+    settings = _get_settings()
+    
     # Include work tasks when searching by specific task_id
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
+    tasks, live_tasks, _, warning = fetch_task_dataset(
         limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
         raise HTTPException(status_code=404, detail="Task not found.")
 
-    # Fetch existing conversation history (full history for logging, filtered for LLM)
-    history = fetch_conversation(task_id, limit=50)
+    # Fetch conversation history
     llm_history_messages = fetch_conversation_for_llm(task_id, limit=50)
-
-    # Log the user message
-    user_turn = log_user_message(
-        task_id,
-        content=request.message,
-        user_email=user,
-        metadata={"source": request.source},
-    )
-
-    # Build history for LLM (excluding struck messages and the message we just logged)
     llm_history: List[Dict[str, str]] = [
         {"role": msg.role, "content": msg.content} for msg in llm_history_messages
     ]
 
-    # Call Anthropic with tool support for task updates
+    # Determine if user selected any images
+    has_selected_images = bool(request.selected_attachments)
+    has_workspace = bool(request.workspace_context)
+
+    # Step 1: Classify intent to determine what context is needed
+    intent = classify_intent(
+        message=request.message,
+        task_title=target.title,
+        has_selected_images=has_selected_images,
+        has_workspace_content=has_workspace,
+    )
+
+    # Step 2: Fetch selected attachments only if needed
+    selected_attachment_details = []
+    if intent.include_images and request.selected_attachments:
+        try:
+            client = SmartsheetClient(settings)
+            for att_id in request.selected_attachments:
+                detail = client.get_attachment_url(att_id, source=target.source)
+                if detail:
+                    selected_attachment_details.append(detail)
+        except Exception as e:
+            print(f"Warning: Failed to fetch selected attachments: {e}")
+
+    # Step 3: Assemble context based on intent
+    context = assemble_context(
+        intent=intent,
+        task=target,
+        user_message=request.message,
+        history=llm_history if intent.include_history else None,
+        selected_images=selected_attachment_details if intent.include_images else None,
+        workspace_content=request.workspace_context if intent.include_workspace else None,
+    )
+
+    # Log the user message
+    log_user_message(
+        task_id,
+        content=request.message,
+        user_email=user,
+        metadata={
+            "source": request.source,
+            "intent": intent.intent,
+            "estimated_tokens": context.estimated_tokens,
+        },
+    )
+
+    # Step 4: Execute chat with assembled context
     try:
-        chat_response = chat_with_tools(
-            task=target,
-            user_message=request.message,
-            history=llm_history,
-        )
+        chat_response = execute_chat(context, intent)
     except AnthropicError as exc:
         raise HTTPException(status_code=502, detail=f"AI service error: {exc}")
 
     # Log the assistant response
-    assistant_turn = log_assistant_message(
+    log_assistant_message(
         task_id,
         content=chat_response.message,
         plan=None,  # No structured plan for chat responses
         metadata={
             "source": "chat",
+            "intent": chat_response.intent_used,
+            "tokens_used": chat_response.tokens_used,
             "has_pending_action": chat_response.pending_action is not None,
         },
     )
@@ -592,6 +656,8 @@ def chat_with_task(
             ConversationMessageModel(**asdict(msg)).model_dump()
             for msg in updated_history
         ],
+        "intent": chat_response.intent_used,
+        "tokensUsed": chat_response.tokens_used,
     }
     
     # Include pending action if DATA detected an update intent
@@ -618,6 +684,8 @@ def chat_with_task(
     if chat_response.email_draft_update:
         update = chat_response.email_draft_update
         response_data["emailDraftUpdate"] = {
+            "to": update.to,
+            "cc": update.cc,
             "subject": update.subject,
             "body": update.body,
             "reason": update.reason,
@@ -1267,6 +1335,105 @@ def clear_workspace_endpoint(
         "taskId": task_id,
         "cleared": True,
     }
+
+
+@app.get("/assist/{task_id}/attachments")
+def get_task_attachments(
+    task_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Fetch attachments for a specific task from Smartsheet.
+    
+    Returns a list of attachment metadata. Use the /attachment/{id}/url endpoint
+    to get fresh download URLs (Smartsheet URLs expire in ~2 minutes).
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    
+    settings = _get_settings()
+    
+    # Get the task to determine which sheet it belongs to
+    tasks, _, _, _ = fetch_task_dataset(
+        limit=None, source="auto", include_work_in_all=True
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    
+    task_source = target.source
+    client = SmartsheetClient(settings)
+    
+    # Fetch attachment list
+    attachments = client.list_attachments(task_id, source=task_source)
+    
+    # Fetch download URLs for each attachment (for initial display)
+    attachment_details = []
+    for att in attachments:
+        detail = client.get_attachment_url(att.attachment_id, source=task_source)
+        if detail:
+            attachment_details.append({
+                "attachmentId": detail.attachment_id,
+                "name": detail.name,
+                "mimeType": detail.mime_type,
+                "sizeBytes": detail.size_bytes,
+                "createdAt": detail.created_at,
+                "attachmentType": detail.attachment_type,
+                "downloadUrl": detail.download_url,
+                "isImage": detail.mime_type.startswith("image/"),
+                "source": task_source,  # Include source for fresh URL fetching
+            })
+    
+    return {
+        "taskId": task_id,
+        "attachments": attachment_details,
+    }
+
+
+@app.get("/assist/{task_id}/attachment/{attachment_id}/download")
+def download_attachment(
+    task_id: str,
+    attachment_id: str,
+    user: str = Depends(get_current_user),
+):
+    """Download an attachment by proxying through the backend.
+    
+    This avoids CORS issues by fetching from Smartsheet/S3 server-side
+    and returning the file content directly.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    from fastapi.responses import Response
+    import urllib.request
+    
+    settings = _get_settings()
+    
+    # Get the task to determine which sheet it belongs to
+    tasks, _, _, _ = fetch_task_dataset(
+        limit=None, source="auto", include_work_in_all=True
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    
+    task_source = target.source
+    client = SmartsheetClient(settings)
+    
+    # Get fresh download URL
+    detail = client.get_attachment_url(attachment_id, source=task_source)
+    if not detail or not detail.download_url:
+        raise HTTPException(status_code=404, detail="Attachment not found.")
+    
+    # Fetch the file from S3 and return it
+    try:
+        with urllib.request.urlopen(detail.download_url, timeout=30) as response:
+            content = response.read()
+            return Response(
+                content=content,
+                media_type=detail.mime_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{detail.name}"'
+                }
+            )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to download attachment: {e}")
 
 
 class TaskUpdateRequest(BaseModel):

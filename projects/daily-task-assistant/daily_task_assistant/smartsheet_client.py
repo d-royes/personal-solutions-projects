@@ -10,7 +10,7 @@ from urllib import parse as urlparse
 from urllib import request as urlrequest
 
 from .config import Settings
-from .tasks import TaskDetail, fetch_stubbed_tasks
+from .tasks import AttachmentDetail, AttachmentInfo, TaskDetail, fetch_stubbed_tasks
 
 try:  # Optional dependency
     import yaml
@@ -452,6 +452,72 @@ class SmartsheetClient:
             "status": "Completed",
             "done": True,
         }, source=source)
+
+    def list_attachments(
+        self, row_id: str, *, source: str = "personal"
+    ) -> List[AttachmentInfo]:
+        """Fetch attachment metadata for a specific row.
+        
+        Args:
+            row_id: The Smartsheet row ID
+            source: Source key ("personal" or "work") to determine which sheet
+            
+        Returns:
+            List of AttachmentInfo objects for the row.
+        """
+        schema = self._get_schema_for_source(source)
+        try:
+            response = self._request(
+                "GET",
+                f"/sheets/{schema.sheet_id}/rows/{row_id}/attachments",
+            )
+        except SmartsheetAPIError:
+            return []
+
+        attachments: List[AttachmentInfo] = []
+        for att in response.get("data", []):
+            attachments.append(
+                AttachmentInfo(
+                    attachment_id=str(att.get("id", "")),
+                    name=att.get("name", ""),
+                    mime_type=att.get("mimeType", "application/octet-stream"),
+                    size_bytes=int(att.get("sizeInKb", 0)) * 1024,
+                    created_at=att.get("createdAt", ""),
+                    attachment_type=att.get("attachmentType", "FILE"),
+                )
+            )
+        return attachments
+
+    def get_attachment_url(
+        self, attachment_id: str, *, source: str = "personal"
+    ) -> Optional[AttachmentDetail]:
+        """Get the temporary download URL for an attachment.
+        
+        Args:
+            attachment_id: The Smartsheet attachment ID
+            source: Source key ("personal" or "work") to determine which sheet
+            
+        Returns:
+            AttachmentDetail with download URL, or None if not found.
+        """
+        schema = self._get_schema_for_source(source)
+        try:
+            response = self._request(
+                "GET",
+                f"/sheets/{schema.sheet_id}/attachments/{attachment_id}",
+            )
+        except SmartsheetAPIError:
+            return None
+
+        return AttachmentDetail(
+            attachment_id=str(response.get("id", "")),
+            name=response.get("name", ""),
+            mime_type=response.get("mimeType", "application/octet-stream"),
+            size_bytes=int(response.get("sizeInKb", 0)) * 1024,
+            created_at=response.get("createdAt", ""),
+            attachment_type=response.get("attachmentType", "FILE"),
+            download_url=response.get("url", ""),
+        )
 
     @property
     def last_fetch_used_live(self) -> bool:
