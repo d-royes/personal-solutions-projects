@@ -469,13 +469,6 @@ export function AssistPanel({
     })
   }, [])
   
-  // Get selected workspace content for context
-  const getSelectedWorkspaceContent = useCallback(() => {
-    const selectedItems = workspaceItems.filter(item => item.selected && item.content.trim())
-    if (selectedItems.length === 0) return undefined
-    return selectedItems.map(item => item.content.trim()).join('\n\n---\n\n')
-  }, [workspaceItems])
-  
   // Email draft panel state - use props if provided, otherwise local state
   const [localEmailDraftOpen, setLocalEmailDraftOpen] = useState(false)
   const emailDraftOpen = emailDraftOpenProp ?? localEmailDraftOpen
@@ -498,6 +491,13 @@ export function AssistPanel({
     }
     return []
   })
+  
+  // Get selected workspace content for context (must be after workspaceItems)
+  const getSelectedWorkspaceContent = useCallback(() => {
+    const selectedItems = workspaceItems.filter(item => item.selected && item.content.trim())
+    if (selectedItems.length === 0) return undefined
+    return selectedItems.map(item => item.content.trim()).join('\n\n---\n\n')
+  }, [workspaceItems])
   
   const containerRef = useRef<HTMLDivElement>(null)
   
