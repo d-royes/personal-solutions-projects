@@ -77,14 +77,18 @@ def execute_chat(
     max_tokens = 400 if intent.intent == "action" else 800
     
     try:
-        response = client.messages.create(
-            model=config.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=context.system_prompt,
-            messages=context.messages,
-            tools=context.tools if context.tools else None,
-        )
+        # Build request kwargs - only include tools if we have them
+        request_kwargs = {
+            "model": config.model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": context.system_prompt,
+            "messages": context.messages,
+        }
+        if context.tools:
+            request_kwargs["tools"] = context.tools
+        
+        response = client.messages.create(**request_kwargs)
     except APIStatusError as exc:
         raise AnthropicError(f"Anthropic API error: {exc}") from exc
     except Exception as exc:
