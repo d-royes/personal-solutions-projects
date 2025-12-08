@@ -871,7 +871,7 @@ export function AssistPanel({
               globalHistory.map((msg, i) => (
                 <div key={i} className={`chat-message ${msg.role}`}>
                   <div className="message-content">
-                    <ChatMarkdown content={msg.content} />
+                    {renderMarkdown(msg.content)}
                   </div>
                 </div>
               ))
