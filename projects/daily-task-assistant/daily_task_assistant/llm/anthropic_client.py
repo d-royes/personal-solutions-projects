@@ -129,7 +129,9 @@ _DATA_PREFERENCES = _load_data_preferences()
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 SYSTEM_PROMPT = """You are the Daily Task Assistant, a diligent chief of staff.
 Produce concise, actionable guidance and respect the user's time.
-Respond ONLY with compact JSON and no markdown."""
+
+CRITICAL: Your response MUST be valid JSON only. No markdown, no explanations, no text outside the JSON object.
+Start your response with { and end with }. Nothing else."""
 
 USER_PROMPT_TEMPLATE = """Task Context:
 Title: {title}
@@ -150,10 +152,14 @@ Outputs:
 4. suggested_actions: array of 1-3 action types relevant to THIS task (e.g., "research", "draft_email", "schedule", "follow_up", "delegate"). Only suggest "draft_email" if there's a clear external recipient mentioned in the task or notes.
 
 Rules:
-- JSON only. Keys: summary, next_steps, efficiency_tips, suggested_actions.
+- RESPOND WITH JSON ONLY. No markdown. No explanations. Just the JSON object.
+- Keys required: summary, next_steps, efficiency_tips, suggested_actions.
 - Steps and tips must be strings without numbering prefixes.
 - Reference provided context; do not invent data.
 - The assignee (david.a.royes@gmail.com or davidroyes@southpointsda.org) is the OWNER, not a recipient. Never suggest emailing the owner.
+
+Example response format:
+{{"summary": "...", "next_steps": ["...", "..."], "efficiency_tips": ["..."], "suggested_actions": ["..."]}}
 """
 
 EMAIL_DRAFT_PROMPT = """Draft a professional email based on the provided content and task context.
