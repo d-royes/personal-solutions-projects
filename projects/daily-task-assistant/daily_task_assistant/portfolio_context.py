@@ -26,6 +26,19 @@ PERSPECTIVE_DESCRIPTIONS = {
     "holistic": "Complete view across all life domains",
 }
 
+# Explicit project filters per the plan - Personal has specific projects, 
+# Church is identified by "Church Tasks" project
+PERSONAL_PROJECTS = {
+    "around the house",
+    "family time",
+    "shopping",
+    "sm. projects & tasks",
+}
+
+CHURCH_PROJECTS = {
+    "church tasks",
+}
+
 
 def get_perspective_description(perspective: str) -> str:
     """Get description for a perspective."""
@@ -47,6 +60,9 @@ class PortfolioContext:
     domain_breakdown: Dict[str, int] = field(default_factory=dict)
     conflicts: List[str] = field(default_factory=list)
     task_summaries: List[Dict[str, Any]] = field(default_factory=list)
+    
+    # Phase 2 hooks - David Profile integration
+    user_profile: Optional[Dict[str, Any]] = None
 
 
 def build_portfolio_context(
@@ -83,7 +99,8 @@ def build_portfolio_context(
     # Apply perspective-specific filtering for personal/church
     # (work and holistic don't need additional filtering)
     if perspective == "personal":
-        open_tasks = [t for t in open_tasks if not _is_church_task(t)]
+        # Use explicit project list per the plan
+        open_tasks = [t for t in open_tasks if _is_personal_task(t)]
     elif perspective == "church":
         open_tasks = [t for t in open_tasks if _is_church_task(t)]
     
@@ -98,12 +115,15 @@ def _is_task_open(task: TaskDetail) -> bool:
 
 
 def _is_church_task(task: TaskDetail) -> bool:
-    """Check if task is a church task based on project name.
-    
-    This matches the frontend deriveDomain() logic in TaskList.tsx.
-    """
+    """Check if task is a church task based on project name."""
     project = (task.project or "").lower()
-    return "church" in project
+    return project in CHURCH_PROJECTS or "church" in project
+
+
+def _is_personal_task(task: TaskDetail) -> bool:
+    """Check if task belongs to Personal perspective based on explicit project list."""
+    project = (task.project or "").lower()
+    return project in PERSONAL_PROJECTS
 
 
 def _get_task_domain(task: TaskDetail) -> str:

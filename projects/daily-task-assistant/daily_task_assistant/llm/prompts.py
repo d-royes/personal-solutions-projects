@@ -119,6 +119,21 @@ def _format_portfolio_summary(portfolio: PortfolioContext) -> str:
         for project, count in sorted_projects:
             lines.append(f"- {project}: {count}")
     
+    # Due date distribution (for workload management suggestions)
+    if portfolio.by_due_date:
+        lines.append("")
+        lines.append("## By Due Date")
+        due_date_labels = {
+            "overdue": "⚠️ Overdue",
+            "today": "📅 Due Today",
+            "this_week": "📆 This Week",
+            "later": "📋 Later",
+        }
+        for bucket in ["overdue", "today", "this_week", "later"]:
+            count = portfolio.by_due_date.get(bucket, 0)
+            if count > 0:
+                lines.append(f"- {due_date_labels.get(bucket, bucket)}: {count}")
+    
     # Domain breakdown (for holistic)
     if portfolio.perspective == "holistic" and portfolio.domain_breakdown:
         lines.append("")
