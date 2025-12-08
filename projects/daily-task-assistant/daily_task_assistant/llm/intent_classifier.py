@@ -11,6 +11,7 @@ from typing import List, Optional
 from anthropic import Anthropic
 
 from .anthropic_client import build_anthropic_client, AnthropicError
+from .gemini_client import classify_with_gemini, is_gemini_available
 
 
 @dataclass(slots=True)
@@ -38,6 +39,7 @@ class ClassifiedIntent:
 
 
 # Intent types and their characteristics
+# Models: "claude-sonnet" for complex/tools, "gemini-flash" for fast/simple
 INTENT_PROFILES = {
     "action": {
         "description": "User wants to update/modify the task (mark done, change status, etc.)",
@@ -45,7 +47,7 @@ INTENT_PROFILES = {
         "include_images": False,
         "include_history": False,  # Action intents don't need history
         "include_workspace": False,
-        "model": "claude-sonnet",
+        "model": "claude-sonnet",  # Claude for tool use
     },
     "visual": {
         "description": "User wants to analyze or discuss images/attachments",
@@ -53,7 +55,7 @@ INTENT_PROFILES = {
         "include_images": True,
         "include_history": True,
         "include_workspace": True,
-        "model": "claude-sonnet",
+        "model": "claude-sonnet",  # Claude for vision
     },
     "conversational": {
         "description": "User wants to continue discussion, ask questions, or get clarification",
@@ -61,7 +63,7 @@ INTENT_PROFILES = {
         "include_images": False,
         "include_history": True,
         "include_workspace": True,
-        "model": "claude-sonnet",
+        "model": "gemini-flash",  # Gemini for fast general chat
     },
     "research": {
         "description": "User wants to find information or research a topic",
@@ -69,7 +71,7 @@ INTENT_PROFILES = {
         "include_images": False,
         "include_history": False,
         "include_workspace": True,
-        "model": "claude-sonnet",
+        "model": "claude-sonnet",  # Claude has web_search tool
     },
     "email": {
         "description": "User wants to draft, refine, or send an email",
@@ -77,7 +79,7 @@ INTENT_PROFILES = {
         "include_images": False,
         "include_history": True,
         "include_workspace": True,
-        "model": "claude-sonnet",
+        "model": "claude-sonnet",  # Claude for tool use
     },
     "planning": {
         "description": "User wants help planning, organizing, or strategizing",
@@ -85,7 +87,7 @@ INTENT_PROFILES = {
         "include_images": False,
         "include_history": True,
         "include_workspace": True,
-        "model": "claude-sonnet",
+        "model": "gemini-flash",  # Gemini for general planning chat
     },
 }
 
@@ -125,10 +127,11 @@ def classify_intent(
     has_workspace_content: bool = False,
     *,
     client: Optional[Anthropic] = None,
+    prefer_gemini: bool = True,
 ) -> ClassifiedIntent:
     """Classify user intent using a lightweight LLM call.
     
-    Uses Claude Haiku for fast, low-cost classification.
+    Uses Gemini Flash (preferred) or Claude Haiku for fast, low-cost classification.
     
     Args:
         message: The user's message to classify
@@ -136,6 +139,7 @@ def classify_intent(
         has_selected_images: Whether user has selected images to include
         has_workspace_content: Whether there's checked workspace content
         client: Optional pre-built Anthropic client
+        prefer_gemini: Whether to try Gemini first (default True)
     
     Returns:
         ClassifiedIntent with intent type and context requirements
@@ -145,7 +149,25 @@ def classify_intent(
     if quick_result:
         return quick_result
     
-    # Use LLM for ambiguous cases
+    # Try Gemini Flash first (faster, cheaper)
+    if prefer_gemini and is_gemini_available():
+        try:
+            result = classify_with_gemini(
+                message=message,
+                task_title=task_title,
+                has_images=has_selected_images,
+                has_workspace=has_workspace_content,
+            )
+            return _parse_classification_response(
+                str(result),  # classify_with_gemini returns dict, convert to JSON string
+                has_selected_images,
+                has_workspace_content,
+                gemini_result=result,  # Pass the dict directly
+            )
+        except Exception:
+            pass  # Fall through to Anthropic
+    
+    # Fall back to Anthropic Haiku
     client = client or build_anthropic_client()
     
     prompt = CLASSIFICATION_PROMPT.format(
@@ -274,35 +296,43 @@ def _parse_classification_response(
     text: str,
     has_selected_images: bool,
     has_workspace_content: bool,
+    *,
+    gemini_result: Optional[dict] = None,
 ) -> ClassifiedIntent:
     """Parse LLM classification response into ClassifiedIntent."""
     import json
     
-    # Try to extract JSON from response
-    try:
-        # Handle potential markdown code blocks
-        if "```" in text:
-            start = text.find("{")
-            end = text.rfind("}") + 1
-            text = text[start:end]
-        
-        data = json.loads(text)
-        intent_type = data.get("intent", "conversational")
-        confidence = float(data.get("confidence", 0.8))
-        reasoning = data.get("reasoning", "")
-        
-    except (json.JSONDecodeError, ValueError):
-        # Fallback parsing - look for intent type in text
-        intent_type = "conversational"
-        confidence = 0.6
-        reasoning = "Failed to parse JSON response"
-        
-        for intent in INTENT_PROFILES:
-            if intent in text.lower():
-                intent_type = intent
-                confidence = 0.7
-                reasoning = f"Found '{intent}' in response text"
-                break
+    # If we have a direct dict result (from Gemini), use it
+    if gemini_result and isinstance(gemini_result, dict):
+        intent_type = gemini_result.get("intent", "conversational")
+        confidence = float(gemini_result.get("confidence", 0.8))
+        reasoning = gemini_result.get("reasoning", "Classified by Gemini")
+    else:
+        # Parse text response (from Anthropic)
+        try:
+            # Handle potential markdown code blocks
+            if "```" in text:
+                start = text.find("{")
+                end = text.rfind("}") + 1
+                text = text[start:end]
+            
+            data = json.loads(text)
+            intent_type = data.get("intent", "conversational")
+            confidence = float(data.get("confidence", 0.8))
+            reasoning = data.get("reasoning", "")
+            
+        except (json.JSONDecodeError, ValueError):
+            # Fallback parsing - look for intent type in text
+            intent_type = "conversational"
+            confidence = 0.6
+            reasoning = "Failed to parse JSON response"
+            
+            for intent in INTENT_PROFILES:
+                if intent in text.lower():
+                    intent_type = intent
+                    confidence = 0.7
+                    reasoning = f"Found '{intent}' in response text"
+                    break
     
     # Get profile for this intent
     profile = INTENT_PROFILES.get(intent_type, INTENT_PROFILES["conversational"])

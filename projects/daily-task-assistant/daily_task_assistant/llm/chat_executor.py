@@ -1,6 +1,7 @@
 """Chat execution for DATA.
 
 Executes LLM calls with assembled context and extracts structured responses.
+Supports multi-LLM routing (Anthropic Claude, Google Gemini).
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from anthropic import Anthropic, APIStatusError
 
 from .anthropic_client import build_anthropic_client, resolve_config, AnthropicError
 from .context_assembler import ContextBundle
+from .gemini_client import chat_with_gemini, is_gemini_available, GeminiError
 from .intent_classifier import ClassifiedIntent
 
 
@@ -58,25 +60,90 @@ def execute_chat(
     intent: ClassifiedIntent,
     *,
     client: Optional[Anthropic] = None,
+    force_claude: bool = False,
 ) -> ChatResponse:
     """Execute a chat request with assembled context.
+    
+    Routes to appropriate LLM based on intent:
+    - Claude Sonnet: Tool use, vision, research
+    - Gemini Flash: Conversational, planning (when no tools needed)
     
     Args:
         context: Assembled context bundle
         intent: Classified intent
         client: Optional pre-built Anthropic client
+        force_claude: Force using Claude even for Gemini intents
     
     Returns:
         ChatResponse with message and optional pending actions
     """
-    client = client or build_anthropic_client()
-    config = resolve_config()
-    
     # Adjust temperature based on intent
     temperature = 0.3 if intent.intent == "action" else 0.5
     
     # Adjust max tokens based on intent
     max_tokens = 400 if intent.intent == "action" else 800
+    
+    # Route to Gemini for conversational/planning intents without tools
+    use_gemini = (
+        intent.suggested_model == "gemini-flash"
+        and not context.tools
+        and not intent.include_images
+        and is_gemini_available()
+        and not force_claude
+    )
+    
+    if use_gemini:
+        print(f"[LLM Router] Using Gemini 2.5 Pro for intent: {intent.intent}")
+        return _execute_with_gemini(context, intent, max_tokens, temperature)
+    
+    # Use Claude for everything else
+    print(f"[LLM Router] Using Claude Sonnet for intent: {intent.intent}")
+    return _execute_with_claude(context, intent, max_tokens, temperature, client)
+
+
+def _execute_with_gemini(
+    context: ContextBundle,
+    intent: ClassifiedIntent,
+    max_tokens: int,
+    temperature: float,
+) -> ChatResponse:
+    """Execute chat using Gemini Flash."""
+    try:
+        response_text = chat_with_gemini(
+            messages=context.messages,
+            system_prompt=context.system_prompt,
+            model="gemini-2.5-pro",  # Quality is king for DATA
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        
+        # Handle visual intent with no selected images
+        if intent.intent == "visual" and not intent.include_images:
+            response_text = "Please select the image(s) you'd like me to analyze by checking the boxes on the thumbnails above."
+        
+        return ChatResponse(
+            message=response_text,
+            pending_action=None,
+            email_draft_update=None,
+            intent_used=intent.intent,
+            tokens_used=0,  # Gemini doesn't report tokens the same way
+        )
+        
+    except GeminiError as exc:
+        # Fall back to Claude on Gemini error
+        return _execute_with_claude(context, intent, max_tokens, temperature, None)
+
+
+def _execute_with_claude(
+    context: ContextBundle,
+    intent: ClassifiedIntent,
+    max_tokens: int,
+    temperature: float,
+    client: Optional[Anthropic],
+) -> ChatResponse:
+    """Execute chat using Claude."""
+    client = client or build_anthropic_client()
+    config = resolve_config()
     
     try:
         # Build request kwargs - only include tools if we have them
