@@ -280,6 +280,17 @@ ADDITIONAL CONTEXT (selected by user from workspace):
 
 Use this context to make your plan more specific and actionable. Reference specific details from this context in your next steps and suggestions."""
 
+    # Summarize conversation history to prevent format pollution
+    history_summary = _summarize_history_for_planning(history) if history else ""
+    if history_summary:
+        prompt += f"""
+
+---
+CONVERSATION CONTEXT (summary of prior discussion):
+{history_summary}
+
+Consider this context when generating your plan, but REMEMBER: respond with JSON only."""
+
     try:
         messages = [
             {
@@ -288,18 +299,7 @@ Use this context to make your plan more specific and actionable. Reference speci
             }
         ]
 
-        for turn in history or []:
-            content = (turn.get("content") or "").strip()
-            if not content:
-                continue
-            role = "assistant" if turn.get("role") == "assistant" else "user"
-            messages.append(
-                {
-                    "role": role,
-                    "content": [{"type": "text", "text": content}],
-                }
-            )
-
+        # Don't pass raw history - we've summarized it above
         response = client.messages.create(
             model=config.model,
             max_tokens=config.max_output_tokens,
@@ -314,7 +314,7 @@ Use this context to make your plan more specific and actionable. Reference speci
 
     text = _extract_text(response)
     data = _parse_json(text)
-
+    
     return AnthropicSuggestion(
         summary=_coerce_string(data.get("summary")),
         next_steps=_coerce_list(data.get("next_steps")),
@@ -404,6 +404,60 @@ def _format_hours(value: float | None) -> str:
     if float(value).is_integer():
         return f"{int(value)}h"
     return f"{value:.1f}h"
+
+
+def _summarize_history_for_planning(history: List[Dict[str, str]]) -> str:
+    """Reformat conversation history for planning to prevent format pollution.
+    
+    Converts raw messages (which may contain markdown, emojis, etc.) into
+    clean plain text while preserving the substance of the conversation.
+    This is reformatting, not heavy compression.
+    """
+    import re
+    
+    if not history:
+        return ""
+    
+    def clean_text(text: str) -> str:
+        """Strip formatting while preserving content."""
+        # Remove emojis and special characters
+        text = re.sub(r'[📋🎯💡✅❌➡️⚡✉️👍👎🔍📎📄🖼️]', '', text)
+        # Remove markdown headers
+        text = re.sub(r'^#{1,4}\s*', '', text, flags=re.MULTILINE)
+        # Remove bold/italic markers
+        text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
+        # Remove bullet points but keep content
+        text = re.sub(r'^[\s]*[-•]\s*', '- ', text, flags=re.MULTILINE)
+        # Remove code fences
+        text = re.sub(r'```[\s\S]*?```', '[code block]', text)
+        # Collapse multiple newlines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        # Clean up extra whitespace
+        text = re.sub(r'[ \t]+', ' ', text)
+        return text.strip()
+    
+    formatted_turns = []
+    
+    # Process recent history (last 8 turns to keep it reasonable)
+    for turn in history[-8:]:
+        content = (turn.get("content") or "").strip()
+        if not content:
+            continue
+        
+        role = turn.get("role", "user")
+        role_label = "User" if role == "user" else "Assistant"
+        
+        # Clean the content
+        cleaned = clean_text(content)
+        
+        # Truncate very long messages but keep most content
+        if len(cleaned) > 500:
+            cleaned = cleaned[:500] + "..."
+        
+        if cleaned:
+            formatted_turns.append(f"{role_label}: {cleaned}")
+    
+    return "\n\n".join(formatted_turns)
 
 
 def generate_email_draft(
