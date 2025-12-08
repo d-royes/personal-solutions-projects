@@ -48,7 +48,9 @@ app = FastAPI(
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://localhost:5174",  # Vite fallback port
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
     os.getenv("DTA_ALLOWED_FRONTEND", "").strip(),
 ]
 origins = [origin for origin in ALLOWED_ORIGINS if origin]
