@@ -196,12 +196,18 @@ export interface ChatResponse {
   emailDraftUpdate?: EmailDraftUpdate
 }
 
+export interface ChatMessageOptions {
+  source?: DataSource
+  selectedAttachments?: string[]  // IDs of images to include in context
+  workspaceContext?: string  // Checked workspace content
+}
+
 export async function sendChatMessage(
   taskId: string,
   message: string,
   auth: AuthConfig,
   baseUrl: string = defaultBase,
-  source: DataSource = 'auto',
+  options: ChatMessageOptions = {},
 ): Promise<ChatResponse> {
   const url = new URL(`/assist/${taskId}/chat`, baseUrl)
   const resp = await fetch(url, {
@@ -212,7 +218,9 @@ export async function sendChatMessage(
     },
     body: JSON.stringify({
       message,
-      source,
+      source: options.source ?? 'auto',
+      selectedAttachments: options.selectedAttachments,
+      workspaceContext: options.workspaceContext,
     }),
   })
   if (!resp.ok) {

@@ -620,7 +620,10 @@ function App() {
     }
   }, [selectedTaskId, authConfig, apiBase, workspaceSaveTimeout])
 
-  async function handleSendMessage(message: string) {
+  async function handleSendMessage(
+    message: string, 
+    context?: { selectedAttachments?: string[], workspaceContext?: string }
+  ) {
     if (!selectedTaskId || !authConfig) return
     
     setSendingMessage(true)
@@ -632,7 +635,11 @@ function App() {
         message,
         authConfig,
         apiBase,
-        dataSource,
+        {
+          source: dataSource,
+          selectedAttachments: context?.selectedAttachments,
+          workspaceContext: context?.workspaceContext,
+        },
       )
       // Update conversation with the response
       setConversation(result.history)

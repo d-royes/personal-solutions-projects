@@ -250,7 +250,7 @@ interface AssistPanelProps {
   error?: string | null
   conversation: ConversationMessage[]
   conversationLoading: boolean
-  onSendMessage: (message: string) => Promise<void> | void
+  onSendMessage: (message: string, context?: { selectedAttachments?: string[], workspaceContext?: string }) => Promise<void> | void
   sendingMessage: boolean
   taskPanelCollapsed: boolean
   onExpandTasks: () => void
@@ -421,7 +421,13 @@ export function AssistPanel({
   const { authConfig } = useAuth()
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [attachmentsExpanded, setAttachmentsExpanded] = useState(false)
+  const [selectedAttachments, setSelectedAttachments] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
+  
+  // Clear selected attachments when task changes
+  useEffect(() => {
+    setSelectedAttachments(new Set())
+  }, [selectedTask?.rowId])
   const [activeAction, setActiveAction] = useState<string | null>(null)
   
   // Download attachment with proper auth headers
@@ -449,6 +455,26 @@ export function AssistPanel({
       console.error('Download failed:', error)
     }
   }
+  
+  // Toggle attachment selection for context inclusion
+  const toggleAttachmentSelection = useCallback((attachmentId: string) => {
+    setSelectedAttachments(prev => {
+      const next = new Set(prev)
+      if (next.has(attachmentId)) {
+        next.delete(attachmentId)
+      } else {
+        next.add(attachmentId)
+      }
+      return next
+    })
+  }, [])
+  
+  // Get selected workspace content for context
+  const getSelectedWorkspaceContent = useCallback(() => {
+    const selectedItems = workspaceItems.filter(item => item.selected && item.content.trim())
+    if (selectedItems.length === 0) return undefined
+    return selectedItems.map(item => item.content.trim()).join('\n\n---\n\n')
+  }, [workspaceItems])
   
   // Email draft panel state - use props if provided, otherwise local state
   const [localEmailDraftOpen, setLocalEmailDraftOpen] = useState(false)
@@ -939,7 +965,7 @@ export function AssistPanel({
         </div>
       )}
 
-      {/* Attachments row - collapsible with hover preview */}
+      {/* Attachments row - collapsible with hover preview and selection */}
       {(attachments && attachments.length > 0 && selectedTask) && (
         <div className={`attachments-row ${attachmentsExpanded ? 'expanded' : 'collapsed'}`}>
           <button 
@@ -948,24 +974,41 @@ export function AssistPanel({
             title={attachmentsExpanded ? 'Collapse attachments' : 'Expand attachments'}
           >
             <span className="toggle-icon">{attachmentsExpanded ? '▼' : '▶'}</span>
-            <span className="attachments-label">📎 Attachments ({attachments.length})</span>
+            <span className="attachments-label">
+              📎 Attachments ({attachments.length})
+              {selectedAttachments.size > 0 && (
+                <span className="attachments-selected"> · {selectedAttachments.size} selected</span>
+              )}
+            </span>
           </button>
           {attachmentsExpanded && (
             <div className="attachments-grid">
               {attachments.map((att) => {
                 const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
                 const freshDownloadUrl = getAttachmentDownloadUrl(selectedTask.rowId, att.attachmentId, apiBase)
+                const isSelected = selectedAttachments.has(att.attachmentId)
                 return (
                   <div
                     key={att.attachmentId}
-                    className={`attachment-item ${att.isImage ? 'image' : 'file'}`}
-                    title={`${att.name} (${Math.round(att.sizeBytes / 1024)}KB) - Click to download`}
+                    className={`attachment-item ${att.isImage ? 'image' : 'file'} ${isSelected ? 'selected' : ''}`}
+                    title={`${att.name} (${Math.round(att.sizeBytes / 1024)}KB)`}
                   >
+                    {/* Selection checkbox - only for images */}
+                    {att.isImage && (
+                      <input
+                        type="checkbox"
+                        className="attachment-checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleAttachmentSelection(att.attachmentId)}
+                        title="Include in chat context"
+                      />
+                    )}
                     {att.isImage ? (
                       <>
                         <button 
                           className="attachment-download-link"
                           onClick={() => handleDownloadAttachment(freshDownloadUrl, att.name)}
+                          title="Click to download"
                         >
                           <img
                             src={att.downloadUrl}
@@ -982,6 +1025,7 @@ export function AssistPanel({
                       <button 
                         className="attachment-download-link"
                         onClick={() => handleDownloadAttachment(freshDownloadUrl, att.name)}
+                        title="Click to download"
                       >
                         <span className="attachment-icon">📄</span>
                       </button>
@@ -1377,7 +1421,16 @@ export function AssistPanel({
           if (!message.trim()) return
           const payload = message.trim()
           setMessage('')
-          await onSendMessage(payload)
+          // Build context to include with message
+          const context: { selectedAttachments?: string[], workspaceContext?: string } = {}
+          if (selectedAttachments.size > 0) {
+            context.selectedAttachments = Array.from(selectedAttachments)
+          }
+          const wsContent = getSelectedWorkspaceContent()
+          if (wsContent) {
+            context.workspaceContext = wsContent
+          }
+          await onSendMessage(payload, Object.keys(context).length > 0 ? context : undefined)
         }}
       >
         <textarea

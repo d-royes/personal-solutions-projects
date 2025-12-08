@@ -1921,6 +1921,38 @@ button:not(:disabled):hover {
   margin-top: 0.25rem;
 }
 
+/* Attachment selection checkbox */
+.attachment-checkbox {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  opacity: 0.6;
+  z-index: 10;
+  accent-color: rgba(99, 102, 241, 0.9);
+}
+
+.attachment-checkbox:hover {
+  opacity: 1;
+}
+
+.attachment-checkbox:checked {
+  opacity: 1;
+}
+
+.attachment-item.selected {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.6);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.3);
+}
+
+.attachments-selected {
+  color: rgba(99, 102, 241, 0.9);
+  font-size: 0.75rem;
+}
+
 /* Three-zone container */
 .three-zone-container {
   flex: 1;
