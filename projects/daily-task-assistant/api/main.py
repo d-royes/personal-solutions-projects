@@ -684,6 +684,8 @@ def chat_with_task(
     if chat_response.email_draft_update:
         update = chat_response.email_draft_update
         response_data["emailDraftUpdate"] = {
+            "to": update.to,
+            "cc": update.cc,
             "subject": update.subject,
             "body": update.body,
             "reason": update.reason,

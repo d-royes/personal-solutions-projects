@@ -154,10 +154,12 @@ TASK_UPDATE_TOOL = {
 
 EMAIL_DRAFT_UPDATE_TOOL = {
     "name": "update_email_draft",
-    "description": "Update the current email draft. Use when user asks to refine or change their draft.",
+    "description": "Update the current email draft. Use when user asks to refine, change, or send to specific recipients.",
     "input_schema": {
         "type": "object",
         "properties": {
+            "to": {"type": "string", "description": "Recipient email address (if user specifies one)"},
+            "cc": {"type": "string", "description": "CC email address (if user specifies one)"},
             "subject": {"type": "string", "description": "New subject (only if changing)"},
             "body": {"type": "string", "description": "New body (only if changing)"},
             "reason": {"type": "string", "description": "What was changed"}

@@ -652,14 +652,18 @@ function App() {
       // Check if DATA suggested email draft updates
       if (result.emailDraftUpdate) {
         const update = result.emailDraftUpdate
+        // Convert single email strings to arrays if provided
+        const newTo = update.to ? [update.to] : undefined
+        const newCc = update.cc ? [update.cc] : undefined
+        
         // Update the saved draft with the new content
         setSavedDraft(prev => {
           if (!prev) {
             // Create a new draft if none exists
             return {
               taskId: selectedTaskId,
-              to: [],
-              cc: [],
+              to: newTo ?? [],
+              cc: newCc ?? [],
               subject: update.subject ?? '',
               body: update.body ?? '',
               fromAccount: '',
@@ -668,19 +672,21 @@ function App() {
               updatedAt: new Date().toISOString(),
             }
           }
-          // Update existing draft
+          // Update existing draft - merge recipients if already present
           return {
             ...prev,
+            to: newTo ? [...new Set([...prev.to, ...newTo])] : prev.to,
+            cc: newCc ? [...new Set([...prev.cc, ...newCc])] : prev.cc,
             subject: update.subject ?? prev.subject,
             body: update.body ?? prev.body,
             updatedAt: new Date().toISOString(),
           }
         })
         // Also save to backend
-        if (savedDraft || update.subject || update.body) {
+        if (savedDraft || update.subject || update.body || update.to || update.cc) {
           void saveDraft(selectedTaskId, {
-            to: savedDraft?.to ?? [],
-            cc: savedDraft?.cc ?? [],
+            to: newTo ? [...new Set([...(savedDraft?.to ?? []), ...newTo])] : (savedDraft?.to ?? []),
+            cc: newCc ? [...new Set([...(savedDraft?.cc ?? []), ...newCc])] : (savedDraft?.cc ?? []),
             subject: update.subject ?? savedDraft?.subject ?? '',
             body: update.body ?? savedDraft?.body ?? '',
             fromAccount: savedDraft?.fromAccount ?? '',

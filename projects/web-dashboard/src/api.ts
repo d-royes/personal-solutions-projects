@@ -184,6 +184,8 @@ export interface PendingAction {
 }
 
 export interface EmailDraftUpdate {
+  to?: string
+  cc?: string
   subject?: string
   body?: string
   reason: string

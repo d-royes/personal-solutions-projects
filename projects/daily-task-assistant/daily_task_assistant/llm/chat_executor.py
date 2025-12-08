@@ -36,6 +36,8 @@ class TaskUpdateAction:
 @dataclass(slots=True)
 class EmailDraftUpdate:
     """Structured email draft update from chat."""
+    to: Optional[str] = None
+    cc: Optional[str] = None
     subject: Optional[str] = None
     body: Optional[str] = None
     reason: str = ""
@@ -126,6 +128,8 @@ def execute_chat(
                 )
             elif tool_name == "update_email_draft":
                 email_draft_update = EmailDraftUpdate(
+                    to=tool_input.get("to"),
+                    cc=tool_input.get("cc"),
                     subject=tool_input.get("subject"),
                     body=tool_input.get("body"),
                     reason=tool_input.get("reason", ""),
