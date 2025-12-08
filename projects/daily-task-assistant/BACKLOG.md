@@ -68,7 +68,6 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
-| Smartsheet Attachments | Enable DATA to access and understand task attachments (images, documents). Lazy load on task engage, full Claude vision integration for AI-assisted analysis. | [Feature_Smartsheet_Attachments.md](docs/Feature_Smartsheet_Attachments.md) |
 | Bulk Task Prioritization | Allow DATA to analyze all open tasks and propose realistic due date distribution over 1-2 weeks based on priority and estimated hours. Batch update capability. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
 
 ### Low Priority
@@ -89,6 +88,11 @@ Features that have been implemented and can be removed from backlog:
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Smartsheet Attachments + Claude Vision | 2025-12-07 | Task attachments displayed, image selection checkboxes, AI vision analysis |
+| Chat Rearchitecture (Token Efficiency) | 2025-12-07 | Intent classification, modular prompts, 73-86% token reduction |
+| Multi-LLM Support (Gemini) | 2025-12-07 | Gemini Flash for classification & conversational, Claude for tools/vision |
+| Workspace Context in Chat | 2025-12-07 | Checked workspace items included in chat context, unchecked excluded |
+| Email Draft To/CC Parsing | 2025-12-07 | DATA can populate recipient fields from chat |
 | Conversation Strike/Reject | 2025-12-05 | Users can strike poor DATA responses, collapsing to single line with audit trail |
 | Dev → Staging → Prod Environments | 2025-12-03 | Full CI/CD pipeline with GitHub Actions, Cloud Run, Firebase Hosting |
 | Auth Persistence | 2025-12-02 | Login survives page refresh via localStorage |
