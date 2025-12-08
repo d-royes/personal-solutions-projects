@@ -814,13 +814,6 @@ export function AssistPanel({
     setWorkspaceItems(prev => [...prev, newItem])
   }
 
-  // Get selected workspace content as combined string
-  const getSelectedWorkspaceContent = (): string | undefined => {
-    const selectedItems = workspaceItems.filter(item => item.selected && item.content.trim())
-    if (selectedItems.length === 0) return undefined
-    return selectedItems.map(item => item.content).join('\n\n---\n\n')
-  }
-
   // Count of selected items for display
   const selectedCount = workspaceItems.filter(item => item.selected).length
 
