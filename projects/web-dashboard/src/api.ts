@@ -900,3 +900,105 @@ export async function deleteDraft(
   return resp.json()
 }
 
+
+// --- Global Portfolio Mode Types and Functions ---
+
+export type Perspective = 'personal' | 'church' | 'work' | 'holistic'
+
+export interface PortfolioStats {
+  totalOpen: number
+  overdue: number
+  dueToday: number
+  dueThisWeek: number
+  byPriority: Record<string, number>
+  byProject: Record<string, number>
+  byDueDate: Record<string, number>
+  conflicts: string[]
+  domainBreakdown: Record<string, number>
+}
+
+export interface GlobalContextResponse {
+  perspective: Perspective
+  description: string
+  portfolio: PortfolioStats
+}
+
+export interface GlobalChatResponse {
+  response: string
+  perspective: Perspective
+  portfolio: PortfolioStats
+  history: ConversationMessage[]
+}
+
+export async function fetchGlobalContext(
+  auth: AuthConfig,
+  perspective: Perspective = 'personal',
+  baseUrl: string = defaultBase,
+): Promise<GlobalContextResponse> {
+  const url = new URL('/assist/global/context', baseUrl)
+  url.searchParams.set('perspective', perspective)
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Global context failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface GlobalChatOptions {
+  perspective?: Perspective
+  feedback?: 'helpful' | 'not_helpful'
+  anthropicModel?: string
+}
+
+export async function sendGlobalChat(
+  message: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: GlobalChatOptions = {},
+): Promise<GlobalChatResponse> {
+  const url = new URL('/assist/global/chat', baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      message,
+      perspective: options.perspective ?? 'personal',
+      feedback: options.feedback,
+      anthropicModel: options.anthropicModel,
+    }),
+  })
+  
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Global chat failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function clearGlobalHistory(
+  auth: AuthConfig,
+  perspective: Perspective = 'personal',
+  baseUrl: string = defaultBase,
+): Promise<{ status: 'cleared'; perspective: Perspective }> {
+  const url = new URL('/assist/global/history', baseUrl)
+  url.searchParams.set('perspective', perspective)
+  
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Clear history failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+

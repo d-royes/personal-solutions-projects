@@ -12,17 +12,8 @@ export interface Task {
   notes?: string | null
   nextStep: string
   automationHint: string
-  source: 'personal' | 'work'  // Which sheet this task came from
-  done?: boolean  // True if Done checkbox is checked
-}
-
-export interface WorkBadge {
-  urgent: number
-  dueSoon: number
-  overdue: number
-  total: number
-  needsAttention: number
-  error?: string
+  source: 'personal' | 'work'
+  done: boolean
 }
 
 export interface TaskResponse {

@@ -5,10 +5,12 @@ import { AssistPanel } from './components/AssistPanel'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import {
+  clearGlobalHistory,
   deleteDraft,
   draftEmail,
   fetchActivity,
   fetchConversationHistory,
+  fetchGlobalContext,
   fetchTasks,
   fetchWorkBadge,
   generatePlan,
@@ -22,12 +24,13 @@ import {
   searchContacts,
   sendChatMessage,
   sendEmail,
+  sendGlobalChat,
   strikeMessage,
   submitFeedback,
   unstrikeMessage,
   updateTask,
 } from './api'
-import type { SavedEmailDraft } from './api'
+import type { Perspective, PortfolioStats, SavedEmailDraft } from './api'
 import type {
   ContactCard,
   ContactSearchResponse,
@@ -100,6 +103,12 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment'>('auth')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
+  
+  // Global Mode state
+  const [globalPerspective, setGlobalPerspective] = useState<Perspective>('personal')
+  const [globalConversation, setGlobalConversation] = useState<ConversationMessage[]>([])
+  const [globalStats, setGlobalStats] = useState<PortfolioStats | null>(null)
+  const [globalChatLoading, setGlobalChatLoading] = useState(false)
 
   const handleQuickAction = useCallback((action: { type: string; content: string }) => {
     // Action handling is now done within AssistPanel
@@ -774,6 +783,56 @@ function App() {
     }
   }
 
+  // Global Mode handlers
+  async function handlePerspectiveChange(perspective: Perspective) {
+    setGlobalPerspective(perspective)
+    // Reset conversation when changing perspective
+    setGlobalConversation([])
+    
+    // Fetch fresh stats for the new perspective
+    if (!authConfig) return
+    try {
+      const result = await fetchGlobalContext(authConfig, perspective, apiBase)
+      setGlobalStats(result.portfolio)
+    } catch (err) {
+      console.error('Failed to load portfolio context:', err)
+    }
+  }
+  
+  async function handleSendGlobalMessage(message: string) {
+    if (!authConfig) return
+    
+    setGlobalChatLoading(true)
+    try {
+      const result = await sendGlobalChat(message, authConfig, apiBase, {
+        perspective: globalPerspective,
+      })
+      setGlobalConversation(result.history)
+      setGlobalStats(result.portfolio)
+    } catch (err) {
+      console.error('Global chat failed:', err)
+      setAssistError(err instanceof Error ? err.message : 'Global chat failed')
+    } finally {
+      setGlobalChatLoading(false)
+    }
+  }
+  
+  // Fetch global context when entering global mode (no task selected)
+  useEffect(() => {
+    async function loadGlobalContext() {
+      if (selectedTaskId || !authConfig) return
+      
+      try {
+        const result = await fetchGlobalContext(authConfig, globalPerspective, apiBase)
+        setGlobalStats(result.portfolio)
+      } catch (err) {
+        console.error('Failed to load portfolio context:', err)
+      }
+    }
+    
+    loadGlobalContext()
+  }, [selectedTaskId, authConfig, apiBase, globalPerspective])
+
   const isAuthenticated = !!authConfig
   const envLabel = environmentName ?? 'DEV'
 
@@ -892,6 +951,7 @@ function App() {
                 tasks={tasks}
                 selectedTaskId={selectedTaskId}
                 onSelect={handleSelectTask}
+                onDeselectAll={() => setSelectedTaskId(null)}
                 loading={tasksLoading}
                 liveTasks={liveTasks}
                 warning={tasksWarning}
@@ -948,6 +1008,13 @@ function App() {
               setEmailDraftOpen={setEmailDraftOpen}
               onStrikeMessage={handleStrikeMessage}
               onUnstrikeMessage={handleUnstrikeMessage}
+              // Global Mode props
+              globalPerspective={globalPerspective}
+              onPerspectiveChange={handlePerspectiveChange}
+              globalConversation={globalConversation}
+              globalStats={globalStats}
+              onSendGlobalMessage={handleSendGlobalMessage}
+              globalChatLoading={globalChatLoading}
             />
           </>
         )}

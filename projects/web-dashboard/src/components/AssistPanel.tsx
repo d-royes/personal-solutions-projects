@@ -287,6 +287,23 @@ interface AssistPanelProps {
   // Strike/unstrike message handlers
   onStrikeMessage?: (messageTs: string) => Promise<void>
   onUnstrikeMessage?: (messageTs: string) => Promise<void>
+  // Global Mode props
+  globalPerspective?: 'personal' | 'church' | 'work' | 'holistic'
+  onPerspectiveChange?: (perspective: 'personal' | 'church' | 'work' | 'holistic') => void
+  globalConversation?: ConversationMessage[]
+  globalStats?: {
+    totalOpen: number
+    overdue: number
+    dueToday: number
+    dueThisWeek: number
+    byPriority: Record<string, number>
+    byProject: Record<string, number>
+    byDueDate: Record<string, number>
+    conflicts: string[]
+    domainBreakdown: Record<string, number>
+  } | null
+  onSendGlobalMessage?: (message: string) => Promise<void>
+  globalChatLoading?: boolean
 }
 
 // Draggable divider component
@@ -414,6 +431,13 @@ export function AssistPanel({
   setEmailDraftOpen: setEmailDraftOpenProp,
   onStrikeMessage,
   onUnstrikeMessage,
+  // Global Mode props
+  globalPerspective,
+  onPerspectiveChange,
+  globalConversation,
+  globalStats,
+  onSendGlobalMessage,
+  globalChatLoading,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
@@ -734,17 +758,157 @@ export function AssistPanel({
     setWorkspaceItems(prev => prev.filter(item => item.id !== id))
   }
 
-  // No task selected - prompt user
+  // No task selected - show Global Mode (Portfolio View)
   if (!selectedTask) {
+    const perspective = globalPerspective ?? 'personal'
+    const stats = globalStats
+    const globalHistory = globalConversation ?? []
+    
+    const perspectiveLabels: Record<string, string> = {
+      personal: 'Personal',
+      church: 'Church',
+      work: 'Work',
+      holistic: 'Holistic',
+    }
+    
+    const perspectiveDescriptions: Record<string, string> = {
+      personal: 'Home, family, and personal projects',
+      church: 'Ministry and church leadership',
+      work: 'Professional responsibilities',
+      holistic: 'Complete view across all domains',
+    }
+    
     return (
-      <section className="panel assist-panel">
-        <header>
-          <h2>Assistant</h2>
-          <button className="secondary" onClick={onExpandTasks}>
-            Show tasks
-          </button>
+      <section className="panel assist-panel global-mode">
+        <header className="global-header">
+          <div className="global-header-top">
+            <h2>DATA - Portfolio View</h2>
+            <button className="secondary" onClick={onExpandTasks}>
+              Show tasks
+            </button>
+          </div>
+          
+          {/* Perspective Selector */}
+          <div className="perspective-selector">
+            {(['personal', 'church', 'work', 'holistic'] as const).map((p) => (
+              <button
+                key={p}
+                className={`perspective-tab ${perspective === p ? 'active' : ''}`}
+                onClick={() => onPerspectiveChange?.(p)}
+              >
+                {perspectiveLabels[p]}
+              </button>
+            ))}
+          </div>
+          <p className="perspective-description">{perspectiveDescriptions[perspective]}</p>
         </header>
-        <p>Select a task to view details.</p>
+        
+        {/* Portfolio Stats */}
+        {stats && (
+          <div className="portfolio-stats">
+            <div className="stats-row">
+              <div className="stat-item">
+                <span className="stat-value">{stats.totalOpen}</span>
+                <span className="stat-label">Open</span>
+              </div>
+              <div className="stat-item overdue">
+                <span className="stat-value">{stats.overdue}</span>
+                <span className="stat-label">Overdue</span>
+              </div>
+              <div className="stat-item today">
+                <span className="stat-value">{stats.dueToday}</span>
+                <span className="stat-label">Due Today</span>
+              </div>
+              <div className="stat-item week">
+                <span className="stat-value">{stats.dueThisWeek}</span>
+                <span className="stat-label">This Week</span>
+              </div>
+            </div>
+            
+            {/* Conflicts warning for holistic mode */}
+            {perspective === 'holistic' && stats.conflicts.length > 0 && (
+              <div className="conflicts-warning">
+                <strong>⚠️ Cross-Domain Conflicts:</strong>
+                <ul>
+                  {stats.conflicts.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {/* Domain breakdown for holistic mode */}
+            {perspective === 'holistic' && Object.keys(stats.domainBreakdown).length > 0 && (
+              <div className="domain-breakdown">
+                {Object.entries(stats.domainBreakdown).map(([domain, count]) => (
+                  count > 0 && (
+                    <span key={domain} className="domain-badge">
+                      {domain}: {count}
+                    </span>
+                  )
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Global Chat Interface */}
+        <div className="global-chat-container">
+          <div className="global-chat-messages">
+            {globalHistory.length === 0 ? (
+              <div className="global-chat-welcome">
+                <p>Ask DATA about your {perspectiveLabels[perspective].toLowerCase()} workload:</p>
+                <ul className="sample-questions">
+                  <li>"What should I focus on today?"</li>
+                  <li>"Am I overloaded this week?"</li>
+                  <li>"What are my highest priority items?"</li>
+                  {perspective === 'holistic' && (
+                    <li>"Do I have any conflicts between work and personal?"</li>
+                  )}
+                </ul>
+              </div>
+            ) : (
+              globalHistory.map((msg, i) => (
+                <div key={i} className={`chat-message ${msg.role}`}>
+                  <div className="message-content">
+                    <ChatMarkdown content={msg.content} />
+                  </div>
+                </div>
+              ))
+            )}
+            {globalChatLoading && (
+              <div className="chat-message assistant loading">
+                <div className="message-content">
+                  <span className="typing-indicator">DATA is thinking...</span>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* Chat Input */}
+          <form
+            className="global-chat-input"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const input = e.currentTarget.elements.namedItem('globalMessage') as HTMLInputElement
+              if (input.value.trim() && onSendGlobalMessage) {
+                onSendGlobalMessage(input.value.trim())
+                input.value = ''
+              }
+            }}
+          >
+            <input
+              type="text"
+              name="globalMessage"
+              placeholder={`Ask about your ${perspectiveLabels[perspective].toLowerCase()} tasks...`}
+              disabled={globalChatLoading}
+              autoComplete="off"
+            />
+            <button type="submit" disabled={globalChatLoading}>
+              Send
+            </button>
+          </form>
+        </div>
       </section>
     )
   }

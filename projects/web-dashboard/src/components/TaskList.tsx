@@ -73,6 +73,7 @@ interface TaskListProps {
   tasks: Task[]
   selectedTaskId: string | null
   onSelect: (taskId: string) => void
+  onDeselectAll?: () => void  // Go to Global Mode / Portfolio View
   loading: boolean
   liveTasks: boolean
   warning?: string | null
@@ -85,6 +86,7 @@ export function TaskList({
   tasks,
   selectedTaskId,
   onSelect,
+  onDeselectAll,
   loading,
   liveTasks,
   warning,
@@ -152,16 +154,27 @@ export function TaskList({
             of {tasks.length}
           </p>
         </div>
-        {onRefresh && (
-          <button 
-            className="secondary refresh-btn" 
-            onClick={onRefresh}
-            disabled={refreshing || loading}
-            title="Refresh tasks"
-          >
-            {refreshing ? '↻' : '↻'} Refresh
-          </button>
-        )}
+        <div className="task-header-buttons">
+          {onDeselectAll && (
+            <button
+              className="secondary portfolio-btn"
+              onClick={onDeselectAll}
+              title="View Portfolio Overview"
+            >
+              📊 Portfolio
+            </button>
+          )}
+          {onRefresh && (
+            <button 
+              className="secondary refresh-btn" 
+              onClick={onRefresh}
+              disabled={refreshing || loading}
+              title="Refresh tasks"
+            >
+              {refreshing ? '↻' : '↻'} Refresh
+            </button>
+          )}
+        </div>
       </header>
 
       {warning && <p className="warning">{warning}</p>}

@@ -38,6 +38,8 @@ app = FastAPI(
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
     os.getenv("DTA_ALLOWED_FRONTEND", "").strip(),
 ]
 origins = [origin for origin in ALLOWED_ORIGINS if origin]
@@ -129,169 +131,22 @@ class ConversationMessageModel(BaseModel):
 
 @app.get("/health")
 def health_check() -> dict:
-    """Health check endpoint with service status information.
-    
-    Returns status of critical services including Anthropic API and Gmail configuration.
-    Used by CI/CD pipeline to verify deployment success.
-    
-    Note: This endpoint must NOT call _get_settings() as it may raise ConfigError
-    if required env vars are missing. We read env vars directly instead.
-    """
-    # Get environment directly - don't use _get_settings() as it may throw
-    environment = os.getenv("DTA_ENV", "local")
-    errors = {}
-    
-    # Check Anthropic configuration
-    anthropic_status = "not_configured"
-    try:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if api_key and len(api_key) > 10:
-            anthropic_status = "configured"
-        else:
-            errors["anthropic"] = "ANTHROPIC_API_KEY not set or invalid"
-    except Exception as e:
-        errors["anthropic"] = str(e)
-    
-    # Check Smartsheet configuration
-    smartsheet_status = "not_configured"
-    try:
-        smartsheet_token = os.getenv("SMARTSHEET_API_TOKEN")
-        if smartsheet_token and len(smartsheet_token) > 10:
-            smartsheet_status = "configured"
-        else:
-            errors["smartsheet"] = "SMARTSHEET_API_TOKEN not set or invalid"
-    except Exception as e:
-        errors["smartsheet"] = str(e)
-    
-    # Check Church Gmail configuration
-    church_gmail_status = "not_configured"
-    try:
-        church_client_id = os.getenv("CHURCH_GMAIL_CLIENT_ID")
-        church_client_secret = os.getenv("CHURCH_GMAIL_CLIENT_SECRET")
-        church_refresh_token = os.getenv("CHURCH_GMAIL_REFRESH_TOKEN")
-        if all([church_client_id, church_client_secret, church_refresh_token]):
-            church_gmail_status = "configured"
-        else:
-            missing = []
-            if not church_client_id:
-                missing.append("CHURCH_GMAIL_CLIENT_ID")
-            if not church_client_secret:
-                missing.append("CHURCH_GMAIL_CLIENT_SECRET")
-            if not church_refresh_token:
-                missing.append("CHURCH_GMAIL_REFRESH_TOKEN")
-            errors["church_gmail"] = f"Missing: {', '.join(missing)}"
-    except Exception as e:
-        errors["church_gmail"] = str(e)
-    
-    # Check Personal Gmail configuration
-    personal_gmail_status = "not_configured"
-    try:
-        personal_client_id = os.getenv("PERSONAL_GMAIL_CLIENT_ID")
-        personal_client_secret = os.getenv("PERSONAL_GMAIL_CLIENT_SECRET")
-        personal_refresh_token = os.getenv("PERSONAL_GMAIL_REFRESH_TOKEN")
-        if all([personal_client_id, personal_client_secret, personal_refresh_token]):
-            personal_gmail_status = "configured"
-        else:
-            missing = []
-            if not personal_client_id:
-                missing.append("PERSONAL_GMAIL_CLIENT_ID")
-            if not personal_client_secret:
-                missing.append("PERSONAL_GMAIL_CLIENT_SECRET")
-            if not personal_refresh_token:
-                missing.append("PERSONAL_GMAIL_REFRESH_TOKEN")
-            errors["personal_gmail"] = f"Missing: {', '.join(missing)}"
-    except Exception as e:
-        errors["personal_gmail"] = str(e)
-    
+    settings = _get_settings()
     return {
         "status": "ok",
         "time": datetime.now(timezone.utc).isoformat(),
-        "environment": environment,
-        "services": {
-            "anthropic": anthropic_status,
-            "smartsheet": smartsheet_status,
-            "church_gmail": church_gmail_status,
-            "personal_gmail": personal_gmail_status,
-        },
-        "errors": errors if errors else None,
+        "environment": settings.environment,
     }
-
-
-@app.get("/health/anthropic-test")
-def anthropic_test() -> dict:
-    """Test endpoint to verify Anthropic API connection works.
-    
-    Makes a simple API call to verify the connection is working.
-    This helps diagnose issues where config looks correct but calls fail.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    try:
-        from daily_task_assistant.llm.anthropic_client import build_anthropic_client, resolve_config
-        logger.info("Imported anthropic_client successfully")
-        
-        client = build_anthropic_client()
-        logger.info("Built anthropic client successfully")
-        
-        config = resolve_config()
-        logger.info(f"Using model: {config.model}")
-        
-        # Make a minimal API call
-        response = client.messages.create(
-            model=config.model,
-            max_tokens=50,
-            messages=[{"role": "user", "content": "Say 'OK' if you can hear me."}],
-        )
-        logger.info("API call succeeded")
-        
-        # Extract response text
-        text = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                text += block.text
-        
-        return {
-            "status": "ok",
-            "model": config.model,
-            "response": text[:100],
-            "stop_reason": response.stop_reason,
-        }
-    except Exception as e:
-        logger.exception("Anthropic test failed")
-        return {
-            "status": "error",
-            "error_type": type(e).__name__,
-            "error_message": str(e),
-        }
 
 
 @app.get("/tasks")
 def list_tasks(
     source: Literal["auto", "live", "stub"] = Query("auto"),
     limit: Optional[int] = Query(None, ge=1, le=500),
-    sources: Optional[str] = Query(
-        None,
-        description="Comma-separated list of source keys to fetch (e.g., 'personal,work'). "
-                    "If not specified, fetches from sources included in 'ALL' filter (excludes work).",
-    ),
-    include_work: bool = Query(
-        False,
-        alias="includeWork",
-        description="If true, include work tasks in the response (overrides sources).",
-    ),
     user: str = Depends(get_current_user),
 ) -> dict:
-    # Parse sources parameter
-    source_list = None
-    if sources:
-        source_list = [s.strip() for s in sources.split(",") if s.strip()]
-
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=limit,
-        source=source,
-        sources=source_list,
-        include_work_in_all=include_work,
+        limit=limit, source=source
     )
     return {
         "tasks": [serialize_task(task) for task in tasks],
@@ -301,38 +156,215 @@ def list_tasks(
     }
 
 
-@app.get("/work/badge")
-def get_work_badge(
+# --- Global Portfolio Mode Endpoints ---
+# NOTE: These routes MUST be defined BEFORE /assist/{task_id} routes
+# to prevent FastAPI from matching "global" as a task_id
+
+class GlobalChatRequest(BaseModel):
+    """Request body for global portfolio chat."""
+    model_config = {"populate_by_name": True}
+    
+    message: str = Field(..., description="The user's message")
+    perspective: Literal["personal", "church", "work", "holistic"] = Field(
+        "personal", description="Portfolio perspective to analyze"
+    )
+    feedback: Optional[Literal["helpful", "not_helpful"]] = Field(
+        None, description="Feedback on previous response for trust tracking"
+    )
+    anthropic_model: Optional[str] = Field(
+        None, alias="anthropicModel", description="Override Anthropic model"
+    )
+
+
+@app.post("/assist/global/chat")
+def global_chat(
+    request: GlobalChatRequest,
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Get work task counts for the badge indicator.
-
-    Returns counts of urgent, due_soon, and overdue work tasks
-    to display as a notification badge in the UI.
+    """Chat with DATA about portfolio/workload without task context.
+    
+    This enables DATA to operate at a global level, analyzing workload
+    across perspectives (Personal, Church, Work, Holistic) rather than
+    focusing on a single task.
+    
+    The perspective parameter filters which tasks are included:
+    - personal: Personal projects (Around The House, Family Time, etc.)
+    - church: Church ministry tasks only
+    - work: Professional tasks from work Smartsheet
+    - holistic: All tasks across all domains
     """
     from daily_task_assistant.smartsheet_client import SmartsheetClient
-
+    from daily_task_assistant.portfolio_context import build_portfolio_context
+    from daily_task_assistant.llm.prompts import (
+        build_global_chat_messages,
+        GLOBAL_CHAT_SYSTEM_PROMPT,
+    )
+    from daily_task_assistant.llm.anthropic_client import (
+        build_anthropic_client,
+        resolve_config,
+        AnthropicError,
+    )
+    from daily_task_assistant.trust import log_trust_event
+    
+    settings = _get_settings()
+    
+    # Build portfolio context for the selected perspective
     try:
-        settings = _get_settings()
         client = SmartsheetClient(settings)
-        counts = client.get_work_tasks_count()
-        return {
-            "urgent": counts["urgent"],
-            "dueSoon": counts["due_soon"],
-            "overdue": counts["overdue"],
-            "total": counts["total"],
-            "needsAttention": counts["urgent"] + counts["overdue"],
-        }
-    except Exception as e:
-        return {
-            "urgent": 0,
-            "dueSoon": 0,
-            "overdue": 0,
-            "total": 0,
-            "needsAttention": 0,
-            "error": str(e),
-        }
+        portfolio = build_portfolio_context(client, request.perspective)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to load portfolio: {exc}")
+    
+    # Use global conversation ID scoped by perspective
+    conversation_id = f"global:{request.perspective}"
+    
+    # Fetch conversation history
+    history = fetch_conversation_for_llm(conversation_id, limit=20)
+    llm_history = [{"role": msg.role, "content": msg.content} for msg in history]
+    
+    # Log user message
+    log_user_message(
+        conversation_id,
+        content=request.message,
+        user_email=user,
+        metadata={
+            "perspective": request.perspective,
+            "total_tasks": portfolio.total_open,
+        },
+    )
+    
+    # Build messages with portfolio context
+    messages = build_global_chat_messages(portfolio, request.message, llm_history)
+    
+    # Execute LLM call
+    try:
+        llm_client = build_anthropic_client()
+        config = resolve_config(request.anthropic_model)
+        
+        response = llm_client.messages.create(
+            model=config.model,
+            max_tokens=800,
+            temperature=0.5,
+            system=GLOBAL_CHAT_SYSTEM_PROMPT,
+            messages=messages,
+        )
+        
+        # Extract response text
+        response_text = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                response_text += block.text
+        
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI service error: {exc}")
+    
+    # Log assistant response
+    log_assistant_message(
+        conversation_id,
+        content=response_text,
+        plan=None,
+        metadata={
+            "source": "global_chat",
+            "perspective": request.perspective,
+        },
+    )
+    
+    # Log trust event if feedback provided
+    if request.feedback:
+        log_trust_event(
+            scope="portfolio",
+            perspective=request.perspective,
+            suggestion_type="insight",
+            suggestion=response_text[:200],
+            response="accepted" if request.feedback == "helpful" else "rejected",
+            user=user,
+        )
+    
+    # Fetch updated history
+    updated_history = fetch_conversation(conversation_id, limit=50)
+    
+    return {
+        "response": response_text,
+        "perspective": request.perspective,
+        "portfolio": {
+            "totalOpen": portfolio.total_open,
+            "overdue": portfolio.overdue,
+            "dueToday": portfolio.due_today,
+            "dueThisWeek": portfolio.due_this_week,
+            "byPriority": portfolio.by_priority,
+            "byProject": portfolio.by_project,
+            "byDueDate": portfolio.by_due_date,
+            "conflicts": portfolio.conflicts,
+            "domainBreakdown": portfolio.domain_breakdown,
+        },
+        "history": [
+            ConversationMessageModel(**asdict(msg)).model_dump()
+            for msg in updated_history
+        ],
+    }
 
+
+@app.get("/assist/global/context")
+def get_global_context(
+    perspective: Literal["personal", "church", "work", "holistic"] = Query(
+        "personal", description="Portfolio perspective"
+    ),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get portfolio context without sending a chat message.
+    
+    Useful for displaying portfolio stats in the UI before the user
+    starts a conversation.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    from daily_task_assistant.portfolio_context import (
+        build_portfolio_context,
+        get_perspective_description,
+    )
+    
+    settings = _get_settings()
+    
+    try:
+        client = SmartsheetClient(settings)
+        portfolio = build_portfolio_context(client, perspective)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to load portfolio: {exc}")
+    
+    return {
+        "perspective": perspective,
+        "description": get_perspective_description(perspective),
+        "portfolio": {
+            "totalOpen": portfolio.total_open,
+            "overdue": portfolio.overdue,
+            "dueToday": portfolio.due_today,
+            "dueThisWeek": portfolio.due_this_week,
+            "byPriority": portfolio.by_priority,
+            "byProject": portfolio.by_project,
+            "byDueDate": portfolio.by_due_date,
+            "conflicts": portfolio.conflicts,
+            "domainBreakdown": portfolio.domain_breakdown,
+        },
+    }
+
+
+@app.delete("/assist/global/history")
+def clear_global_history(
+    perspective: Literal["personal", "church", "work", "holistic"] = Query(
+        "personal", description="Portfolio perspective to clear"
+    ),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Clear conversation history for a global perspective."""
+    conversation_id = f"global:{perspective}"
+    clear_conversation(conversation_id)
+    
+    return {
+        "status": "cleared",
+        "perspective": perspective,
+    }
+
+
+# --- Task-Scoped Endpoints ---
 
 @app.post("/assist/{task_id}")
 def assist_task(
@@ -347,9 +379,8 @@ def assist_task(
     """
     from daily_task_assistant.conversations.history import get_latest_plan
     
-    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -412,9 +443,8 @@ def generate_plan(
     This is triggered explicitly by the user clicking the 'Plan' action button.
     The plan is stored in conversation history for persistence across sessions.
     """
-    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -530,9 +560,8 @@ def chat_with_task(
     """
     from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
 
-    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -597,14 +626,6 @@ def chat_with_task(
             "priority": action.priority,
             "dueDate": action.due_date,
             "comment": action.comment,
-            "number": action.number,
-            "contactFlag": action.contact_flag,
-            "recurring": action.recurring,
-            "project": action.project,
-            "taskTitle": action.task_title,
-            "assignedTo": action.assigned_to,
-            "notes": action.notes,
-            "estimatedHours": action.estimated_hours,
             "reason": action.reason,
         }
     
@@ -706,9 +727,8 @@ def research_task_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import research_task, AnthropicError
 
-    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -789,9 +809,8 @@ def contact_search_endpoint(
     """
     from daily_task_assistant.contacts import search_contacts, ContactCard
 
-    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -895,9 +914,8 @@ def summarize_task_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import summarize_task, AnthropicError
 
-    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -975,9 +993,8 @@ def draft_email_endpoint(
     """
     from daily_task_assistant.llm.anthropic_client import generate_email_draft, AnthropicError
 
-    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1029,9 +1046,8 @@ def send_email_endpoint(
     """
     from daily_task_assistant.mailer import GmailError, load_account_from_env, send_email
 
-    # Include work tasks when searching by specific task_id
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+        limit=None, source=request.source
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1098,7 +1114,6 @@ def send_email_endpoint(
             client.post_comment(
                 row_id=task_id,
                 text=f"Email sent: \"{request.subject}\" to {recipient_display} via {request.account} account",
-                source=target.source,
             )
             comment_posted = True
         except Exception as exc:
@@ -1276,23 +1291,11 @@ def clear_workspace_endpoint(
 
 class TaskUpdateRequest(BaseModel):
     """Request body for task update endpoint."""
-    action: Literal[
-        "mark_complete", "update_status", "update_priority", "update_due_date", "add_comment",
-        "update_number", "update_contact_flag", "update_recurring", "update_project",
-        "update_task", "update_assigned_to", "update_notes", "update_estimated_hours"
-    ]
+    action: Literal["mark_complete", "update_status", "update_priority", "update_due_date", "add_comment"]
     status: Optional[str] = Field(None, description="New status value (for update_status)")
     priority: Optional[str] = Field(None, description="New priority value (for update_priority)")
     due_date: Optional[str] = Field(None, description="New due date in YYYY-MM-DD format (for update_due_date)")
     comment: Optional[str] = Field(None, description="Comment text (for add_comment)")
-    number: Optional[int] = Field(None, description="New task number (for update_number)")
-    contact_flag: Optional[bool] = Field(None, alias="contactFlag", description="Contact flag value (for update_contact_flag)")
-    recurring: Optional[str] = Field(None, description="Recurring pattern (for update_recurring)")
-    project: Optional[str] = Field(None, description="Project name (for update_project)")
-    task_title: Optional[str] = Field(None, alias="taskTitle", description="Task title (for update_task)")
-    assigned_to: Optional[str] = Field(None, alias="assignedTo", description="Assigned to email (for update_assigned_to)")
-    notes: Optional[str] = Field(None, description="Notes text (for update_notes)")
-    estimated_hours: Optional[str] = Field(None, alias="estimatedHours", description="Estimated hours (for update_estimated_hours)")
     confirmed: bool = Field(False, description="User has confirmed this action")
 
 
@@ -1302,21 +1305,7 @@ VALID_STATUSES = [
     "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Create ZD Ticket",
     "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"
 ]
-VALID_PRIORITIES_PERSONAL = ["Critical", "Urgent", "Important", "Standard", "Low"]
-VALID_PRIORITIES_WORK = ["5-Critical", "4-Urgent", "3-Important", "2-Standard", "1-Low"]
-VALID_RECURRING = ["M", "T", "W", "H", "F", "Sa", "Monthly"]
-VALID_ESTIMATED_HOURS = [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"]
-VALID_PROJECTS_PERSONAL = [
-    "Around The House", "Church Tasks", "Family Time", 
-    "Shopping", "Sm. Projects & Tasks", "Zendesk Ticket"
-]
-VALID_PROJECTS_WORK = [
-    "Atlassian (Jira/Confluence)", "Crafter Studio", "Internal Application Support",
-    "Team Management", "Strategic Planning", "Stakeholder Relations",
-    "Process Improvement", "Daily Operations", "Zendesk Support",
-    "Intranet Management", "Vendor Management", "AI/Automation Projects",
-    "DTS Transformation", "New Technology Evaluation"
-]
+VALID_PRIORITIES = ["Critical", "Urgent", "Important", "Standard", "Low"]
 
 
 @app.post("/assist/{task_id}/update")
@@ -1335,13 +1324,6 @@ def update_task(
     
     settings = _get_settings()
     
-    # Get the task to determine which sheet it belongs to
-    tasks, _, _, _ = fetch_task_dataset(
-        limit=None, source="auto", include_work_in_all=True
-    )
-    target = next((task for task in tasks if task.row_id == task_id), None)
-    task_source = target.source if target else "personal"
-    
     # Validate the action and required fields
     if request.action == "update_status":
         if not request.status:
@@ -1354,12 +1336,10 @@ def update_task(
     elif request.action == "update_priority":
         if not request.priority:
             raise HTTPException(status_code=400, detail="priority field required for update_priority action")
-        # Use different priority values for work vs personal sheets
-        valid_priorities = VALID_PRIORITIES_WORK if task_source == "work" else VALID_PRIORITIES_PERSONAL
-        if request.priority not in valid_priorities:
+        if request.priority not in VALID_PRIORITIES:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid priority '{request.priority}'. Valid for {task_source}: {valid_priorities}"
+                detail=f"Invalid priority '{request.priority}'. Valid: {VALID_PRIORITIES}"
             )
     elif request.action == "update_due_date":
         if not request.due_date:
@@ -1371,55 +1351,6 @@ def update_task(
     elif request.action == "add_comment":
         if not request.comment:
             raise HTTPException(status_code=400, detail="comment field required for add_comment action")
-    elif request.action == "update_number":
-        if request.number is None:
-            raise HTTPException(status_code=400, detail="number field required for update_number action")
-        if not isinstance(request.number, int) or request.number < 1:
-            raise HTTPException(status_code=400, detail="number must be a positive integer")
-    elif request.action == "update_contact_flag":
-        if request.contact_flag is None:
-            raise HTTPException(status_code=400, detail="contact_flag field required for update_contact_flag action")
-    elif request.action == "update_recurring":
-        if not request.recurring:
-            raise HTTPException(status_code=400, detail="recurring field required for update_recurring action")
-        if request.recurring not in VALID_RECURRING:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid recurring '{request.recurring}'. Valid: {VALID_RECURRING}"
-            )
-    elif request.action == "update_project":
-        if not request.project:
-            raise HTTPException(status_code=400, detail="project field required for update_project action")
-        # Validate based on sheet source
-        valid_projects = VALID_PROJECTS_WORK if task_source == "work" else VALID_PROJECTS_PERSONAL
-        if request.project not in valid_projects:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid project '{request.project}'. Valid for {task_source}: {valid_projects}"
-            )
-    elif request.action == "update_task":
-        if not request.task_title:
-            raise HTTPException(status_code=400, detail="taskTitle field required for update_task action")
-    elif request.action == "update_assigned_to":
-        if not request.assigned_to:
-            raise HTTPException(status_code=400, detail="assignedTo field required for update_assigned_to action")
-        # Basic email validation
-        if "@" not in request.assigned_to:
-            raise HTTPException(status_code=400, detail="assignedTo must be a valid email address")
-    elif request.action == "update_notes":
-        if request.notes is None:
-            raise HTTPException(status_code=400, detail="notes field required for update_notes action")
-    elif request.action == "update_estimated_hours":
-        if not request.estimated_hours:
-            raise HTTPException(status_code=400, detail="estimatedHours field required for update_estimated_hours action")
-        if request.estimated_hours not in VALID_ESTIMATED_HOURS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid estimatedHours '{request.estimated_hours}'. Valid: {VALID_ESTIMATED_HOURS}"
-            )
-    
-    # Check if task is recurring (for smart mark_complete behavior)
-    is_recurring = target and target.status and target.status.lower() == "recurring"
     
     # Build preview of proposed changes
     preview = {
@@ -1429,14 +1360,8 @@ def update_task(
     }
     
     if request.action == "mark_complete":
-        if is_recurring:
-            # For recurring tasks, only check Done box - don't change status
-            preview["changes"] = {"done": True}
-            preview["description"] = "Check Done box (status stays 'Recurring' to preserve recurrence)"
-        else:
-            # For non-recurring tasks, set status to Completed and check Done
-            preview["changes"] = {"status": "Completed", "done": True}
-            preview["description"] = "Mark task as complete (Status → Completed, Done → checked)"
+        preview["changes"] = {"status": "Complete", "done": True}
+        preview["description"] = "Mark task as complete (Status → Complete, Done → checked)"
     elif request.action == "update_status":
         preview["changes"] = {"status": request.status}
         preview["description"] = f"Update status to '{request.status}'"
@@ -1449,30 +1374,6 @@ def update_task(
     elif request.action == "add_comment":
         preview["changes"] = {"comment": request.comment}
         preview["description"] = f"Add comment: '{request.comment[:50]}...'" if len(request.comment or "") > 50 else f"Add comment: '{request.comment}'"
-    elif request.action == "update_number":
-        preview["changes"] = {"number": request.number}
-        preview["description"] = f"Update # to {request.number}"
-    elif request.action == "update_contact_flag":
-        preview["changes"] = {"contact_flag": request.contact_flag}
-        preview["description"] = f"Set Contact flag to {'checked' if request.contact_flag else 'unchecked'}"
-    elif request.action == "update_recurring":
-        preview["changes"] = {"recurring_pattern": request.recurring}
-        preview["description"] = f"Set Recurring pattern to '{request.recurring}'"
-    elif request.action == "update_project":
-        preview["changes"] = {"project": request.project}
-        preview["description"] = f"Update Project to '{request.project}'"
-    elif request.action == "update_task":
-        preview["changes"] = {"task": request.task_title}
-        preview["description"] = f"Update Task title to '{request.task_title[:50]}...'" if len(request.task_title or "") > 50 else f"Update Task title to '{request.task_title}'"
-    elif request.action == "update_assigned_to":
-        preview["changes"] = {"assigned_to": request.assigned_to}
-        preview["description"] = f"Assign to '{request.assigned_to}'"
-    elif request.action == "update_notes":
-        preview["changes"] = {"notes": request.notes}
-        preview["description"] = f"Update Notes to '{request.notes[:50]}...'" if len(request.notes or "") > 50 else f"Update Notes to '{request.notes}'"
-    elif request.action == "update_estimated_hours":
-        preview["changes"] = {"estimated_hours": request.estimated_hours}
-        preview["description"] = f"Set Estimated Hours to {request.estimated_hours}"
     
     # If not confirmed, return preview for user confirmation
     if not request.confirmed:
@@ -1487,36 +1388,15 @@ def update_task(
         client = SmartsheetClient(settings)
         
         if request.action == "mark_complete":
-            if is_recurring:
-                # For recurring tasks, only check Done box - preserve status
-                client.update_row(task_id, {"done": True}, source=task_source)
-            else:
-                # For non-recurring tasks, full mark_complete (status + done)
-                client.mark_complete(task_id, source=task_source)
+            client.mark_complete(task_id)
         elif request.action == "update_status":
-            client.update_row(task_id, {"status": request.status}, source=task_source)
+            client.update_row(task_id, {"status": request.status})
         elif request.action == "update_priority":
-            client.update_row(task_id, {"priority": request.priority}, source=task_source)
+            client.update_row(task_id, {"priority": request.priority})
         elif request.action == "update_due_date":
-            client.update_row(task_id, {"due_date": request.due_date}, source=task_source)
+            client.update_row(task_id, {"due_date": request.due_date})
         elif request.action == "add_comment":
-            client.post_comment(task_id, request.comment, source=task_source)
-        elif request.action == "update_number":
-            client.update_row(task_id, {"number": request.number}, source=task_source)
-        elif request.action == "update_contact_flag":
-            client.update_row(task_id, {"contact_flag": request.contact_flag}, source=task_source)
-        elif request.action == "update_recurring":
-            client.update_row(task_id, {"recurring_pattern": request.recurring}, source=task_source)
-        elif request.action == "update_project":
-            client.update_row(task_id, {"project": request.project}, source=task_source)
-        elif request.action == "update_task":
-            client.update_row(task_id, {"task": request.task_title}, source=task_source)
-        elif request.action == "update_assigned_to":
-            client.update_row(task_id, {"assigned_to": request.assigned_to}, source=task_source)
-        elif request.action == "update_notes":
-            client.update_row(task_id, {"notes": request.notes}, source=task_source)
-        elif request.action == "update_estimated_hours":
-            client.update_row(task_id, {"estimated_hours": request.estimated_hours}, source=task_source)
+            client.post_comment(task_id, request.comment)
         
         # Log the action to conversation history
         action_description = preview["description"]
