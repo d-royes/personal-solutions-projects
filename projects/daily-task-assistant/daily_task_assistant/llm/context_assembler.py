@@ -198,10 +198,12 @@ def _summarize_history(history: List[Dict[str, str]]) -> str:
     return " ".join(topics)
 
 
-def _download_and_encode_image(url: str, max_size_bytes: int = 4_500_000) -> Optional[str]:
+def _download_and_encode_image(url: str, max_size_bytes: int = 3_500_000) -> Optional[str]:
     """Download and base64 encode an image.
     
     Resizes if too large for Claude's limits.
+    Note: max_size_bytes is for RAW data. Base64 adds ~33% overhead,
+    so 3.5MB raw becomes ~4.7MB encoded (under 5MB limit).
     """
     try:
         with urlrequest.urlopen(url, timeout=15) as response:
