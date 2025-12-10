@@ -1055,7 +1055,6 @@ function App() {
               onSendMessage={handleSendMessage}
               sendingMessage={sendingMessage}
               taskPanelCollapsed={taskPanelCollapsed}
-              onExpandTasks={() => setTaskPanelCollapsed(false)}
               onCollapseTasks={() => setTaskPanelCollapsed(true)}
               onQuickAction={handleQuickAction}
               pendingAction={pendingAction}
