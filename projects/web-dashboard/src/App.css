@@ -2801,7 +2801,6 @@ button:not(:disabled):hover {
 }
 
 .sample-questions {
-  list-style: none;
   padding: 0;
   margin: 0;
   display: flex;
@@ -2809,7 +2808,7 @@ button:not(:disabled):hover {
   gap: 0.5rem;
 }
 
-.sample-questions li {
+.sample-question-btn {
   padding: 0.5rem 1rem;
   background: rgba(99, 102, 241, 0.1);
   border: 1px solid rgba(99, 102, 241, 0.2);
@@ -2818,11 +2817,17 @@ button:not(:disabled):hover {
   color: rgba(199, 210, 254, 0.9);
   cursor: pointer;
   transition: all 0.2s ease;
+  text-align: left;
 }
 
-.sample-questions li:hover {
+.sample-question-btn:hover {
   background: rgba(99, 102, 241, 0.2);
   border-color: rgba(99, 102, 241, 0.4);
+}
+
+.sample-question-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .global-chat-input {

@@ -773,7 +773,6 @@ export function AssistPanel({
   
   // Toggle message selection
   const toggleMessageSelection = (ts: string) => {
-    console.log('Toggle message selection:', ts)
     setSelectedGlobalMessages(prev => {
       const next = new Set(prev)
       if (next.has(ts)) {
@@ -781,7 +780,6 @@ export function AssistPanel({
       } else {
         next.add(ts)
       }
-      console.log('New selection:', Array.from(next))
       return next
     })
   }
@@ -918,14 +916,34 @@ export function AssistPanel({
             {globalHistory.length === 0 ? (
               <div className="global-chat-welcome">
                 <p>Ask DATA about your {perspectiveLabels[perspective].toLowerCase()} workload:</p>
-                <ul className="sample-questions">
-                  <li>"What should I focus on today?"</li>
-                  <li>"Am I overloaded this week?"</li>
-                  <li>"What are my highest priority items?"</li>
+                <div className="sample-questions">
+                  <button 
+                    className="sample-question-btn"
+                    onClick={() => onSendGlobalMessage?.("What should I focus on today?")}
+                  >
+                    "What should I focus on today?"
+                  </button>
+                  <button 
+                    className="sample-question-btn"
+                    onClick={() => onSendGlobalMessage?.("Am I overloaded this week?")}
+                  >
+                    "Am I overloaded this week?"
+                  </button>
+                  <button 
+                    className="sample-question-btn"
+                    onClick={() => onSendGlobalMessage?.("What are my highest priority items?")}
+                  >
+                    "What are my highest priority items?"
+                  </button>
                   {perspective === 'holistic' && (
-                    <li>"Do I have any conflicts between work and personal?"</li>
+                    <button 
+                      className="sample-question-btn"
+                      onClick={() => onSendGlobalMessage?.("Do I have any conflicts between work and personal?")}
+                    >
+                      "Do I have any conflicts between work and personal?"
+                    </button>
                   )}
-                </ul>
+                </div>
               </div>
             ) : (
               globalHistory.map((msg) => (
