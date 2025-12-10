@@ -2896,6 +2896,7 @@ button:not(:disabled):hover {
   position: relative;
   max-width: 85%;
   padding: 0.65rem 0.9rem;
+  padding-right: 55px; /* Make room for checkbox and delete button */
   border-radius: 12px;
   background: rgba(30, 41, 59, 0.7);
   border: 1px solid rgba(99, 102, 241, 0.2);
@@ -2928,6 +2929,7 @@ button:not(:disabled):hover {
   accent-color: rgba(96, 165, 250, 0.9);
   opacity: 0;
   transition: opacity 0.15s;
+  z-index: 10;
 }
 
 .chat-bubble-delete {
@@ -2945,6 +2947,14 @@ button:not(:disabled):hover {
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
+  z-index: 10;
+}
+
+/* Ensure chat content doesn't block controls */
+.global-chat-messages .chat-meta,
+.global-chat-messages .chat-content {
+  position: relative;
+  z-index: 1;
 }
 
 .global-chat-messages .chat-bubble:hover .chat-bubble-checkbox,
