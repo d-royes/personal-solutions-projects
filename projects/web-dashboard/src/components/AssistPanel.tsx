@@ -773,6 +773,7 @@ export function AssistPanel({
   
   // Toggle message selection
   const toggleMessageSelection = (ts: string) => {
+    console.log('Toggle message selection:', ts)
     setSelectedGlobalMessages(prev => {
       const next = new Set(prev)
       if (next.has(ts)) {
@@ -780,6 +781,7 @@ export function AssistPanel({
       } else {
         next.add(ts)
       }
+      console.log('New selection:', Array.from(next))
       return next
     })
   }
@@ -931,30 +933,22 @@ export function AssistPanel({
                   key={msg.ts} 
                   className={`chat-bubble ${msg.role} ${selectedGlobalMessages.has(msg.ts) ? 'selected' : ''}`}
                 >
-                  {/* Controls: checkbox and delete button (top-right, like workspace) */}
-                  <div className="chat-bubble-controls">
-                    <input
-                      type="checkbox"
-                      className="chat-bubble-checkbox"
-                      checked={selectedGlobalMessages.has(msg.ts)}
-                      onChange={(e) => {
-                        e.stopPropagation()
-                        toggleMessageSelection(msg.ts)
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      title="Select for bulk hide"
-                    />
-                    <button
-                      className="chat-bubble-delete"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onDeleteGlobalMessage?.(msg.ts)
-                      }}
-                      title="Permanently delete"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  {/* Checkbox - like workspace delete button pattern */}
+                  <input
+                    type="checkbox"
+                    className="chat-bubble-checkbox"
+                    checked={selectedGlobalMessages.has(msg.ts)}
+                    onChange={() => toggleMessageSelection(msg.ts)}
+                    title="Select for bulk hide"
+                  />
+                  {/* Delete button - matching workspace pattern */}
+                  <button
+                    className="chat-bubble-delete"
+                    onClick={() => onDeleteGlobalMessage?.(msg.ts)}
+                    title="Permanently delete"
+                  >
+                    ×
+                  </button>
                   <div className="chat-meta">
                     <span className="chat-role">{msg.role === 'user' ? 'You' : 'DATA'}</span>
                   </div>

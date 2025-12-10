@@ -2917,31 +2917,23 @@ button:not(:disabled):hover {
   background: rgba(96, 165, 250, 0.1);
 }
 
-/* Chat bubble controls - matching workspace item styling */
-.chat-bubble-controls {
+/* Chat bubble controls - matching workspace-item-delete pattern exactly */
+.chat-bubble-checkbox {
   position: absolute;
-  top: 6px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  top: 8px;
+  right: 34px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: rgba(96, 165, 250, 0.9);
   opacity: 0;
   transition: opacity 0.15s;
 }
 
-.global-chat-messages .chat-bubble:hover .chat-bubble-controls,
-.global-chat-messages .chat-bubble.selected .chat-bubble-controls {
-  opacity: 1;
-}
-
-.chat-bubble-checkbox {
-  width: 12px;
-  height: 12px;
-  cursor: pointer;
-  accent-color: rgba(96, 165, 250, 0.9);
-}
-
 .chat-bubble-delete {
+  position: absolute;
+  top: 8px;
+  right: 12px;
   width: 16px;
   height: 16px;
   padding: 0;
@@ -2951,7 +2943,18 @@ button:not(:disabled):hover {
   font-size: 12px;
   line-height: 16px;
   cursor: pointer;
-  transition: color 0.15s;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.global-chat-messages .chat-bubble:hover .chat-bubble-checkbox,
+.global-chat-messages .chat-bubble.selected .chat-bubble-checkbox {
+  opacity: 1;
+}
+
+.global-chat-messages .chat-bubble:hover .chat-bubble-delete,
+.global-chat-messages .chat-bubble.selected .chat-bubble-delete {
+  opacity: 1;
 }
 
 .chat-bubble-delete:hover {
