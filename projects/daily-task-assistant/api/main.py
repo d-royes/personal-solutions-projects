@@ -143,10 +143,11 @@ def health_check() -> dict:
 def list_tasks(
     source: Literal["auto", "live", "stub"] = Query("auto"),
     limit: Optional[int] = Query(None, ge=1, le=500),
+    include_work: bool = Query(False, alias="includeWork"),
     user: str = Depends(get_current_user),
 ) -> dict:
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=limit, source=source
+        limit=limit, source=source, include_work_in_all=include_work
     )
     return {
         "tasks": [serialize_task(task) for task in tasks],
