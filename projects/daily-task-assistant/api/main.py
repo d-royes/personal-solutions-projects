@@ -157,6 +157,55 @@ def list_tasks(
     }
 
 
+@app.get("/work/badge")
+def get_work_badge(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get work task badge/notification counts.
+    
+    Returns counts of work tasks that need attention for the Work filter badge.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    from datetime import datetime
+    
+    settings = _get_settings()
+    
+    try:
+        client = SmartsheetClient(settings)
+        # Fetch work tasks only
+        tasks = client.list_tasks(sources=["work"])
+    except Exception:
+        # If work sheet not available, return zeros
+        return {
+            "needsAttention": 0,
+            "overdue": 0,
+            "dueToday": 0,
+            "total": 0,
+        }
+    
+    today = datetime.now().date()
+    overdue = 0
+    due_today = 0
+    
+    for task in tasks:
+        if task.due:
+            try:
+                due_date = datetime.fromisoformat(task.due.replace("Z", "+00:00")).date()
+                if due_date < today:
+                    overdue += 1
+                elif due_date == today:
+                    due_today += 1
+            except (ValueError, AttributeError):
+                pass
+    
+    return {
+        "needsAttention": overdue + due_today,
+        "overdue": overdue,
+        "dueToday": due_today,
+        "total": len(tasks),
+    }
+
+
 # --- Global Portfolio Mode Endpoints ---
 # NOTE: These routes MUST be defined BEFORE /assist/{task_id} routes
 # to prevent FastAPI from matching "global" as a task_id

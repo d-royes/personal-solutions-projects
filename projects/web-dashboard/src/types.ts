@@ -77,3 +77,10 @@ export interface ActivityEntry {
   source?: string
 }
 
+export interface WorkBadge {
+  needsAttention: number
+  overdue: number
+  dueToday: number
+  total: number
+}
+
