@@ -109,6 +109,7 @@ function App() {
   const [globalConversation, setGlobalConversation] = useState<ConversationMessage[]>([])
   const [globalStats, setGlobalStats] = useState<PortfolioStats | null>(null)
   const [globalChatLoading, setGlobalChatLoading] = useState(false)
+  const [globalExpanded, setGlobalExpanded] = useState(false)
 
   const handleQuickAction = useCallback((action: { type: string; content: string }) => {
     // Action handling is now done within AssistPanel
@@ -817,6 +818,30 @@ function App() {
     }
   }
   
+  async function handleClearGlobalHistory() {
+    if (!authConfig) return
+    
+    try {
+      await clearGlobalHistory(authConfig, apiBase, globalPerspective)
+      setGlobalConversation([])
+    } catch (err) {
+      console.error('Failed to clear global history:', err)
+    }
+  }
+  
+  function handleToggleGlobalExpand() {
+    setGlobalExpanded(prev => !prev)
+    if (!globalExpanded) {
+      // Collapsing tasks when expanding global view
+      setTaskPanelCollapsed(true)
+    }
+  }
+  
+  function handleExpandTasksFromGlobal() {
+    setGlobalExpanded(false)
+    setTaskPanelCollapsed(false)
+  }
+  
   // Fetch global context when entering global mode (no task selected)
   useEffect(() => {
     async function loadGlobalContext() {
@@ -1015,6 +1040,10 @@ function App() {
               globalStats={globalStats}
               onSendGlobalMessage={handleSendGlobalMessage}
               globalChatLoading={globalChatLoading}
+              onClearGlobalHistory={handleClearGlobalHistory}
+              globalExpanded={globalExpanded}
+              onToggleGlobalExpand={handleToggleGlobalExpand}
+              onExpandTasks={handleExpandTasksFromGlobal}
             />
           </>
         )}

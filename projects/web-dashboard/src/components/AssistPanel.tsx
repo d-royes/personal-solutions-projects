@@ -304,6 +304,9 @@ interface AssistPanelProps {
   } | null
   onSendGlobalMessage?: (message: string) => Promise<void>
   globalChatLoading?: boolean
+  onClearGlobalHistory?: () => Promise<void>
+  globalExpanded?: boolean
+  onToggleGlobalExpand?: () => void
 }
 
 // Draggable divider component
@@ -763,6 +766,7 @@ export function AssistPanel({
     const perspective = globalPerspective ?? 'personal'
     const stats = globalStats
     const globalHistory = globalConversation ?? []
+    const isExpanded = globalExpanded ?? false
     
     const perspectiveLabels: Record<string, string> = {
       personal: 'Personal',
@@ -779,12 +783,12 @@ export function AssistPanel({
     }
     
     return (
-      <section className="panel assist-panel global-mode">
+      <section className={`panel assist-panel global-mode ${isExpanded ? 'expanded' : ''}`}>
         <header className="global-header">
           <div className="global-header-top">
             <h2>DATA - Portfolio View</h2>
-            <button className="secondary" onClick={onExpandTasks}>
-              Show tasks
+            <button className="secondary" onClick={isExpanded ? onExpandTasks : onToggleGlobalExpand}>
+              {isExpanded ? 'Show tasks' : '⛶ Expand'}
             </button>
           </div>
           
@@ -854,6 +858,18 @@ export function AssistPanel({
         
         {/* Global Chat Interface */}
         <div className="global-chat-container">
+          {/* Chat header with clear button */}
+          {globalHistory.length > 0 && (
+            <div className="global-chat-header">
+              <button 
+                className="clear-chat-btn" 
+                onClick={onClearGlobalHistory}
+                title="Clear chat history"
+              >
+                Clear
+              </button>
+            </div>
+          )}
           <div className="global-chat-messages">
             {globalHistory.length === 0 ? (
               <div className="global-chat-welcome">
@@ -869,17 +885,23 @@ export function AssistPanel({
               </div>
             ) : (
               globalHistory.map((msg, i) => (
-                <div key={i} className={`chat-message ${msg.role}`}>
-                  <div className="message-content">
+                <div key={i} className={`chat-bubble ${msg.role}`}>
+                  <div className="chat-meta">
+                    <span className="chat-role">{msg.role === 'user' ? 'You' : 'DATA'}</span>
+                  </div>
+                  <div className="chat-content">
                     {renderMarkdown(msg.content)}
                   </div>
                 </div>
               ))
             )}
             {globalChatLoading && (
-              <div className="chat-message assistant loading">
-                <div className="message-content">
-                  <span className="typing-indicator">DATA is thinking...</span>
+              <div className="chat-bubble assistant loading">
+                <div className="chat-meta">
+                  <span className="chat-role">DATA</span>
+                </div>
+                <div className="chat-content">
+                  <span className="typing-indicator">thinking...</span>
                 </div>
               </div>
             )}

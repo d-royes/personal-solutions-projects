@@ -2857,3 +2857,85 @@ button:not(:disabled):hover {
   color: rgba(148, 163, 184, 0.7);
   font-style: italic;
 }
+
+/* Global chat header with clear button */
+.global-chat-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  background: rgba(30, 41, 59, 0.2);
+}
+
+.clear-chat-btn {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: rgba(148, 163, 184, 0.7);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clear-chat-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: rgba(239, 68, 68, 0.9);
+}
+
+/* Global chat bubbles - matching Assistant chat styling */
+.global-chat-messages .chat-bubble {
+  max-width: 85%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.global-chat-messages .chat-bubble.user {
+  align-self: flex-end;
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.global-chat-messages .chat-bubble.assistant {
+  align-self: flex-start;
+}
+
+.global-chat-messages .chat-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  opacity: 0.6;
+  margin-bottom: 0.3rem;
+}
+
+.global-chat-messages .chat-role {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.global-chat-messages .chat-content {
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.global-chat-messages .chat-content p {
+  margin: 0 0 0.5rem;
+}
+
+.global-chat-messages .chat-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Expanded global mode */
+.assist-panel.global-mode.expanded {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+}
