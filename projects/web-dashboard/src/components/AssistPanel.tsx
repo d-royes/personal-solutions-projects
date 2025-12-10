@@ -771,6 +771,9 @@ export function AssistPanel({
   // State for selected messages in global chat (for bulk strike)
   const [selectedGlobalMessages, setSelectedGlobalMessages] = useState<Set<string>>(new Set())
   
+  // State for quick questions collapsible - default expanded only if no history
+  const [quickQuestionsExpanded, setQuickQuestionsExpanded] = useState(false)
+  
   // Toggle message selection
   const toggleMessageSelection = (ts: string) => {
     setSelectedGlobalMessages(prev => {
@@ -913,37 +916,63 @@ export function AssistPanel({
             </div>
           )}
           <div className="global-chat-messages">
-            {globalHistory.length === 0 ? (
-              <div className="global-chat-welcome">
-                <p>Ask DATA about your {perspectiveLabels[perspective].toLowerCase()} workload:</p>
+            {/* Collapsible Quick Questions - always available */}
+            <div className={`quick-questions-section ${quickQuestionsExpanded ? 'expanded' : ''}`}>
+              <button 
+                className="quick-questions-toggle"
+                onClick={() => setQuickQuestionsExpanded(!quickQuestionsExpanded)}
+              >
+                <span className="toggle-icon">{quickQuestionsExpanded ? '▼' : '▶'}</span>
+                Quick Questions
+              </button>
+              {quickQuestionsExpanded && (
                 <div className="sample-questions">
                   <button 
                     className="sample-question-btn"
-                    onClick={() => onSendGlobalMessage?.("What should I focus on today?")}
+                    onClick={() => {
+                      onSendGlobalMessage?.("What should I focus on today?")
+                      setQuickQuestionsExpanded(false)
+                    }}
                   >
                     "What should I focus on today?"
                   </button>
                   <button 
                     className="sample-question-btn"
-                    onClick={() => onSendGlobalMessage?.("Am I overloaded this week?")}
+                    onClick={() => {
+                      onSendGlobalMessage?.("Am I overloaded this week?")
+                      setQuickQuestionsExpanded(false)
+                    }}
                   >
                     "Am I overloaded this week?"
                   </button>
                   <button 
                     className="sample-question-btn"
-                    onClick={() => onSendGlobalMessage?.("What are my highest priority items?")}
+                    onClick={() => {
+                      onSendGlobalMessage?.("What are my highest priority items?")
+                      setQuickQuestionsExpanded(false)
+                    }}
                   >
                     "What are my highest priority items?"
                   </button>
                   {perspective === 'holistic' && (
                     <button 
                       className="sample-question-btn"
-                      onClick={() => onSendGlobalMessage?.("Do I have any conflicts between work and personal?")}
+                      onClick={() => {
+                        onSendGlobalMessage?.("Do I have any conflicts between work and personal?")
+                        setQuickQuestionsExpanded(false)
+                      }}
                     >
                       "Do I have any conflicts between work and personal?"
                     </button>
                   )}
                 </div>
+              )}
+            </div>
+            
+            {/* Chat history - always shown if any */}
+            {globalHistory.length === 0 ? (
+              <div className="global-chat-empty">
+                <p className="subtle">No conversation yet. Ask a question or use Quick Questions above.</p>
               </div>
             ) : (
               globalHistory.map((msg) => (
