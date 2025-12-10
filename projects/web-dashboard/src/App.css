@@ -2862,9 +2862,16 @@ button:not(:disabled):hover {
 .global-chat-header {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.4rem 0.75rem;
   border-bottom: 1px solid rgba(99, 102, 241, 0.1);
   background: rgba(30, 41, 59, 0.2);
+}
+
+.selection-count {
+  font-size: 0.7rem;
+  color: rgba(96, 165, 250, 0.9);
 }
 
 .clear-chat-btn {
@@ -2879,18 +2886,20 @@ button:not(:disabled):hover {
 }
 
 .clear-chat-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.4);
-  color: rgba(239, 68, 68, 0.9);
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: rgba(99, 102, 241, 0.9);
 }
 
 /* Global chat bubbles - matching Assistant chat styling */
 .global-chat-messages .chat-bubble {
+  position: relative;
   max-width: 85%;
   padding: 0.65rem 0.9rem;
   border-radius: 12px;
   background: rgba(30, 41, 59, 0.7);
   border: 1px solid rgba(99, 102, 241, 0.2);
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .global-chat-messages .chat-bubble.user {
@@ -2901,6 +2910,52 @@ button:not(:disabled):hover {
 
 .global-chat-messages .chat-bubble.assistant {
   align-self: flex-start;
+}
+
+.global-chat-messages .chat-bubble.selected {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(96, 165, 250, 0.1);
+}
+
+/* Chat bubble controls - matching workspace item styling */
+.chat-bubble-controls {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.global-chat-messages .chat-bubble:hover .chat-bubble-controls,
+.global-chat-messages .chat-bubble.selected .chat-bubble-controls {
+  opacity: 1;
+}
+
+.chat-bubble-checkbox {
+  width: 12px;
+  height: 12px;
+  cursor: pointer;
+  accent-color: rgba(96, 165, 250, 0.9);
+}
+
+.chat-bubble-delete {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.3);
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.chat-bubble-delete:hover {
+  color: rgba(239, 68, 68, 0.8);
 }
 
 .global-chat-messages .chat-meta {

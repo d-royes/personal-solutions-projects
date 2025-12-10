@@ -6,6 +6,7 @@ import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import {
   clearGlobalHistory,
+  deleteGlobalMessage,
   deleteDraft,
   draftEmail,
   fetchActivity,
@@ -25,6 +26,7 @@ import {
   sendChatMessage,
   sendEmail,
   sendGlobalChat,
+  strikeGlobalMessage,
   strikeMessage,
   submitFeedback,
   unstrikeMessage,
@@ -829,6 +831,31 @@ function App() {
     }
   }
   
+  async function handleStrikeGlobalMessages(messageTimestamps: string[]) {
+    if (!authConfig) return
+    
+    try {
+      // Strike each message sequentially (could optimize with batch endpoint later)
+      for (const ts of messageTimestamps) {
+        const result = await strikeGlobalMessage(authConfig, ts, globalPerspective, apiBase)
+        setGlobalConversation(result.history)
+      }
+    } catch (err) {
+      console.error('Failed to strike global messages:', err)
+    }
+  }
+  
+  async function handleDeleteGlobalMessage(messageTs: string) {
+    if (!authConfig) return
+    
+    try {
+      const result = await deleteGlobalMessage(authConfig, messageTs, globalPerspective, apiBase)
+      setGlobalConversation(result.history)
+    } catch (err) {
+      console.error('Failed to delete global message:', err)
+    }
+  }
+  
   function handleToggleGlobalExpand() {
     setGlobalExpanded(prev => !prev)
     if (!globalExpanded) {
@@ -1044,6 +1071,8 @@ function App() {
               globalExpanded={globalExpanded}
               onToggleGlobalExpand={handleToggleGlobalExpand}
               onExpandTasks={handleExpandTasksFromGlobal}
+              onStrikeGlobalMessages={handleStrikeGlobalMessages}
+              onDeleteGlobalMessage={handleDeleteGlobalMessage}
             />
           </>
         )}

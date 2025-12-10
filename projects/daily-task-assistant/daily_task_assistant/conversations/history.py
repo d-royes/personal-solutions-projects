@@ -233,6 +233,60 @@ def fetch_conversation_for_llm(task_id: str, limit: int = 50) -> List[Conversati
     return [msg for msg in messages if not msg.struck]
 
 
+def delete_message(task_id: str, message_ts: str) -> bool:
+    """Permanently delete a message by its timestamp.
+    
+    WARNING: This is irreversible. Use strike_message for soft-hiding.
+    Returns True if the message was found and deleted, False otherwise.
+    """
+    if _force_file_fallback():
+        return _delete_file_message(task_id, message_ts)
+    
+    try:
+        client = get_firestore_client()
+        collection = (
+            client.collection(_conversation_collection())
+            .document(task_id)
+            .collection("messages")
+        )
+        docs = list(
+            collection.where("ts", "==", message_ts).limit(1).stream()
+        )
+        if docs:
+            docs[0].reference.delete()
+            return True
+        return False
+    except Exception as exc:
+        print(f"[Conversation] Firestore delete failed, falling back to file: {exc}")
+        return _delete_file_message(task_id, message_ts)
+
+
+def _delete_file_message(task_id: str, message_ts: str) -> bool:
+    """Permanently delete a message from the local file."""
+    path = _conversation_file(task_id)
+    if not path.exists():
+        return False
+    
+    lines = path.read_text().strip().split("\n")
+    updated_lines = []
+    found = False
+    
+    for line in lines:
+        try:
+            data = json.loads(line)
+            if data.get("ts") == message_ts:
+                found = True
+                continue  # Skip this line (delete it)
+            updated_lines.append(line)
+        except json.JSONDecodeError:
+            updated_lines.append(line)
+    
+    if found:
+        path.write_text("\n".join(updated_lines) + "\n" if updated_lines else "")
+    
+    return found
+
+
 # Internal helpers ---------------------------------------------------------
 
 

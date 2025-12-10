@@ -1002,3 +1002,88 @@ export async function clearGlobalHistory(
   return resp.json()
 }
 
+export interface GlobalMessageActionResponse {
+  status: 'struck' | 'unstruck' | 'deleted'
+  messageTs: string
+  perspective: Perspective
+  history: ConversationMessage[]
+}
+
+export async function strikeGlobalMessage(
+  auth: AuthConfig,
+  messageTs: string,
+  perspective: Perspective = 'personal',
+  baseUrl: string = defaultBase,
+): Promise<GlobalMessageActionResponse> {
+  const url = new URL('/assist/global/history/strike', baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      messageTs,
+      perspective,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Strike message failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function unstrikeGlobalMessage(
+  auth: AuthConfig,
+  messageTs: string,
+  perspective: Perspective = 'personal',
+  baseUrl: string = defaultBase,
+): Promise<GlobalMessageActionResponse> {
+  const url = new URL('/assist/global/history/unstrike', baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      messageTs,
+      perspective,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Unstrike message failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function deleteGlobalMessage(
+  auth: AuthConfig,
+  messageTs: string,
+  perspective: Perspective = 'personal',
+  baseUrl: string = defaultBase,
+): Promise<GlobalMessageActionResponse> {
+  const url = new URL('/assist/global/message', baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      messageTs,
+      perspective,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Delete message failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+

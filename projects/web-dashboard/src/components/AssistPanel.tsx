@@ -307,6 +307,8 @@ interface AssistPanelProps {
   onClearGlobalHistory?: () => Promise<void>
   globalExpanded?: boolean
   onToggleGlobalExpand?: () => void
+  onStrikeGlobalMessages?: (messageTimestamps: string[]) => Promise<void>
+  onDeleteGlobalMessage?: (messageTs: string) => Promise<void>
 }
 
 // Draggable divider component
@@ -444,6 +446,8 @@ export function AssistPanel({
   onClearGlobalHistory,
   globalExpanded,
   onToggleGlobalExpand,
+  onStrikeGlobalMessages,
+  onDeleteGlobalMessage,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
@@ -764,11 +768,41 @@ export function AssistPanel({
     setWorkspaceItems(prev => prev.filter(item => item.id !== id))
   }
 
+  // State for selected messages in global chat (for bulk strike)
+  const [selectedGlobalMessages, setSelectedGlobalMessages] = useState<Set<string>>(new Set())
+  
+  // Toggle message selection
+  const toggleMessageSelection = (ts: string) => {
+    setSelectedGlobalMessages(prev => {
+      const next = new Set(prev)
+      if (next.has(ts)) {
+        next.delete(ts)
+      } else {
+        next.add(ts)
+      }
+      return next
+    })
+  }
+  
+  // Handle clear button - behavior depends on selection
+  const handleGlobalClear = async () => {
+    if (selectedGlobalMessages.size > 0 && onStrikeGlobalMessages) {
+      // Strike selected messages (soft delete - preserved in DB)
+      await onStrikeGlobalMessages(Array.from(selectedGlobalMessages))
+      setSelectedGlobalMessages(new Set())
+    } else if (onClearGlobalHistory) {
+      // No selection - just reset UI (could also be a full clear)
+      // For now, we'll just clear selections and do nothing to backend
+      setSelectedGlobalMessages(new Set())
+    }
+  }
+
   // No task selected - show Global Mode (Portfolio View)
   if (!selectedTask) {
     const perspective = globalPerspective ?? 'personal'
     const stats = globalStats
-    const globalHistory = globalConversation ?? []
+    // Filter out struck messages for display
+    const globalHistory = (globalConversation ?? []).filter(msg => !msg.struck)
     const isExpanded = globalExpanded ?? false
     
     const perspectiveLabels: Record<string, string> = {
@@ -864,12 +898,17 @@ export function AssistPanel({
           {/* Chat header with clear button */}
           {globalHistory.length > 0 && (
             <div className="global-chat-header">
+              {selectedGlobalMessages.size > 0 && (
+                <span className="selection-count">{selectedGlobalMessages.size} selected</span>
+              )}
               <button 
                 className="clear-chat-btn" 
-                onClick={onClearGlobalHistory}
-                title="Clear chat history"
+                onClick={handleGlobalClear}
+                title={selectedGlobalMessages.size > 0 
+                  ? "Hide selected messages (preserved for learning)" 
+                  : "Clear view"}
               >
-                Clear
+                {selectedGlobalMessages.size > 0 ? 'Hide selected' : 'Clear view'}
               </button>
             </div>
           )}
@@ -887,8 +926,28 @@ export function AssistPanel({
                 </ul>
               </div>
             ) : (
-              globalHistory.map((msg, i) => (
-                <div key={i} className={`chat-bubble ${msg.role}`}>
+              globalHistory.map((msg) => (
+                <div 
+                  key={msg.ts} 
+                  className={`chat-bubble ${msg.role} ${selectedGlobalMessages.has(msg.ts) ? 'selected' : ''}`}
+                >
+                  {/* Controls: checkbox and delete button (top-right, like workspace) */}
+                  <div className="chat-bubble-controls">
+                    <input
+                      type="checkbox"
+                      className="chat-bubble-checkbox"
+                      checked={selectedGlobalMessages.has(msg.ts)}
+                      onChange={() => toggleMessageSelection(msg.ts)}
+                      title="Select for bulk hide"
+                    />
+                    <button
+                      className="chat-bubble-delete"
+                      onClick={() => onDeleteGlobalMessage?.(msg.ts)}
+                      title="Permanently delete"
+                    >
+                      ×
+                    </button>
+                  </div>
                   <div className="chat-meta">
                     <span className="chat-role">{msg.role === 'user' ? 'You' : 'DATA'}</span>
                   </div>

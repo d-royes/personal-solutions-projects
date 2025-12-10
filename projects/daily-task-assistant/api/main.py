@@ -354,13 +354,107 @@ def clear_global_history(
     ),
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Clear conversation history for a global perspective."""
+    """Clear conversation history for a global perspective.
+    
+    WARNING: This permanently deletes messages. For soft-hiding, use
+    the strike endpoint instead.
+    """
     conversation_id = f"global:{perspective}"
     clear_conversation(conversation_id)
     
     return {
         "status": "cleared",
         "perspective": perspective,
+    }
+
+
+class GlobalStrikeRequest(BaseModel):
+    """Request body for striking/unstriking global messages."""
+    message_ts: str = Field(..., alias="messageTs", description="Timestamp of the message")
+    perspective: Literal["personal", "church", "work", "holistic"] = "personal"
+
+
+@app.post("/assist/global/history/strike")
+def strike_global_message(
+    request: GlobalStrikeRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mark a global chat message as struck (hidden from UI but preserved in DB).
+    
+    Struck messages are:
+    - Hidden from the user interface
+    - Excluded from LLM context
+    - Preserved in the database for tuning/analysis
+    """
+    conversation_id = f"global:{request.perspective}"
+    success = strike_message(conversation_id, request.message_ts)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    # Return updated history
+    history = fetch_conversation(conversation_id, limit=50)
+    return {
+        "status": "struck",
+        "messageTs": request.message_ts,
+        "perspective": request.perspective,
+        "history": [ConversationMessageModel(**asdict(msg)).model_dump() for msg in history],
+    }
+
+
+@app.post("/assist/global/history/unstrike")
+def unstrike_global_message(
+    request: GlobalStrikeRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Restore a struck global chat message (make visible again)."""
+    conversation_id = f"global:{request.perspective}"
+    success = unstrike_message(conversation_id, request.message_ts)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    # Return updated history
+    history = fetch_conversation(conversation_id, limit=50)
+    return {
+        "status": "unstruck",
+        "messageTs": request.message_ts,
+        "perspective": request.perspective,
+        "history": [ConversationMessageModel(**asdict(msg)).model_dump() for msg in history],
+    }
+
+
+class GlobalDeleteRequest(BaseModel):
+    """Request body for permanently deleting a global message."""
+    message_ts: str = Field(..., alias="messageTs", description="Timestamp of the message")
+    perspective: Literal["personal", "church", "work", "holistic"] = "personal"
+
+
+@app.delete("/assist/global/message")
+def delete_global_message(
+    request: GlobalDeleteRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Permanently delete a global chat message.
+    
+    WARNING: This is irreversible. Use strike for soft-hiding.
+    Only use for truly unwanted content.
+    """
+    from daily_task_assistant.conversations.history import delete_message
+    
+    conversation_id = f"global:{request.perspective}"
+    success = delete_message(conversation_id, request.message_ts)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    # Return updated history
+    history = fetch_conversation(conversation_id, limit=50)
+    return {
+        "status": "deleted",
+        "messageTs": request.message_ts,
+        "perspective": request.perspective,
+        "history": [ConversationMessageModel(**asdict(msg)).model_dump() for msg in history],
     }
 
 
