@@ -937,12 +937,19 @@ export function AssistPanel({
                       type="checkbox"
                       className="chat-bubble-checkbox"
                       checked={selectedGlobalMessages.has(msg.ts)}
-                      onChange={() => toggleMessageSelection(msg.ts)}
+                      onChange={(e) => {
+                        e.stopPropagation()
+                        toggleMessageSelection(msg.ts)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
                       title="Select for bulk hide"
                     />
                     <button
                       className="chat-bubble-delete"
-                      onClick={() => onDeleteGlobalMessage?.(msg.ts)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDeleteGlobalMessage?.(msg.ts)
+                      }}
                       title="Permanently delete"
                     >
                       ×
