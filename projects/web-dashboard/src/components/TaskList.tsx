@@ -95,9 +95,19 @@ export function TaskList({
   workBadge,
 }: TaskListProps) {
   const [filter, setFilter] = useState('all')
+  const [searchTerm, setSearchTerm] = useState('')
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
+      // First apply search filter if there's a search term
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase()
+        const matchesSearch = 
+          (task.title?.toLowerCase().includes(term)) ||
+          (task.notes?.toLowerCase().includes(term)) ||
+          (task.project?.toLowerCase().includes(term))
+        if (!matchesSearch) return false
+      }
       const domain = deriveDomain(task)
       const status = task.status ?? ''
       switch (filter) {
@@ -142,7 +152,7 @@ export function TaskList({
       const statusB = STATUS_CATEGORY[b.status ?? ''] ?? 99
       return statusA - statusB
     })
-  }, [tasks, filter])
+  }, [tasks, filter, searchTerm])
 
   return (
     <section className="panel task-panel scroll-panel">
@@ -155,6 +165,13 @@ export function TaskList({
           </p>
         </div>
         <div className="task-header-buttons">
+          <input
+            type="text"
+            className="task-search"
+            placeholder="Search..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
           {onDeselectAll && (
             <button
               className="secondary portfolio-btn"
