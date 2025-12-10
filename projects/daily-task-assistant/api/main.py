@@ -166,7 +166,7 @@ def get_work_badge(
     Returns counts of work tasks that need attention for the Work filter badge.
     """
     from daily_task_assistant.smartsheet_client import SmartsheetClient
-    from datetime import datetime
+    from datetime import datetime, date
     
     settings = _get_settings()
     
@@ -183,19 +183,26 @@ def get_work_badge(
             "total": 0,
         }
     
-    today = datetime.now().date()
+    today = date.today()
     overdue = 0
     due_today = 0
     
     for task in tasks:
         if task.due:
             try:
-                due_date = datetime.fromisoformat(task.due.replace("Z", "+00:00")).date()
+                # Handle both date objects and date strings
+                if isinstance(task.due, date):
+                    due_date = task.due
+                elif isinstance(task.due, str):
+                    due_date = datetime.fromisoformat(task.due.replace("Z", "+00:00")).date()
+                else:
+                    continue
+                    
                 if due_date < today:
                     overdue += 1
                 elif due_date == today:
                     due_today += 1
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError, TypeError):
                 pass
     
     return {
