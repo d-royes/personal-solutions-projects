@@ -441,6 +441,9 @@ export function AssistPanel({
   globalStats,
   onSendGlobalMessage,
   globalChatLoading,
+  onClearGlobalHistory,
+  globalExpanded,
+  onToggleGlobalExpand,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
