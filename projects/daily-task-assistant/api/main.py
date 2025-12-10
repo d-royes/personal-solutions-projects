@@ -312,10 +312,10 @@ def get_global_context(
     ),
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Get portfolio context without sending a chat message.
+    """Get portfolio context and conversation history without sending a chat message.
     
-    Useful for displaying portfolio stats in the UI before the user
-    starts a conversation.
+    Useful for displaying portfolio stats and existing conversation in the UI
+    before the user starts/continues a conversation.
     """
     from daily_task_assistant.smartsheet_client import SmartsheetClient
     from daily_task_assistant.portfolio_context import (
@@ -331,6 +331,10 @@ def get_global_context(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Failed to load portfolio: {exc}")
     
+    # Fetch existing conversation history for this perspective
+    conversation_id = f"global:{perspective}"
+    history = fetch_conversation(conversation_id)
+    
     return {
         "perspective": perspective,
         "description": get_perspective_description(perspective),
@@ -345,6 +349,17 @@ def get_global_context(
             "conflicts": portfolio.conflicts,
             "domainBreakdown": portfolio.domain_breakdown,
         },
+        "history": [
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "ts": msg.ts,
+                "struck": msg.struck,
+                "struckAt": msg.struck_at,
+            }
+            for msg in history
+            if not msg.struck  # Don't include struck messages in UI
+        ],
     }
 
 

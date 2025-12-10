@@ -165,6 +165,24 @@ function App() {
     void loadConversation(selectedTaskId)
   }, [authConfig, selectedTaskId])
 
+  // Load global context (stats + history) when Portfolio View opens
+  useEffect(() => {
+    if (!authConfig || selectedTaskId !== null) {
+      // Not in global mode - don't load
+      return
+    }
+    async function loadGlobalContext() {
+      try {
+        const result = await fetchGlobalContext(authConfig!, globalPerspective, apiBase)
+        setGlobalStats(result.portfolio)
+        setGlobalConversation(result.history || [])
+      } catch (err) {
+        console.error('Failed to load portfolio context:', err)
+      }
+    }
+    void loadGlobalContext()
+  }, [authConfig, selectedTaskId, apiBase])
+
   async function refreshTasks() {
     if (!authConfig) return
     setTasksLoading(true)
@@ -789,16 +807,16 @@ function App() {
   // Global Mode handlers
   async function handlePerspectiveChange(perspective: Perspective) {
     setGlobalPerspective(perspective)
-    // Reset conversation when changing perspective
-    setGlobalConversation([])
     
-    // Fetch fresh stats for the new perspective
+    // Fetch fresh stats AND conversation history for the new perspective
     if (!authConfig) return
     try {
       const result = await fetchGlobalContext(authConfig, perspective, apiBase)
       setGlobalStats(result.portfolio)
+      setGlobalConversation(result.history || [])
     } catch (err) {
       console.error('Failed to load portfolio context:', err)
+      setGlobalConversation([])
     }
   }
   

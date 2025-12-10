@@ -921,6 +921,7 @@ export interface GlobalContextResponse {
   perspective: Perspective
   description: string
   portfolio: PortfolioStats
+  history: ConversationMessage[]
 }
 
 export interface GlobalChatResponse {
