@@ -1069,7 +1069,7 @@ export function AssistPanel({
               autoComplete="off"
             />
             <button type="submit" disabled={globalChatLoading}>
-              Send
+              {globalChatLoading ? '...' : 'Send'}
             </button>
           </form>
         </div>

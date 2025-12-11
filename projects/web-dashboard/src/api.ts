@@ -701,6 +701,7 @@ export type TaskUpdateAction =
   | 'update_task' | 'update_assigned_to' | 'update_notes' | 'update_estimated_hours'
 
 export interface TaskUpdateRequest {
+  source: 'personal' | 'work'  // Which Smartsheet to update
   action: TaskUpdateAction
   status?: string
   priority?: string
@@ -746,6 +747,7 @@ export async function updateTask(
       ...buildHeaders(auth),
     },
     body: JSON.stringify({
+      source: request.source,
       action: request.action,
       status: request.status,
       priority: request.priority,

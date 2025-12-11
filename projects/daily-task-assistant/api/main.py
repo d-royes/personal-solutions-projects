@@ -586,15 +586,19 @@ def bulk_update_tasks(
     
     for update in request.updates:
         try:
+            # Handle mark_complete specially - uses dedicated method with recurring logic
+            if update.action == "mark_complete":
+                logging.warning(f"[BULK-UPDATE] Executing mark_complete: row_id={update.row_id}, source={update.source}")
+                client.mark_complete(update.row_id, source=update.source)
+                logging.warning(f"[BULK-UPDATE] Success: row_id={update.row_id}")
+                results.append(BulkUpdateResult(row_id=update.row_id, success=True))
+                success_count += 1
+                continue
+            
             # Build the update payload based on action
             update_data = {}
             
-            if update.action == "mark_complete":
-                # Check if task is recurring - if so, only set done
-                update_data["done"] = True
-                # Note: For recurring tasks, status should NOT change per user's requirements
-                
-            elif update.action == "update_status":
+            if update.action == "update_status":
                 update_data["status"] = update.status
                 # Terminal statuses also mark done
                 if update.status in ("Completed", "Cancelled", "Delegated", "Ticket Created"):
@@ -1026,7 +1030,7 @@ def assist_task(
     from daily_task_assistant.conversations.history import get_latest_plan
     
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1090,7 +1094,7 @@ def generate_plan(
     The plan is stored in conversation history for persistence across sessions.
     """
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1207,7 +1211,7 @@ def chat_with_task(
     from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1374,7 +1378,7 @@ def research_task_endpoint(
     from daily_task_assistant.llm.anthropic_client import research_task, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1456,7 +1460,7 @@ def contact_search_endpoint(
     from daily_task_assistant.contacts import search_contacts, ContactCard
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1561,7 +1565,7 @@ def summarize_task_endpoint(
     from daily_task_assistant.llm.anthropic_client import summarize_task, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1640,7 +1644,7 @@ def draft_email_endpoint(
     from daily_task_assistant.llm.anthropic_client import generate_email_draft, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1693,7 +1697,7 @@ def send_email_endpoint(
     from daily_task_assistant.mailer import GmailError, load_account_from_env, send_email
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -2103,6 +2107,7 @@ def clear_workspace_endpoint(
 
 class TaskUpdateRequest(BaseModel):
     """Request body for task update endpoint."""
+    source: Literal["personal", "work"] = "personal"  # Which Smartsheet to update
     action: Literal[
         "mark_complete", "update_status", "update_priority", "update_due_date", "add_comment",
         "update_number", "update_contact_flag", "update_recurring", "update_project",
@@ -2310,35 +2315,35 @@ def update_task(
         client = SmartsheetClient(settings)
         
         if request.action == "mark_complete":
-            client.mark_complete(task_id)
+            client.mark_complete(task_id, source=request.source)
         elif request.action == "update_status":
             # Terminal statuses also mark Done checkbox
             if request.status in TERMINAL_STATUSES:
-                client.update_row(task_id, {"status": request.status, "done": True})
+                client.update_row(task_id, {"status": request.status, "done": True}, source=request.source)
             else:
-                client.update_row(task_id, {"status": request.status})
+                client.update_row(task_id, {"status": request.status}, source=request.source)
         elif request.action == "update_priority":
-            client.update_row(task_id, {"priority": request.priority})
+            client.update_row(task_id, {"priority": request.priority}, source=request.source)
         elif request.action == "update_due_date":
-            client.update_row(task_id, {"due_date": request.due_date})
+            client.update_row(task_id, {"due_date": request.due_date}, source=request.source)
         elif request.action == "add_comment":
-            client.post_comment(task_id, request.comment)
+            client.post_comment(task_id, request.comment, source=request.source)
         elif request.action == "update_number":
-            client.update_row(task_id, {"number": request.number})
+            client.update_row(task_id, {"number": request.number}, source=request.source)
         elif request.action == "update_contact_flag":
-            client.update_row(task_id, {"contact_flag": request.contact_flag})
+            client.update_row(task_id, {"contact_flag": request.contact_flag}, source=request.source)
         elif request.action == "update_recurring":
-            client.update_row(task_id, {"recurring_pattern": request.recurring})
+            client.update_row(task_id, {"recurring_pattern": request.recurring}, source=request.source)
         elif request.action == "update_project":
-            client.update_row(task_id, {"project": request.project})
+            client.update_row(task_id, {"project": request.project}, source=request.source)
         elif request.action == "update_task":
-            client.update_row(task_id, {"task": request.task_title})
+            client.update_row(task_id, {"task": request.task_title}, source=request.source)
         elif request.action == "update_assigned_to":
-            client.update_row(task_id, {"assigned_to": request.assigned_to})
+            client.update_row(task_id, {"assigned_to": request.assigned_to}, source=request.source)
         elif request.action == "update_notes":
-            client.update_row(task_id, {"notes": request.notes})
+            client.update_row(task_id, {"notes": request.notes}, source=request.source)
         elif request.action == "update_estimated_hours":
-            client.update_row(task_id, {"estimated_hours": request.estimated_hours})
+            client.update_row(task_id, {"estimated_hours": request.estimated_hours}, source=request.source)
         
         # Log the action to conversation history
         action_description = preview["description"]

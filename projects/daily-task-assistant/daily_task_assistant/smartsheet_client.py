@@ -474,18 +474,27 @@ class SmartsheetClient:
                 "done": True,
             }, source=source)
         
-        # Check if task is recurring by looking at the status cell
-        current_status = None
-        status_col = schema.columns.get("status")
-        if status_col and "cells" in row_data:
+        # Check if task is recurring by looking at the recurring_pattern column
+        # A task is recurring if it has ANY value in the recurring pattern field
+        has_recurring_pattern = False
+        recurring_col = schema.columns.get("recurring_pattern")
+        if recurring_col and "cells" in row_data:
             for cell in row_data["cells"]:
-                if cell.get("columnId") == int(status_col.column_id):
-                    current_status = cell.get("displayValue") or cell.get("value")
+                if cell.get("columnId") == int(recurring_col.column_id):
+                    # Check for any non-empty value (could be displayValue, value, or objectValue)
+                    pattern_value = cell.get("displayValue") or cell.get("value")
+                    if not pattern_value and cell.get("objectValue"):
+                        # Multi-picklist stores values in objectValue.values array
+                        obj_val = cell.get("objectValue", {})
+                        values = obj_val.get("values", [])
+                        has_recurring_pattern = len(values) > 0
+                    else:
+                        has_recurring_pattern = bool(pattern_value)
                     break
         
         # For recurring tasks: only check Done box (don't change status)
-        # This allows Smartsheet automation to reset the task
-        if current_status == "Recurring":
+        # This allows Smartsheet automation to reset the task for the next occurrence
+        if has_recurring_pattern:
             return self.update_row(row_id, {"done": True}, source=source)
         
         # For regular tasks: set both status and done

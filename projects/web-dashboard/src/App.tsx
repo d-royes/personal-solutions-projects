@@ -727,6 +727,7 @@ function App() {
       const result = await updateTask(
         selectedTaskId,
         {
+          source: selectedTask?.source ?? 'personal',
           action: pendingAction.action,
           status: pendingAction.status,
           priority: pendingAction.priority,
