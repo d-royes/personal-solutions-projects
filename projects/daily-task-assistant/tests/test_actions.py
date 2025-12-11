@@ -9,7 +9,7 @@ def _sample_task() -> TaskDetail:
     return TaskDetail(
         row_id="1234",
         title="Prepare onboarding email",
-        status="Blocked",
+        status="On Hold",
         due=now + timedelta(days=2),
         priority="Urgent",
         project="Zendesk Ticket",

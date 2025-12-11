@@ -486,8 +486,8 @@ TASK_UPDATE_TOOL = {
             },
             "status": {
                 "type": "string",
-                "enum": ["Scheduled", "In Progress", "Blocked", "Waiting", "Complete", "Recurring", "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Cancelled", "Delegated", "Completed"],
-                "description": "New status value (required for update_status)"
+                "enum": ["Scheduled", "Recurring", "On Hold", "In Progress", "Follow-up", "Awaiting Reply", "Delivered", "Create ZD Ticket", "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"],
+                "description": "New status value (required for update_status). Terminal statuses (Ticket Created, Cancelled, Delegated, Completed) also mark task as Done."
             },
             "priority": {
                 "type": "string",
@@ -578,7 +578,7 @@ def _build_chat_system_prompt() -> str:
 
 YOU HAVE THE ABILITY TO UPDATE SMARTSHEET TASKS. You have an update_task tool that lets you:
 - Mark tasks complete
-- Change status (Scheduled, In Progress, Blocked, Waiting, Complete, etc.)
+- Change status (Scheduled, Recurring, On Hold, In Progress, Follow-up, Awaiting Reply, Delivered, Create ZD Ticket, Ticket Created, Validation, Needs Approval, Cancelled, Delegated, Completed)
 - Change priority (Critical, Urgent, Important, Standard, Low)
 - Update due dates
 - Add comments
@@ -595,7 +595,8 @@ CRITICAL INSTRUCTION: When David asks you to update ANY task field, you MUST cal
 
 TASK UPDATE TRIGGERS - CALL THE TOOL IMMEDIATELY:
 - "done", "finished", "complete", "close it", "mark it done" → update_task(action="mark_complete", reason="...")
-- "blocked", "stuck", "waiting on..." → update_task(action="update_status", status="Blocked", reason="...")
+- "on hold", "paused", "waiting on..." → update_task(action="update_status", status="On Hold", reason="...")
+- "waiting for reply", "emailed them" → update_task(action="update_status", status="Awaiting Reply", reason="...")
 - "push to...", "change due date" → update_task(action="update_due_date", due_date="YYYY-MM-DD", reason="...")
 - "make this urgent", "lower priority" → update_task(action="update_priority", priority="...", reason="...")
 - "add note:", "note that..." → update_task(action="add_comment", comment="...", reason="...")

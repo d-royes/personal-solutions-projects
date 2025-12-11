@@ -1477,11 +1477,14 @@ class TaskUpdateRequest(BaseModel):
     confirmed: bool = Field(False, description="User has confirmed this action")
 
 
-# Valid values from smartsheet.yml
+# Valid status values from Smartsheet (authoritative list)
+# Active: Scheduled, Recurring, On Hold, In Progress, Follow-up, Awaiting Reply,
+#         Delivered, Create ZD Ticket, Validation, Needs Approval
+# Terminal (also marks Done): Ticket Created, Cancelled, Delegated, Completed
 VALID_STATUSES = [
-    "Scheduled", "In Progress", "Blocked", "Waiting", "Complete", "Recurring",
-    "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Create ZD Ticket",
-    "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"
+    "Scheduled", "Recurring", "On Hold", "In Progress", "Follow-up", "Awaiting Reply",
+    "Delivered", "Create ZD Ticket", "Ticket Created", "Validation", "Needs Approval",
+    "Cancelled", "Delegated", "Completed"
 ]
 VALID_PRIORITIES = ["Critical", "Urgent", "Important", "Standard", "Low"]
 VALID_PRIORITIES_WORK = ["5-Critical", "4-Urgent", "3-Important", "2-Standard", "1-Low"]

@@ -46,7 +46,7 @@ def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:
         TaskDetail(
             row_id="1002",
             title="Schedule onboarding with vendor",
-            status="Blocked",
+            status="Awaiting Reply",
             due=now + timedelta(days=3),
             priority="Urgent",
             project="Zendesk Ticket",
@@ -59,7 +59,7 @@ def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:
         TaskDetail(
             row_id="1003",
             title="Review security questionnaire",
-            status="Not Started",
+            status="Scheduled",
             due=now + timedelta(days=5),
             priority="Important",
             project="Around The House",
