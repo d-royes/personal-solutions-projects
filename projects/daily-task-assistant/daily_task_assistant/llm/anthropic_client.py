@@ -126,7 +126,7 @@ def _load_data_preferences() -> str:
 # Cache the preferences at module load
 _DATA_PREFERENCES = _load_data_preferences()
 
-DEFAULT_MODEL = "claude-opus-4-20250514"
+DEFAULT_MODEL = "claude-sonnet-4-20250514"
 SYSTEM_PROMPT = """You are the Daily Task Assistant, a diligent chief of staff.
 Produce concise, actionable guidance and respect the user's time.
 
