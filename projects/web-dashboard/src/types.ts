@@ -84,3 +84,83 @@ export interface WorkBadge {
   total: number
 }
 
+// Email Management types
+export type EmailAccount = 'church' | 'personal'
+
+export interface FilterRule {
+  emailAccount: string
+  order: number
+  category: string
+  field: string
+  operator: string
+  value: string
+  action: string
+  rowNumber?: number
+}
+
+export interface RuleSuggestion {
+  type: 'new_label' | 'deletion' | 'attention'
+  suggestedRule: FilterRule
+  confidence: 'high' | 'medium' | 'low'
+  reason: string
+  examples: string[]
+  emailCount: number
+}
+
+export interface AttentionItem {
+  emailId: string
+  subject: string
+  fromAddress: string
+  fromName: string
+  date: string
+  reason: string
+  urgency: 'high' | 'medium' | 'low'
+  suggestedAction?: string
+  extractedDeadline?: string
+  extractedTask?: string
+}
+
+export interface EmailMessage {
+  id: string
+  threadId: string
+  fromAddress: string
+  fromName: string
+  toAddress: string
+  subject: string
+  snippet: string
+  date: string
+  isUnread: boolean
+  isImportant: boolean
+  isStarred: boolean
+  ageHours: number
+}
+
+export interface InboxSummary {
+  account: string
+  email: string
+  totalUnread: number
+  unreadImportant: number
+  unreadFromVips: number
+  recentMessages: EmailMessage[]
+  vipMessages: EmailMessage[]
+}
+
+export interface FilterRulesResponse {
+  account: string
+  email: string
+  ruleCount: number
+  rules: FilterRule[]
+}
+
+export interface AnalyzeInboxResponse {
+  account: string
+  email: string
+  messagesAnalyzed: number
+  existingRulesCount: number
+  suggestions: RuleSuggestion[]
+  attentionItems: AttentionItem[]
+}
+
+// App mode for navigation
+export type AppMode = 'tasks' | 'email'
+

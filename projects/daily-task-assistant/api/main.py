@@ -1955,6 +1955,367 @@ def search_inbox(
     }
 
 
+# --- Email Management endpoints ---
+
+class FilterRuleModel(BaseModel):
+    """Response model for a filter rule."""
+    model_config = {"populate_by_name": True}
+    
+    email_account: str = Field(alias="emailAccount")
+    order: int
+    category: str
+    field: str
+    operator: str
+    value: str
+    action: str = ""
+    row_number: Optional[int] = Field(None, alias="rowNumber")
+
+
+class RuleSuggestionModel(BaseModel):
+    """Response model for a rule suggestion."""
+    model_config = {"populate_by_name": True}
+    
+    type: str
+    suggested_rule: FilterRuleModel = Field(alias="suggestedRule")
+    confidence: str
+    reason: str
+    examples: List[str]
+    email_count: int = Field(alias="emailCount")
+
+
+class AttentionItemModel(BaseModel):
+    """Response model for an attention item."""
+    model_config = {"populate_by_name": True}
+    
+    email_id: str = Field(alias="emailId")
+    subject: str
+    from_address: str = Field(alias="fromAddress")
+    from_name: str = Field(alias="fromName")
+    date: str
+    reason: str
+    urgency: str
+    suggested_action: Optional[str] = Field(None, alias="suggestedAction")
+    extracted_deadline: Optional[str] = Field(None, alias="extractedDeadline")
+    extracted_task: Optional[str] = Field(None, alias="extractedTask")
+
+
+class AddRuleRequest(BaseModel):
+    """Request body for adding a filter rule."""
+    model_config = {"populate_by_name": True}
+    
+    email_account: str = Field(..., alias="emailAccount")
+    order: int = Field(1, ge=1, le=7)
+    category: str
+    field: str
+    operator: str
+    value: str
+    action: str = "Add"
+
+
+class SyncRulesRequest(BaseModel):
+    """Request body for syncing rules to Google Sheet."""
+    model_config = {"populate_by_name": True}
+    
+    email_account: str = Field(..., alias="emailAccount")
+    rules: List[FilterRuleModel]
+
+
+@app.get("/email/rules/{account}")
+def get_filter_rules(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get filter rules for an email account from Google Sheets.
+    
+    Returns the current filter rules that App Script uses for labeling.
+    """
+    from daily_task_assistant.sheets import FilterRulesManager, SheetsError
+    from daily_task_assistant.mailer import GmailError, load_account_from_env
+    
+    # Get the email address for this account
+    try:
+        gmail_config = load_account_from_env(account)
+        email_address = gmail_config.from_address
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    # Load rules from Google Sheets
+    try:
+        manager = FilterRulesManager.from_env(account.upper())
+        rules = manager.get_rules_for_account(email_address)
+    except SheetsError as exc:
+        raise HTTPException(status_code=502, detail=f"Google Sheets error: {exc}")
+    
+    return {
+        "account": account,
+        "email": email_address,
+        "ruleCount": len(rules),
+        "rules": [
+            {
+                "emailAccount": r.email_account,
+                "order": r.order,
+                "category": r.category,
+                "field": r.field,
+                "operator": r.operator,
+                "value": r.value,
+                "action": r.action,
+                "rowNumber": r.row_number,
+            }
+            for r in rules
+        ],
+    }
+
+
+@app.post("/email/rules/{account}")
+def add_filter_rule(
+    account: Literal["church", "personal"],
+    request: AddRuleRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Add a new filter rule to Google Sheets.
+    
+    This immediately adds the rule to the Gmail_Filter_Index sheet.
+    App Script will pick it up on its next run.
+    """
+    from daily_task_assistant.sheets import FilterRulesManager, FilterRule, SheetsError
+    
+    try:
+        manager = FilterRulesManager.from_env(account.upper())
+        
+        rule = FilterRule(
+            email_account=request.email_account,
+            order=request.order,
+            category=request.category,
+            field=request.field,
+            operator=request.operator,
+            value=request.value,
+            action=request.action,
+        )
+        
+        added_rule = manager.add_rule(rule)
+        
+    except SheetsError as exc:
+        raise HTTPException(status_code=502, detail=f"Google Sheets error: {exc}")
+    
+    return {
+        "status": "added",
+        "account": account,
+        "rule": {
+            "emailAccount": added_rule.email_account,
+            "order": added_rule.order,
+            "category": added_rule.category,
+            "field": added_rule.field,
+            "operator": added_rule.operator,
+            "value": added_rule.value,
+            "action": added_rule.action,
+            "rowNumber": added_rule.row_number,
+        },
+    }
+
+
+@app.delete("/email/rules/{account}/{row_number}")
+def delete_filter_rule(
+    account: Literal["church", "personal"],
+    row_number: int,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Delete a filter rule from Google Sheets.
+    
+    Clears the row content rather than deleting to preserve row structure.
+    """
+    from daily_task_assistant.sheets import FilterRulesManager, SheetsError
+    
+    try:
+        manager = FilterRulesManager.from_env(account.upper())
+        manager.delete_rule(row_number)
+    except SheetsError as exc:
+        raise HTTPException(status_code=502, detail=f"Google Sheets error: {exc}")
+    
+    return {
+        "status": "deleted",
+        "account": account,
+        "rowNumber": row_number,
+    }
+
+
+@app.get("/email/analyze/{account}")
+def analyze_inbox(
+    account: Literal["church", "personal"],
+    max_messages: int = Query(50, ge=10, le=100),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Analyze inbox patterns and suggest filter rules.
+    
+    Reads recent emails and identifies:
+    - New senders not covered by existing rules
+    - Promotional/transactional patterns
+    - Emails requiring David's attention
+    
+    Returns suggestions that can be approved to add as rules.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        get_unread_messages,
+        search_messages,
+    )
+    from daily_task_assistant.sheets import FilterRulesManager, SheetsError
+    from daily_task_assistant.email import EmailAnalyzer
+    
+    # Load Gmail config
+    try:
+        gmail_config = load_account_from_env(account)
+        email_address = gmail_config.from_address
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    # Get recent messages for analysis
+    try:
+        messages = search_messages(
+            gmail_config,
+            query="in:inbox",
+            max_results=max_messages,
+        )
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    # Load existing rules
+    existing_rules = []
+    try:
+        manager = FilterRulesManager.from_env(account.upper())
+        existing_rules = manager.get_rules_for_account(email_address)
+    except SheetsError:
+        # Continue without existing rules
+        pass
+    
+    # Analyze patterns
+    analyzer = EmailAnalyzer(email_address, existing_rules)
+    suggestions, attention_items = analyzer.analyze_messages(messages)
+    
+    return {
+        "account": account,
+        "email": email_address,
+        "messagesAnalyzed": len(messages),
+        "existingRulesCount": len(existing_rules),
+        "suggestions": [s.to_dict() for s in suggestions],
+        "attentionItems": [a.to_dict() for a in attention_items],
+    }
+
+
+@app.post("/email/sync/{account}")
+def sync_rules_to_sheet(
+    account: Literal["church", "personal"],
+    request: SyncRulesRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Sync a batch of rules to Google Sheets.
+    
+    Replaces all rules for the account with the provided list.
+    Use for bi-weekly sync after accumulating approved changes.
+    """
+    from daily_task_assistant.sheets import FilterRulesManager, FilterRule, SheetsError
+    
+    try:
+        manager = FilterRulesManager.from_env(account.upper())
+        
+        # Convert request rules to FilterRule objects
+        rules = [
+            FilterRule(
+                email_account=r.email_account,
+                order=r.order,
+                category=r.category,
+                field=r.field,
+                operator=r.operator,
+                value=r.value,
+                action=r.action,
+            )
+            for r in request.rules
+        ]
+        
+        synced_count = manager.sync_rules(rules, request.email_account)
+        
+    except SheetsError as exc:
+        raise HTTPException(status_code=502, detail=f"Google Sheets error: {exc}")
+    
+    return {
+        "status": "synced",
+        "account": account,
+        "emailAccount": request.email_account,
+        "rulesSynced": synced_count,
+    }
+
+
+@app.post("/email/task-from-email/{account}")
+def create_task_from_email(
+    account: Literal["church", "personal"],
+    email_id: str = Query(..., description="Gmail message ID"),
+    task_title: Optional[str] = Query(None, description="Override task title"),
+    due_date: Optional[str] = Query(None, description="Task due date (YYYY-MM-DD)"),
+    project: Optional[str] = Query(None, description="Target project"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create a Smartsheet task from an email.
+    
+    Extracts task details from the email and creates a new task.
+    Optionally allows overriding the auto-extracted values.
+    """
+    from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message
+    from daily_task_assistant.smartsheet_client import SmartsheetClient, SmartsheetAPIError
+    from daily_task_assistant.email.analyzer import EmailAnalyzer
+    from datetime import datetime, timedelta
+    
+    settings = _get_settings()
+    
+    # Load Gmail config and fetch the email
+    try:
+        gmail_config = load_account_from_env(account)
+        message = get_message(gmail_config, email_id)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    # Extract task details from email
+    analyzer = EmailAnalyzer(gmail_config.from_address)
+    extracted_task = analyzer._extract_task(message)
+    
+    # Use provided values or defaults
+    final_title = task_title or extracted_task or message.subject
+    final_due = due_date or (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    final_project = project or ("Church Tasks" if account == "church" else "Sm. Projects & Tasks")
+    
+    # Determine source based on account
+    source = "work" if account == "church" else "personal"
+    
+    # Create the task
+    try:
+        client = SmartsheetClient(settings)
+        # Note: This would need a create_task method in SmartsheetClient
+        # For now, return a preview of what would be created
+        task_data = {
+            "title": final_title,
+            "dueDate": final_due,
+            "project": final_project,
+            "source": source,
+            "notes": f"Created from email: {message.subject}\nFrom: {message.from_name} <{message.from_address}>",
+            "status": "Scheduled",
+            "priority": "Standard",
+        }
+        
+        # TODO: Implement client.create_task() when ready
+        # result = client.create_task(task_data)
+        
+    except SmartsheetAPIError as exc:
+        raise HTTPException(status_code=502, detail=f"Smartsheet error: {exc}")
+    
+    return {
+        "status": "preview",  # Change to "created" when implemented
+        "account": account,
+        "emailId": email_id,
+        "emailSubject": message.subject,
+        "taskPreview": task_data,
+        "message": "Task creation preview. Full implementation coming soon.",
+    }
+
+
 # --- Workspace endpoints ---
 
 class WorkspaceSaveRequest(BaseModel):

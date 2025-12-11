@@ -1318,3 +1318,248 @@ export function proposalToBulkUpdates(
   return updates
 }
 
+
+// =============================================================================
+// EMAIL MANAGEMENT API
+// =============================================================================
+
+import type {
+  EmailAccount,
+  FilterRule,
+  FilterRulesResponse,
+  InboxSummary,
+  AnalyzeInboxResponse,
+  EmailMessage,
+} from './types'
+
+// --- Inbox Reading ---
+
+export async function getInboxSummary(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  maxResults: number = 20,
+): Promise<InboxSummary> {
+  const url = new URL(`/inbox/${account}`, baseUrl)
+  url.searchParams.set('max_results', String(maxResults))
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Inbox request failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function getUnreadEmails(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: { maxResults?: number; fromFilter?: string } = {},
+): Promise<{ account: string; email: string; count: number; messages: EmailMessage[] }> {
+  const url = new URL(`/inbox/${account}/unread`, baseUrl)
+  url.searchParams.set('max_results', String(options.maxResults ?? 20))
+  if (options.fromFilter) {
+    url.searchParams.set('from_filter', options.fromFilter)
+  }
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Unread request failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function searchInbox(
+  account: EmailAccount,
+  query: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  maxResults: number = 20,
+): Promise<{ account: string; email: string; query: string; count: number; messages: EmailMessage[] }> {
+  const url = new URL(`/inbox/${account}/search`, baseUrl)
+  url.searchParams.set('q', query)
+  url.searchParams.set('max_results', String(maxResults))
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Search request failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Filter Rules Management ---
+
+export async function getFilterRules(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<FilterRulesResponse> {
+  const url = new URL(`/email/rules/${account}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get rules failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface AddRuleRequest {
+  emailAccount: string
+  order: number
+  category: string
+  field: string
+  operator: string
+  value: string
+  action?: string
+}
+
+export async function addFilterRule(
+  account: EmailAccount,
+  rule: AddRuleRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; rule: FilterRule }> {
+  const url = new URL(`/email/rules/${account}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(rule),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Add rule failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function deleteFilterRule(
+  account: EmailAccount,
+  rowNumber: number,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; rowNumber: number }> {
+  const url = new URL(`/email/rules/${account}/${rowNumber}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Delete rule failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Inbox Analysis ---
+
+export async function analyzeInbox(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  maxMessages: number = 50,
+): Promise<AnalyzeInboxResponse> {
+  const url = new URL(`/email/analyze/${account}`, baseUrl)
+  url.searchParams.set('max_messages', String(maxMessages))
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Analysis failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Rule Sync ---
+
+export async function syncRulesToSheet(
+  account: EmailAccount,
+  emailAccount: string,
+  rules: FilterRule[],
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; emailAccount: string; rulesSynced: number }> {
+  const url = new URL(`/email/sync/${account}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      emailAccount,
+      rules,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Sync failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Task Creation from Email ---
+
+export interface CreateTaskFromEmailOptions {
+  taskTitle?: string
+  dueDate?: string
+  project?: string
+}
+
+export async function createTaskFromEmail(
+  account: EmailAccount,
+  emailId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: CreateTaskFromEmailOptions = {},
+): Promise<{
+  status: string
+  account: string
+  emailId: string
+  emailSubject: string
+  taskPreview: {
+    title: string
+    dueDate: string
+    project: string
+    source: string
+    notes: string
+    status: string
+    priority: string
+  }
+  message: string
+}> {
+  const url = new URL(`/email/task-from-email/${account}`, baseUrl)
+  url.searchParams.set('email_id', emailId)
+  if (options.taskTitle) url.searchParams.set('task_title', options.taskTitle)
+  if (options.dueDate) url.searchParams.set('due_date', options.dueDate)
+  if (options.project) url.searchParams.set('project', options.project)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Create task failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}

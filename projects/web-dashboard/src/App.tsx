@@ -5,6 +5,7 @@ import { AssistPanel } from './components/AssistPanel'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import { RebalancingEditor } from './components/RebalancingEditor'
+import { EmailDashboard } from './components/EmailDashboard'
 import {
   clearGlobalHistory,
   deleteGlobalMessage,
@@ -44,6 +45,7 @@ import type {
 } from './api'
 import type {
   ActivityEntry,
+  AppMode,
   AssistPlan,
   ConversationMessage,
   DataSource,
@@ -106,6 +108,7 @@ function App() {
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment'>('auth')
+  const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
   
   // Global Mode state
@@ -957,6 +960,25 @@ function App() {
         </div>
 
         <div className="header-menu">
+          {/* Mode switcher */}
+          {isAuthenticated && (
+            <div className="mode-switcher">
+              <button
+                className={`mode-btn ${appMode === 'tasks' ? 'active' : ''}`}
+                onClick={() => setAppMode('tasks')}
+                title="Tasks"
+              >
+                📋
+              </button>
+              <button
+                className={`mode-btn ${appMode === 'email' ? 'active' : ''}`}
+                onClick={() => setAppMode('email')}
+                title="Email Management"
+              >
+                ✉️
+              </button>
+            </div>
+          )}
           <button
             className="icon-button"
             aria-label="Open admin menu"
@@ -1058,6 +1080,12 @@ function App() {
           <section className="panel">
             <p>Please sign in to load tasks.</p>
           </section>
+        ) : appMode === 'email' ? (
+          <EmailDashboard
+            authConfig={authConfig}
+            apiBase={apiBase}
+            onBack={() => setAppMode('tasks')}
+          />
         ) : (
           <>
             {!taskPanelCollapsed && (
