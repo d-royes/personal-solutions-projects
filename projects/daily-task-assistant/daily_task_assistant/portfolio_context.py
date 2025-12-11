@@ -207,6 +207,7 @@ def _aggregate_portfolio(
         # Task summaries (limited for LLM context)
         if len(ctx.task_summaries) < 50:
             ctx.task_summaries.append({
+                "row_id": task.row_id,
                 "title": task.title,
                 "project": task.project,
                 "priority": priority,
@@ -214,6 +215,8 @@ def _aggregate_portfolio(
                 "due": due.isoformat(),
                 "source": task.source,
                 "domain": domain,
+                "number": task.number,  # # field for sequencing
+                "estimated_hours": task.estimated_hours,
             })
     
     # Detect conflicts for holistic mode

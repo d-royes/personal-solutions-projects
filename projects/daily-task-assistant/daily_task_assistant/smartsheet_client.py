@@ -520,6 +520,13 @@ class SmartsheetClient:
                 done_value = self._cell_value(cell_map, "done", allow_optional=True, schema=schema)
                 is_done = bool(done_value) if done_value is not None else False
                 
+                # Parse number field for task sequencing (supports decimals for recurring: 0.1-0.9)
+                number_value = self._cell_value(cell_map, "number", allow_optional=True, schema=schema)
+                try:
+                    task_number = float(number_value) if number_value is not None else None
+                except (ValueError, TypeError):
+                    task_number = None  # Invalid number values are treated as unset
+                
                 summary = TaskDetail(
                     row_id=str(row.get("id")),
                     title=self._cell_value(cell_map, "task", schema=schema),
@@ -541,6 +548,7 @@ class SmartsheetClient:
                     automation_hint=self._derive_hint(cell_map, schema=schema),
                     source=source_key,
                     done=is_done,
+                    number=task_number,
                 )
             except (KeyError, ValueError) as exc:
                 errors.append(self._format_row_error(row, exc))

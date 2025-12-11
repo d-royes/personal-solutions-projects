@@ -7,6 +7,9 @@ from .anthropic_client import (
     AnthropicSuggestion,
     build_anthropic_client,
     generate_assist_suggestion,
+    portfolio_chat_with_tools,
+    PortfolioChatResponse,
+    PortfolioTaskUpdateAction,
 )
 
 __all__ = [
@@ -16,5 +19,8 @@ __all__ = [
     "AnthropicSuggestion",
     "build_anthropic_client",
     "generate_assist_suggestion",
+    "portfolio_chat_with_tools",
+    "PortfolioChatResponse",
+    "PortfolioTaskUpdateAction",
 ]
 

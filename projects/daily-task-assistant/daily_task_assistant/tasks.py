@@ -23,6 +23,7 @@ class TaskDetail:
     automation_hint: str
     source: str = "personal"  # "personal" or "work" - identifies which sheet
     done: bool = False  # True if Done checkbox is checked
+    number: Optional[float] = None  # # field for ordering: 0.1-0.9 for recurring (early AM), 1+ for regular tasks
 
 
 def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:

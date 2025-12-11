@@ -924,11 +924,36 @@ export interface GlobalContextResponse {
   history: ConversationMessage[]
 }
 
+export interface PortfolioPendingAction {
+  rowId: string
+  action: TaskUpdateAction
+  status?: string
+  priority?: string
+  dueDate?: string
+  comment?: string
+  number?: number  // 0.1-0.9 = recurring (early AM), 1+ = regular tasks
+  contactFlag?: boolean
+  recurring?: string
+  project?: string
+  taskTitle?: string
+  assignedTo?: string
+  notes?: string
+  estimatedHours?: string
+  reason?: string
+  // Enriched data from portfolio context
+  domain?: string
+  currentDue?: string
+  currentNumber?: number
+  currentPriority?: string
+  currentStatus?: string
+}
+
 export interface GlobalChatResponse {
   response: string
   perspective: Perspective
   portfolio: PortfolioStats
   history: ConversationMessage[]
+  pendingActions?: PortfolioPendingAction[]  // Task updates from DATA
 }
 
 export async function fetchGlobalContext(
@@ -1086,5 +1111,156 @@ export async function deleteGlobalMessage(
     throw new Error(detail?.detail ?? `Delete message failed: ${resp.statusText}`)
   }
   return resp.json()
+}
+
+
+// --- Portfolio Bulk Update Types and Functions ---
+
+export interface BulkTaskUpdate {
+  rowId: string
+  action: TaskUpdateAction
+  status?: string
+  priority?: string
+  dueDate?: string
+  comment?: string
+  number?: number  // Supports decimals: 0.1-0.9 for recurring, 1+ for regular tasks
+  contactFlag?: boolean
+  recurring?: string
+  project?: string
+  taskTitle?: string
+  assignedTo?: string
+  notes?: string
+  estimatedHours?: string
+  reason?: string
+}
+
+export interface BulkUpdateResult {
+  rowId: string
+  success: boolean
+  error?: string
+}
+
+export interface BulkUpdateResponse {
+  success: boolean
+  totalUpdates: number
+  successCount: number
+  failureCount: number
+  results: BulkUpdateResult[]
+}
+
+export async function bulkUpdateTasks(
+  updates: BulkTaskUpdate[],
+  auth: AuthConfig,
+  perspective: Perspective = 'holistic',
+  baseUrl: string = defaultBase,
+): Promise<BulkUpdateResponse> {
+  const url = new URL('/assist/global/bulk-update', baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      updates,
+      perspective,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Bulk update failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// --- Workload Rebalancing Types and Functions ---
+
+export type RebalanceFocus = 'overdue' | 'today' | 'week' | 'all'
+
+export interface RebalanceProposedChange {
+  rowId: string
+  title: string
+  domain: string
+  currentDue: string
+  proposedDue: string
+  currentNumber?: number  // 0.1-0.9 = recurring (early AM), 1+ = regular
+  proposedNumber?: number
+  priority: string
+  reason: string
+}
+
+export interface RebalanceResponse {
+  status: 'proposal_ready' | 'no_changes_needed'
+  message: string
+  perspective?: Perspective
+  focus?: RebalanceFocus
+  proposedChanges: RebalanceProposedChange[]
+}
+
+export interface RebalanceOptions {
+  perspective?: Perspective
+  focus?: RebalanceFocus
+  includeSequencing?: boolean
+}
+
+export async function getRebalanceProposal(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: RebalanceOptions = {},
+): Promise<RebalanceResponse> {
+  const url = new URL('/assist/global/rebalance', baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      perspective: options.perspective ?? 'holistic',
+      focus: options.focus ?? 'overdue',
+      includeSequencing: options.includeSequencing ?? true,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Rebalance request failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Convert a rebalance proposal into bulk update format for execution.
+ */
+export function proposalToBulkUpdates(
+  changes: RebalanceProposedChange[],
+): BulkTaskUpdate[] {
+  const updates: BulkTaskUpdate[] = []
+  
+  for (const change of changes) {
+    // Add due date update if changed
+    if (change.proposedDue && change.proposedDue !== change.currentDue) {
+      updates.push({
+        rowId: change.rowId,
+        action: 'update_due_date',
+        dueDate: change.proposedDue,
+        reason: change.reason,
+      })
+    }
+    
+    // Add number update if changed
+    if (change.proposedNumber != null && change.proposedNumber !== change.currentNumber) {
+      updates.push({
+        rowId: change.rowId,
+        action: 'update_number',
+        number: change.proposedNumber,
+        reason: change.reason,
+      })
+    }
+  }
+  
+  return updates
 }
 

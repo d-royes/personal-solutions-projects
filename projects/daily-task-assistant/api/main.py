@@ -1,7 +1,10 @@
 """FastAPI service for Daily Task Assistant."""
 from __future__ import annotations
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 from dataclasses import asdict
 from functools import lru_cache
 from typing import Any, Dict, List, Literal, Optional
@@ -238,27 +241,26 @@ def global_chat(
     request: GlobalChatRequest,
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Chat with DATA about portfolio/workload without task context.
+    """Chat with DATA about portfolio/workload with task update capability.
     
     This enables DATA to operate at a global level, analyzing workload
-    across perspectives (Personal, Church, Work, Holistic) rather than
-    focusing on a single task.
+    across perspectives (Personal, Church, Work, Holistic) AND execute
+    task updates when requested.
     
     The perspective parameter filters which tasks are included:
     - personal: Personal projects (Around The House, Family Time, etc.)
     - church: Church ministry tasks only
     - work: Professional tasks from work Smartsheet
     - holistic: All tasks across all domains
+    
+    Returns pending_actions when DATA wants to update tasks - frontend
+    should display these for user confirmation before executing.
     """
     from daily_task_assistant.smartsheet_client import SmartsheetClient
     from daily_task_assistant.portfolio_context import build_portfolio_context
-    from daily_task_assistant.llm.prompts import (
-        build_global_chat_messages,
-        GLOBAL_CHAT_SYSTEM_PROMPT,
-    )
+    from daily_task_assistant.llm.prompts import _format_portfolio_summary
     from daily_task_assistant.llm.anthropic_client import (
-        build_anthropic_client,
-        resolve_config,
+        portfolio_chat_with_tools,
         AnthropicError,
     )
     from daily_task_assistant.trust import log_trust_event
@@ -290,28 +292,23 @@ def global_chat(
         },
     )
     
-    # Build messages with portfolio context
-    messages = build_global_chat_messages(portfolio, request.message, llm_history)
+    # Format portfolio context for LLM
+    portfolio_context_text = _format_portfolio_summary(portfolio)
     
-    # Execute LLM call
+    # Execute LLM call with tools
     try:
-        llm_client = build_anthropic_client()
-        config = resolve_config(request.anthropic_model)
-        
-        response = llm_client.messages.create(
-            model=config.model,
-            max_tokens=800,
-            temperature=0.5,
-            system=GLOBAL_CHAT_SYSTEM_PROMPT,
-            messages=messages,
+        chat_response = portfolio_chat_with_tools(
+            portfolio_context=portfolio_context_text,
+            task_summaries=portfolio.task_summaries,
+            user_message=request.message,
+            history=llm_history,
+            perspective=request.perspective,
         )
+        response_text = chat_response.message
+        pending_actions = chat_response.pending_actions
         
-        # Extract response text
-        response_text = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                response_text += block.text
-        
+    except AnthropicError as exc:
+        raise HTTPException(status_code=502, detail=f"AI service error: {exc}")
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AI service error: {exc}")
     
@@ -323,6 +320,7 @@ def global_chat(
         metadata={
             "source": "global_chat",
             "perspective": request.perspective,
+            "has_pending_actions": len(pending_actions) > 0,
         },
     )
     
@@ -340,9 +338,49 @@ def global_chat(
     # Fetch updated history
     updated_history = fetch_conversation(conversation_id, limit=50)
     
+    # Format pending actions for frontend - enrich with task details from portfolio
+    task_lookup = {t["row_id"]: t for t in portfolio.task_summaries}
+    formatted_actions = []
+    
+    # Debug: log available row_ids vs requested row_ids
+    available_ids = list(task_lookup.keys())[:5]
+    logger.info(f"[DEBUG] Available task row_ids (first 5): {available_ids}")
+    requested_ids = [a.row_id for a in pending_actions[:5]]
+    logger.info(f"[DEBUG] LLM requested row_ids (first 5): {requested_ids}")
+    
+    for action in pending_actions:
+        # Look up task details to include title and domain
+        task_info = task_lookup.get(action.row_id, {})
+        if not task_info:
+            logger.warning(f"[DEBUG] No task found for row_id: {action.row_id}")
+        formatted_actions.append({
+            "rowId": action.row_id,
+            "action": action.action,
+            "status": action.status,
+            "priority": action.priority,
+            "dueDate": action.due_date,
+            "comment": action.comment,
+            "number": action.number,
+            "contactFlag": action.contact_flag,
+            "recurring": action.recurring,
+            "project": action.project,
+            "taskTitle": task_info.get("title") or action.task_title,
+            "assignedTo": action.assigned_to,
+            "notes": action.notes,
+            "estimatedHours": action.estimated_hours,
+            "reason": action.reason,
+            # Add enriched data from portfolio
+            "domain": task_info.get("domain", "Unknown"),
+            "currentDue": task_info.get("due", "")[:10] if task_info.get("due") else None,
+            "currentNumber": task_info.get("number"),
+            "currentPriority": task_info.get("priority"),
+            "currentStatus": task_info.get("status"),
+        })
+    
     return {
         "response": response_text,
         "perspective": request.perspective,
+        "pendingActions": formatted_actions,  # NEW: Task updates for confirmation
         "portfolio": {
             "totalOpen": portfolio.total_open,
             "overdue": portfolio.overdue,
@@ -437,6 +475,342 @@ def clear_global_history(
     return {
         "status": "cleared",
         "perspective": perspective,
+    }
+
+
+# ============================================================================
+# BULK TASK UPDATES (Portfolio Actions)
+# ============================================================================
+
+class BulkTaskUpdate(BaseModel):
+    """Single task update in a bulk operation."""
+    model_config = {"populate_by_name": True}
+    
+    row_id: str = Field(..., alias="rowId", description="Smartsheet row ID")
+    action: Literal[
+        "mark_complete", "update_status", "update_priority", "update_due_date",
+        "add_comment", "update_number", "update_contact_flag", "update_recurring",
+        "update_project", "update_task", "update_assigned_to", "update_notes",
+        "update_estimated_hours"
+    ]
+    # Optional fields based on action
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = Field(None, alias="dueDate")
+    comment: Optional[str] = None
+    number: Optional[float] = None  # Supports decimals: 0.1-0.9 for recurring, 1+ for regular
+    contact_flag: Optional[bool] = Field(None, alias="contactFlag")
+    recurring: Optional[str] = None
+    project: Optional[str] = None
+    task_title: Optional[str] = Field(None, alias="taskTitle")
+    assigned_to: Optional[str] = Field(None, alias="assignedTo")
+    notes: Optional[str] = None
+    estimated_hours: Optional[str] = Field(None, alias="estimatedHours")
+    reason: str = ""
+
+
+class BulkUpdateRequest(BaseModel):
+    """Request body for bulk task updates."""
+    model_config = {"populate_by_name": True}
+    
+    updates: List[BulkTaskUpdate] = Field(..., description="List of task updates to perform")
+    perspective: Literal["personal", "church", "work", "holistic"] = "holistic"
+
+
+class BulkUpdateResult(BaseModel):
+    """Result for a single task update."""
+    model_config = {"populate_by_name": True}
+    
+    row_id: str = Field(..., alias="rowId")
+    success: bool
+    error: Optional[str] = None
+
+
+@app.post("/assist/global/bulk-update")
+def bulk_update_tasks(
+    request: BulkUpdateRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Execute multiple task updates in a single request.
+    
+    This enables portfolio-level task management like:
+    - Rescheduling multiple overdue tasks
+    - Reordering tasks for the day (# field)
+    - Bulk status changes
+    
+    Each update is executed independently - failures don't stop subsequent updates.
+    Returns results for each update with success/failure status.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    
+    settings = _get_settings()
+    
+    try:
+        client = SmartsheetClient(settings)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to connect to Smartsheet: {exc}")
+    
+    results: List[BulkUpdateResult] = []
+    success_count = 0
+    
+    for update in request.updates:
+        try:
+            # Build the update payload based on action
+            update_data = {}
+            
+            if update.action == "mark_complete":
+                # Check if task is recurring - if so, only set done
+                update_data["done"] = True
+                # Note: For recurring tasks, status should NOT change per user's requirements
+                
+            elif update.action == "update_status":
+                update_data["status"] = update.status
+                # Terminal statuses also mark done
+                if update.status in ("Completed", "Cancelled", "Delegated", "Ticket Created"):
+                    update_data["done"] = True
+                    
+            elif update.action == "update_priority":
+                update_data["priority"] = update.priority
+                
+            elif update.action == "update_due_date":
+                update_data["due_date"] = update.due_date
+                
+            elif update.action == "add_comment":
+                update_data["notes"] = update.comment
+                
+            elif update.action == "update_number":
+                update_data["number"] = update.number
+                
+            elif update.action == "update_contact_flag":
+                update_data["contact_flag"] = update.contact_flag
+                
+            elif update.action == "update_recurring":
+                update_data["recurring_pattern"] = update.recurring
+                
+            elif update.action == "update_project":
+                update_data["project"] = update.project
+                
+            elif update.action == "update_task":
+                update_data["task"] = update.task_title
+                
+            elif update.action == "update_assigned_to":
+                update_data["assigned_to"] = update.assigned_to
+                
+            elif update.action == "update_notes":
+                update_data["notes"] = update.notes
+                
+            elif update.action == "update_estimated_hours":
+                update_data["estimated_hours"] = update.estimated_hours
+            
+            # Execute the update
+            client.update_row(update.row_id, update_data)
+            
+            results.append(BulkUpdateResult(row_id=update.row_id, success=True))
+            success_count += 1
+            
+        except Exception as exc:
+            results.append(BulkUpdateResult(
+                row_id=update.row_id,
+                success=False,
+                error=str(exc)[:200]
+            ))
+    
+    return {
+        "success": success_count == len(request.updates),
+        "totalUpdates": len(request.updates),
+        "successCount": success_count,
+        "failureCount": len(request.updates) - success_count,
+        "results": [r.model_dump(by_alias=True) for r in results],
+    }
+
+
+# ============================================================================
+# WORKLOAD REBALANCING
+# ============================================================================
+
+class RebalanceRequest(BaseModel):
+    """Request for workload rebalancing proposal."""
+    model_config = {"populate_by_name": True}
+    
+    perspective: Literal["personal", "church", "work", "holistic"] = "holistic"
+    focus: Literal["overdue", "today", "week", "all"] = "overdue"
+    include_sequencing: bool = Field(True, alias="includeSequencing", description="Include # ordering suggestions")
+
+
+class RebalanceProposedChange(BaseModel):
+    """A single proposed change in the rebalancing plan."""
+    model_config = {"populate_by_name": True}
+    
+    row_id: str = Field(..., alias="rowId")
+    title: str
+    domain: str  # Personal, Church, Work
+    current_due: str = Field(..., alias="currentDue")
+    proposed_due: str = Field(..., alias="proposedDue")
+    current_number: Optional[float] = Field(None, alias="currentNumber")  # 0.1-0.9 = recurring, 1+ = regular
+    proposed_number: Optional[float] = Field(None, alias="proposedNumber")
+    priority: str
+    reason: str
+
+
+@app.post("/assist/global/rebalance")
+def propose_rebalancing(
+    request: RebalanceRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Generate a workload rebalancing proposal.
+    
+    This endpoint analyzes the portfolio and generates specific date/ordering
+    changes to create a more realistic workload. The proposal is returned
+    for user review and modification before execution.
+    
+    The proposal includes:
+    - Suggested new due dates for overdue/overloaded tasks
+    - Suggested # ordering for today's tasks (if includeSequencing=true)
+    - Reasoning for each change
+    
+    User can modify the proposal in the UI before sending to /bulk-update.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    from daily_task_assistant.portfolio_context import build_portfolio_context
+    from daily_task_assistant.llm.anthropic_client import (
+        build_anthropic_client,
+        resolve_config,
+        AnthropicError,
+    )
+    from datetime import datetime, timedelta
+    
+    settings = _get_settings()
+    
+    try:
+        client = SmartsheetClient(settings)
+        portfolio = build_portfolio_context(client, request.perspective)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to load portfolio: {exc}")
+    
+    # Get tasks that need rebalancing based on focus
+    tasks_to_rebalance = []
+    today = datetime.now().date()
+    
+    for task in portfolio.task_summaries:
+        try:
+            due_date = datetime.fromisoformat(task["due"].replace("Z", "+00:00")).date()
+        except (ValueError, KeyError):
+            continue
+            
+        if request.focus == "overdue" and due_date < today:
+            tasks_to_rebalance.append(task)
+        elif request.focus == "today" and due_date == today:
+            tasks_to_rebalance.append(task)
+        elif request.focus == "week" and due_date <= today + timedelta(days=7):
+            tasks_to_rebalance.append(task)
+        elif request.focus == "all":
+            tasks_to_rebalance.append(task)
+    
+    if not tasks_to_rebalance:
+        return {
+            "status": "no_changes_needed",
+            "message": f"No tasks found for {request.focus} rebalancing",
+            "proposedChanges": [],
+        }
+    
+    # Build prompt for LLM to generate rebalancing proposal
+    task_list = "\n".join([
+        f"- [{t['row_id']}] {t['title'][:50]} | {t['priority']} | Due: {t['due'][:10]} | #: {t.get('number', '-')} | Domain: {t.get('domain', 'Unknown')}"
+        for t in tasks_to_rebalance[:30]
+    ])
+    
+    rebalance_prompt = f"""You are David's AI chief of staff. Analyze these {len(tasks_to_rebalance)} tasks and propose a realistic rebalancing plan.
+
+TODAY: {today.isoformat()}
+
+TASKS NEEDING REBALANCING:
+{task_list}
+
+REBALANCING RULES:
+1. Spread overdue tasks across the next 1-2 weeks
+2. No more than 5-7 tasks per day
+3. Consider priority - Critical/Urgent should be scheduled sooner
+4. Consider domain balance - don't overload one domain on a single day
+5. Use weekdays primarily (Mon-Fri)
+6. If includeSequencing is true, suggest # ordering for today's tasks (1-10)
+
+OUTPUT FORMAT (JSON array):
+[
+  {{"row_id": "...", "proposed_due": "YYYY-MM-DD", "proposed_number": N or null, "reason": "brief reason"}}
+]
+
+Generate {min(len(tasks_to_rebalance), 20)} changes maximum. Focus on the most impactful changes."""
+
+    try:
+        llm_client = build_anthropic_client()
+        config = resolve_config()
+        
+        response = llm_client.messages.create(
+            model=config.model,
+            max_tokens=2000,
+            temperature=0.3,
+            system="You are a task scheduling assistant. Output ONLY valid JSON arrays, no markdown.",
+            messages=[{"role": "user", "content": rebalance_prompt}],
+        )
+        
+        # Extract response text
+        response_text = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                response_text += block.text
+        
+        # Parse JSON from response
+        import json
+        import re
+        
+        # Try to extract JSON array from response
+        json_match = re.search(r'\[[\s\S]*\]', response_text)
+        if json_match:
+            proposed_changes_raw = json.loads(json_match.group())
+        else:
+            proposed_changes_raw = []
+            
+    except Exception as exc:
+        # Fallback: generate simple rebalancing
+        proposed_changes_raw = []
+        for i, task in enumerate(tasks_to_rebalance[:15]):
+            days_offset = (i // 5) + 1  # Spread 5 per day
+            new_date = today + timedelta(days=days_offset)
+            proposed_changes_raw.append({
+                "row_id": task["row_id"],
+                "proposed_due": new_date.isoformat(),
+                "proposed_number": (i % 5) + 1 if request.include_sequencing else None,
+                "reason": "Auto-distributed to reduce overload"
+            })
+    
+    # Build formatted response with task details
+    proposed_changes = []
+    task_lookup = {t["row_id"]: t for t in tasks_to_rebalance}
+    
+    for change in proposed_changes_raw:
+        row_id = change.get("row_id")
+        if row_id not in task_lookup:
+            continue
+            
+        task = task_lookup[row_id]
+        proposed_changes.append(RebalanceProposedChange(
+            row_id=row_id,
+            title=task.get("title", "Unknown"),
+            domain=task.get("domain", "Unknown"),
+            current_due=task.get("due", "")[:10],
+            proposed_due=change.get("proposed_due", ""),
+            current_number=task.get("number"),
+            proposed_number=change.get("proposed_number"),
+            priority=task.get("priority", "Standard"),
+            reason=change.get("reason", ""),
+        ))
+    
+    return {
+        "status": "proposal_ready",
+        "message": f"Proposed {len(proposed_changes)} changes to rebalance your {request.focus} workload",
+        "perspective": request.perspective,
+        "focus": request.focus,
+        "proposedChanges": [c.model_dump(by_alias=True) for c in proposed_changes],
     }
 
 

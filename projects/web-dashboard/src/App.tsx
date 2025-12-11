@@ -4,6 +4,7 @@ import { TaskList } from './components/TaskList'
 import { AssistPanel } from './components/AssistPanel'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
+import { RebalancingEditor } from './components/RebalancingEditor'
 import {
   clearGlobalHistory,
   deleteGlobalMessage,
@@ -31,8 +32,9 @@ import {
   submitFeedback,
   unstrikeMessage,
   updateTask,
+  bulkUpdateTasks,
 } from './api'
-import type { Perspective, PortfolioStats, SavedEmailDraft } from './api'
+import type { Perspective, PortfolioStats, SavedEmailDraft, PortfolioPendingAction, BulkTaskUpdate } from './api'
 import type {
   ContactCard,
   ContactSearchResponse,
@@ -110,6 +112,9 @@ function App() {
   const [globalPerspective, setGlobalPerspective] = useState<Perspective>('personal')
   const [globalConversation, setGlobalConversation] = useState<ConversationMessage[]>([])
   const [globalStats, setGlobalStats] = useState<PortfolioStats | null>(null)
+  const [portfolioPendingActions, setPortfolioPendingActions] = useState<PortfolioPendingAction[]>([])
+  const [editablePendingActions, setEditablePendingActions] = useState<PortfolioPendingAction[]>([])
+  const [portfolioActionsExecuting, setPortfolioActionsExecuting] = useState(false)
   const [globalChatLoading, setGlobalChatLoading] = useState(false)
   const [globalExpanded, setGlobalExpanded] = useState(false)
 
@@ -830,12 +835,46 @@ function App() {
       })
       setGlobalConversation(result.history)
       setGlobalStats(result.portfolio)
+      // Capture pending actions for user editing and confirmation
+      if (result.pendingActions && result.pendingActions.length > 0) {
+        setPortfolioPendingActions(result.pendingActions)
+        // Create editable copy for user modifications
+        setEditablePendingActions([...result.pendingActions])
+      }
     } catch (err) {
       console.error('Global chat failed:', err)
       setAssistError(err instanceof Error ? err.message : 'Global chat failed')
     } finally {
       setGlobalChatLoading(false)
     }
+  }
+  
+  async function handleConfirmPortfolioActions(updates: BulkTaskUpdate[]) {
+    if (!authConfig || updates.length === 0) return
+    
+    setPortfolioActionsExecuting(true)
+    try {
+      const result = await bulkUpdateTasks(updates, authConfig, globalPerspective, apiBase)
+      
+      if (result.success) {
+        setPortfolioPendingActions([])
+        setEditablePendingActions([])
+        // Refresh tasks
+        await handleRefresh()
+      } else {
+        setAssistError(`${result.failureCount} of ${result.totalUpdates} updates failed`)
+      }
+    } catch (err) {
+      console.error('Bulk update failed:', err)
+      setAssistError(err instanceof Error ? err.message : 'Failed to execute updates')
+    } finally {
+      setPortfolioActionsExecuting(false)
+    }
+  }
+  
+  function handleCancelPortfolioActions() {
+    setPortfolioPendingActions([])
+    setEditablePendingActions([])
   }
   
   async function handleClearGlobalHistory() {
@@ -1009,6 +1048,16 @@ function App() {
       </div>
       )}
 
+      {/* Rebalancing Editor - Full page overlay when pending actions exist */}
+      {portfolioPendingActions.length > 0 && (
+        <RebalancingEditor
+          pendingActions={portfolioPendingActions}
+          onApply={handleConfirmPortfolioActions}
+          onCancel={handleCancelPortfolioActions}
+          executing={portfolioActionsExecuting}
+        />
+      )}
+
       <main className={`grid ${taskPanelCollapsed ? 'task-collapsed' : ''}`}>
         {!authConfig ? (
           <section className="panel">
@@ -1090,6 +1139,11 @@ function App() {
               onExpandTasks={handleExpandTasksFromGlobal}
               onStrikeGlobalMessages={handleStrikeGlobalMessages}
               onDeleteGlobalMessage={handleDeleteGlobalMessage}
+              // Portfolio pending actions
+              portfolioPendingActions={portfolioPendingActions}
+              portfolioActionsExecuting={portfolioActionsExecuting}
+              onConfirmPortfolioActions={handleConfirmPortfolioActions}
+              onCancelPortfolioActions={handleCancelPortfolioActions}
             />
           </>
         )}

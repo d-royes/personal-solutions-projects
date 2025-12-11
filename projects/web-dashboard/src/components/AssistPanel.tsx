@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
-import type { ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import type { ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction, PortfolioPendingAction } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 
 // Feedback callback type
@@ -309,6 +309,11 @@ interface AssistPanelProps {
   onToggleGlobalExpand?: () => void
   onStrikeGlobalMessages?: (messageTimestamps: string[]) => Promise<void>
   onDeleteGlobalMessage?: (messageTs: string) => Promise<void>
+  // Portfolio pending actions
+  portfolioPendingActions?: PortfolioPendingAction[]
+  portfolioActionsExecuting?: boolean
+  onConfirmPortfolioActions?: () => Promise<void>
+  onCancelPortfolioActions?: () => void
 }
 
 // Draggable divider component
@@ -356,6 +361,39 @@ function DraggableDivider({
       <div className="divider-handle" />
     </div>
   )
+}
+
+function formatPortfolioAction(action: PortfolioPendingAction): string {
+  switch (action.action) {
+    case 'mark_complete':
+      return '✓ Mark as complete'
+    case 'update_status':
+      return `→ Status: ${action.status}`
+    case 'update_priority':
+      return `⚡ Priority: ${action.priority}`
+    case 'update_due_date':
+      return `📅 Due: ${action.dueDate}`
+    case 'add_comment':
+      return `💬 Add comment`
+    case 'update_number':
+      return `# → ${action.number}`
+    case 'update_contact_flag':
+      return `📞 Contact: ${action.contactFlag ? 'Yes' : 'No'}`
+    case 'update_recurring':
+      return `🔄 Recurring: ${action.recurring}`
+    case 'update_project':
+      return `📁 Project: ${action.project}`
+    case 'update_task':
+      return `✏️ Rename task`
+    case 'update_assigned_to':
+      return `👤 Assign: ${action.assignedTo}`
+    case 'update_notes':
+      return `📝 Update notes`
+    case 'update_estimated_hours':
+      return `⏱️ Hours: ${action.estimatedHours}`
+    default:
+      return action.action
+  }
 }
 
 function formatPendingAction(action: PendingAction): string {
@@ -448,6 +486,10 @@ export function AssistPanel({
   onToggleGlobalExpand,
   onStrikeGlobalMessages,
   onDeleteGlobalMessage,
+  portfolioPendingActions,
+  portfolioActionsExecuting,
+  onConfirmPortfolioActions,
+  onCancelPortfolioActions,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
   const [message, setMessage] = useState('')
