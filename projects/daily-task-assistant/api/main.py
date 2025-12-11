@@ -134,11 +134,31 @@ class ConversationMessageModel(BaseModel):
 
 @app.get("/health")
 def health_check() -> dict:
+    """Health check endpoint with service configuration status."""
+    import os
     settings = _get_settings()
+    
+    # Check service configurations
+    services = {
+        "anthropic": "configured" if os.getenv("ANTHROPIC_API_KEY") else "not_configured",
+        "smartsheet": "configured" if os.getenv("SMARTSHEET_API_TOKEN") else "not_configured",
+        "church_gmail": "configured" if all([
+            os.getenv("CHURCH_GMAIL_CLIENT_ID"),
+            os.getenv("CHURCH_GMAIL_CLIENT_SECRET"),
+            os.getenv("CHURCH_GMAIL_REFRESH_TOKEN"),
+        ]) else "not_configured",
+        "personal_gmail": "configured" if all([
+            os.getenv("PERSONAL_GMAIL_CLIENT_ID"),
+            os.getenv("PERSONAL_GMAIL_CLIENT_SECRET"),
+            os.getenv("PERSONAL_GMAIL_REFRESH_TOKEN"),
+        ]) else "not_configured",
+    }
+    
     return {
         "status": "ok",
         "time": datetime.now(timezone.utc).isoformat(),
         "environment": settings.environment,
+        "services": services,
     }
 
 
