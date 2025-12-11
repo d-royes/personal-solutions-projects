@@ -980,6 +980,7 @@ export interface GlobalContextResponse {
 
 export interface PortfolioPendingAction {
   rowId: string
+  source: 'personal' | 'work'  // Which Smartsheet the task belongs to
   action: TaskUpdateAction
   status?: string
   priority?: string
@@ -1172,6 +1173,7 @@ export async function deleteGlobalMessage(
 
 export interface BulkTaskUpdate {
   rowId: string
+  source: 'personal' | 'work'  // Which Smartsheet to update
   action: TaskUpdateAction
   status?: string
   priority?: string

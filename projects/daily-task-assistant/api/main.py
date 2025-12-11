@@ -379,6 +379,7 @@ def global_chat(
             logger.warning(f"[DEBUG] No task found for row_id: {action.row_id}")
         formatted_actions.append({
             "rowId": action.row_id,
+            "source": task_info.get("source", "personal"),  # Which Smartsheet to update
             "action": action.action,
             "status": action.status,
             "priority": action.priority,
@@ -511,6 +512,7 @@ class BulkTaskUpdate(BaseModel):
     model_config = {"populate_by_name": True}
     
     row_id: str = Field(..., alias="rowId", description="Smartsheet row ID")
+    source: str = Field("personal", description="Source sheet: 'personal' or 'work'")
     action: Literal[
         "mark_complete", "update_status", "update_priority", "update_due_date",
         "add_comment", "update_number", "update_contact_flag", "update_recurring",
@@ -565,6 +567,11 @@ def bulk_update_tasks(
     Each update is executed independently - failures don't stop subsequent updates.
     Returns results for each update with success/failure status.
     """
+    import logging
+    logging.warning(f"[BULK-UPDATE] Received {len(request.updates)} updates")
+    for i, upd in enumerate(request.updates):
+        logging.warning(f"[BULK-UPDATE] Update {i}: row_id={upd.row_id}, action={upd.action}, number={upd.number}, due_date={upd.due_date}")
+    
     from daily_task_assistant.smartsheet_client import SmartsheetClient
     
     settings = _get_settings()
@@ -627,7 +634,9 @@ def bulk_update_tasks(
                 update_data["estimated_hours"] = update.estimated_hours
             
             # Execute the update
-            client.update_row(update.row_id, update_data)
+            logging.warning(f"[BULK-UPDATE] Executing: row_id={update.row_id}, source={update.source}, update_data={update_data}")
+            client.update_row(update.row_id, update_data, source=update.source)
+            logging.warning(f"[BULK-UPDATE] Success: row_id={update.row_id}")
             
             results.append(BulkUpdateResult(row_id=update.row_id, success=True))
             success_count += 1

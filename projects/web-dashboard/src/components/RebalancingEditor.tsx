@@ -99,10 +99,14 @@ export function RebalancingEditor({
     const updates: BulkTaskUpdate[] = []
     
     for (const action of editableActions) {
+      // Determine source - default to personal if not specified
+      const source = action.source || 'personal'
+      
       // Check what changed and create appropriate updates
       if (action.dueDate && action.dueDate !== action.originalDueDate) {
         updates.push({
           rowId: action.rowId,
+          source,
           action: 'update_due_date',
           dueDate: action.dueDate,
           reason: action.reason || 'Rebalancing',
@@ -112,6 +116,7 @@ export function RebalancingEditor({
       if (action.number !== undefined && action.number !== action.originalNumber) {
         updates.push({
           rowId: action.rowId,
+          source,
           action: 'update_number',
           number: action.number,
           reason: action.reason || 'Rebalancing',
@@ -121,6 +126,7 @@ export function RebalancingEditor({
       if (action.priority && action.priority !== action.originalPriority) {
         updates.push({
           rowId: action.rowId,
+          source,
           action: 'update_priority',
           priority: action.priority,
           reason: action.reason || 'Rebalancing',
@@ -130,6 +136,7 @@ export function RebalancingEditor({
       if (action.status && action.status !== action.originalStatus) {
         updates.push({
           rowId: action.rowId,
+          source,
           action: 'update_status',
           status: action.status,
           reason: action.reason || 'Rebalancing',
@@ -140,6 +147,7 @@ export function RebalancingEditor({
       if (action.action === 'mark_complete') {
         updates.push({
           rowId: action.rowId,
+          source,
           action: 'mark_complete',
           reason: action.reason || 'Marked complete during rebalancing',
         })
