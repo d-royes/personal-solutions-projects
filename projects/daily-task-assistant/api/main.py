@@ -1602,8 +1602,8 @@ def update_task(
     }
     
     if request.action == "mark_complete":
-        preview["changes"] = {"status": "Completed", "done": True}
-        preview["description"] = "Mark task as complete (Status → Completed, Done → checked)"
+        preview["changes"] = {"done": True}
+        preview["description"] = "Mark task as complete (Done → checked; for recurring tasks, status stays 'Recurring')"
     elif request.action == "update_status":
         # Determine if Done checkbox should be updated based on status
         if request.status in TERMINAL_STATUSES:

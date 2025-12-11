@@ -441,7 +441,12 @@ class SmartsheetClient:
             raise SmartsheetAPIError(f"Failed to update row {row_id}: {exc}") from exc
 
     def mark_complete(self, row_id: str, *, source: str = "personal") -> Dict[str, Any]:
-        """Mark a task as complete by setting Status='Completed' and Done=true.
+        """Mark a task as complete.
+        
+        For recurring tasks: Only checks the Done box (leaves status as "Recurring")
+        so Smartsheet automation can reset the task for the next occurrence.
+        
+        For regular tasks: Sets Status='Completed' and Done=true.
         
         Args:
             row_id: The Smartsheet row ID to mark complete
@@ -450,6 +455,35 @@ class SmartsheetClient:
         Returns:
             The API response containing the updated row data.
         """
+        # Fetch the row to check current status
+        schema = self._get_schema(source)
+        try:
+            row_data = self._request(
+                "GET",
+                f"/sheets/{schema.sheet_id}/rows/{row_id}",
+            )
+        except SmartsheetAPIError:
+            # If we can't fetch, fall back to standard completion
+            return self.update_row(row_id, {
+                "status": "Completed",
+                "done": True,
+            }, source=source)
+        
+        # Check if task is recurring by looking at the status cell
+        current_status = None
+        status_col = schema.get_column("status")
+        if status_col and "cells" in row_data:
+            for cell in row_data["cells"]:
+                if cell.get("columnId") == int(status_col.column_id):
+                    current_status = cell.get("displayValue") or cell.get("value")
+                    break
+        
+        # For recurring tasks: only check Done box (don't change status)
+        # This allows Smartsheet automation to reset the task
+        if current_status == "Recurring":
+            return self.update_row(row_id, {"done": True}, source=source)
+        
+        # For regular tasks: set both status and done
         return self.update_row(row_id, {
             "status": "Completed",
             "done": True,
