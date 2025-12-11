@@ -1789,6 +1789,172 @@ def delete_draft_endpoint(
     }
 
 
+# --- Inbox Reading endpoints ---
+
+class EmailMessageModel(BaseModel):
+    """Response model for an email message."""
+    model_config = {"populate_by_name": True}
+    
+    id: str
+    thread_id: str = Field(alias="threadId")
+    from_address: str = Field(alias="fromAddress")
+    from_name: str = Field(alias="fromName")
+    to_address: str = Field(alias="toAddress")
+    subject: str
+    snippet: str
+    date: str
+    is_unread: bool = Field(alias="isUnread")
+    is_important: bool = Field(alias="isImportant")
+    is_starred: bool = Field(alias="isStarred")
+    age_hours: float = Field(alias="ageHours")
+
+
+class InboxSummaryModel(BaseModel):
+    """Response model for inbox summary."""
+    model_config = {"populate_by_name": True}
+    
+    total_unread: int = Field(alias="totalUnread")
+    unread_important: int = Field(alias="unreadImportant")
+    unread_from_vips: int = Field(alias="unreadFromVips")
+    recent_messages: List[EmailMessageModel] = Field(alias="recentMessages")
+    vip_messages: List[EmailMessageModel] = Field(alias="vipMessages")
+
+
+def _email_to_model(msg) -> dict:
+    """Convert EmailMessage to dict for API response."""
+    return {
+        "id": msg.id,
+        "threadId": msg.thread_id,
+        "fromAddress": msg.from_address,
+        "fromName": msg.from_name,
+        "toAddress": msg.to_address,
+        "subject": msg.subject,
+        "snippet": msg.snippet,
+        "date": msg.date.isoformat(),
+        "isUnread": msg.is_unread,
+        "isImportant": msg.is_important,
+        "isStarred": msg.is_starred,
+        "ageHours": round(msg.age_hours(), 2),
+    }
+
+
+@app.get("/inbox/{account}")
+def get_inbox(
+    account: Literal["church", "personal"],
+    max_results: int = Query(20, ge=1, le=100),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get inbox summary for a Gmail account.
+    
+    Returns unread counts and recent messages.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        get_inbox_summary,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    try:
+        summary = get_inbox_summary(gmail_config, max_recent=max_results)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "account": account,
+        "email": gmail_config.from_address,
+        "totalUnread": summary.total_unread,
+        "unreadImportant": summary.unread_important,
+        "unreadFromVips": summary.unread_from_vips,
+        "recentMessages": [_email_to_model(m) for m in summary.recent_messages],
+        "vipMessages": [_email_to_model(m) for m in summary.vip_messages],
+    }
+
+
+@app.get("/inbox/{account}/unread")
+def get_unread(
+    account: Literal["church", "personal"],
+    max_results: int = Query(20, ge=1, le=100),
+    from_filter: Optional[str] = Query(None, description="Filter by sender"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get unread messages from a Gmail account.
+    
+    Optionally filter by sender address pattern.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        get_unread_messages,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    try:
+        messages = get_unread_messages(
+            gmail_config,
+            max_results=max_results,
+            from_filter=from_filter,
+        )
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "account": account,
+        "email": gmail_config.from_address,
+        "count": len(messages),
+        "messages": [_email_to_model(m) for m in messages],
+    }
+
+
+@app.get("/inbox/{account}/search")
+def search_inbox(
+    account: Literal["church", "personal"],
+    q: str = Query(..., description="Gmail search query"),
+    max_results: int = Query(20, ge=1, le=100),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Search messages in a Gmail account.
+    
+    Uses Gmail search syntax (e.g., "is:unread from:boss@company.com").
+    
+    Examples:
+    - is:unread subject:urgent
+    - from:@company.com after:2025/01/01
+    - has:attachment filename:pdf
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        search_messages,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    try:
+        messages = search_messages(gmail_config, query=q, max_results=max_results)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "account": account,
+        "email": gmail_config.from_address,
+        "query": q,
+        "count": len(messages),
+        "messages": [_email_to_model(m) for m in messages],
+    }
+
+
 # --- Workspace endpoints ---
 
 class WorkspaceSaveRequest(BaseModel):
