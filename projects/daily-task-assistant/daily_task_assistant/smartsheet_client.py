@@ -456,7 +456,7 @@ class SmartsheetClient:
             The API response containing the updated row data.
         """
         # Fetch the row to check current status
-        schema = self._get_schema(source)
+        schema = self._get_schema_for_source(source)
         try:
             row_data = self._request(
                 "GET",
@@ -471,7 +471,7 @@ class SmartsheetClient:
         
         # Check if task is recurring by looking at the status cell
         current_status = None
-        status_col = schema.get_column("status")
+        status_col = schema.columns.get("status")
         if status_col and "cells" in row_data:
             for cell in row_data["cells"]:
                 if cell.get("columnId") == int(status_col.column_id):

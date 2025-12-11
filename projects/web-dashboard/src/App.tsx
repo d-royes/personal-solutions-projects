@@ -113,7 +113,6 @@ function App() {
   const [globalConversation, setGlobalConversation] = useState<ConversationMessage[]>([])
   const [globalStats, setGlobalStats] = useState<PortfolioStats | null>(null)
   const [portfolioPendingActions, setPortfolioPendingActions] = useState<PortfolioPendingAction[]>([])
-  const [editablePendingActions, setEditablePendingActions] = useState<PortfolioPendingAction[]>([])
   const [portfolioActionsExecuting, setPortfolioActionsExecuting] = useState(false)
   const [globalChatLoading, setGlobalChatLoading] = useState(false)
   const [globalExpanded, setGlobalExpanded] = useState(false)
@@ -647,7 +646,7 @@ function App() {
         message,
         authConfig,
         apiBase,
-        dataSource,
+        { source: dataSource },
       )
       // Update conversation with the response
       setConversation(result.history)
@@ -838,8 +837,6 @@ function App() {
       // Capture pending actions for user editing and confirmation
       if (result.pendingActions && result.pendingActions.length > 0) {
         setPortfolioPendingActions(result.pendingActions)
-        // Create editable copy for user modifications
-        setEditablePendingActions([...result.pendingActions])
       }
     } catch (err) {
       console.error('Global chat failed:', err)
@@ -858,9 +855,8 @@ function App() {
       
       if (result.success) {
         setPortfolioPendingActions([])
-        setEditablePendingActions([])
         // Refresh tasks
-        await handleRefresh()
+        await refreshTasks()
       } else {
         setAssistError(`${result.failureCount} of ${result.totalUpdates} updates failed`)
       }
@@ -874,7 +870,6 @@ function App() {
   
   function handleCancelPortfolioActions() {
     setPortfolioPendingActions([])
-    setEditablePendingActions([])
   }
   
   async function handleClearGlobalHistory() {
@@ -1139,11 +1134,6 @@ function App() {
               onExpandTasks={handleExpandTasksFromGlobal}
               onStrikeGlobalMessages={handleStrikeGlobalMessages}
               onDeleteGlobalMessage={handleDeleteGlobalMessage}
-              // Portfolio pending actions
-              portfolioPendingActions={portfolioPendingActions}
-              portfolioActionsExecuting={portfolioActionsExecuting}
-              onConfirmPortfolioActions={handleConfirmPortfolioActions}
-              onCancelPortfolioActions={handleCancelPortfolioActions}
             />
           </>
         )}
