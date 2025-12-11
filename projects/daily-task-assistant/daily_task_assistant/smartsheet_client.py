@@ -316,12 +316,17 @@ class SmartsheetClient:
         ]
 
         from datetime import datetime, timedelta
-        now = datetime.utcnow()
-        three_days = now + timedelta(days=3)
+        from zoneinfo import ZoneInfo
+        
+        # Use Eastern Time for date comparisons
+        tz = ZoneInfo("America/New_York")
+        now = datetime.now(tz)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        three_days = today_start + timedelta(days=3)
 
         urgent = sum(1 for t in active_tasks if t.priority in ("Critical", "Urgent"))
-        due_soon = sum(1 for t in active_tasks if now <= t.due <= three_days)
-        overdue = sum(1 for t in active_tasks if t.due < now)
+        due_soon = sum(1 for t in active_tasks if today_start <= t.due.replace(tzinfo=tz) <= three_days)
+        overdue = sum(1 for t in active_tasks if t.due.replace(tzinfo=tz) < today_start)
 
         return {
             "urgent": urgent,

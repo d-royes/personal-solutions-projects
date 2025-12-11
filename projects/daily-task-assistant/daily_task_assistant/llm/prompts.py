@@ -87,7 +87,15 @@ def _format_portfolio_summary(portfolio: PortfolioContext) -> str:
         "Tasks from selected perspective"
     )
     
+    # Include today's date so the LLM knows the reference point
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/New_York"))
+    today_str = today.strftime("%A, %B %d, %Y")  # e.g., "Thursday, December 11, 2025"
+    
     lines = [
+        f"**Today's Date: {today_str}**",
+        "",
         f"Perspective: {portfolio.perspective.title()} - {perspective_desc}",
         "",
         "## Current Snapshot",

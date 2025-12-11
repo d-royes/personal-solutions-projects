@@ -187,7 +187,7 @@ function App() {
     void loadGlobalContext()
   }, [authConfig, selectedTaskId, apiBase])
 
-  async function refreshTasks() {
+  async function refreshTasks(skipAutoSelect = false) {
     if (!authConfig) return
     setTasksLoading(true)
     setTasksWarning(null)
@@ -197,6 +197,16 @@ function App() {
         source: dataSource,
         includeWork: true,  // Include work tasks in the response
       })
+      
+      // Also refresh portfolio stats if in global mode
+      if (!selectedTaskId) {
+        try {
+          const portfolioResult = await fetchGlobalContext(authConfig, globalPerspective, apiBase)
+          setGlobalStats(portfolioResult.portfolio)
+        } catch (err) {
+          console.error('Failed to refresh portfolio stats:', err)
+        }
+      }
       // X statuses to exclude from all views
       const EXCLUDED_STATUSES = [
         'completed', 'cancelled', 'delegated',
@@ -217,7 +227,8 @@ function App() {
       if (response.environment) {
         setEnvironmentName(response.environment.toUpperCase())
       }
-      if (!selectedTaskId && activeTasks.length > 0) {
+      // Only auto-select first task on initial load, not when refreshing from Portfolio View
+      if (!skipAutoSelect && !selectedTaskId && activeTasks.length > 0) {
         // Default to first personal task (not work)
         const firstPersonal = activeTasks.find(t => t.source !== 'work')
         setSelectedTaskId(firstPersonal?.rowId ?? activeTasks[0].rowId)
@@ -817,10 +828,13 @@ function App() {
     try {
       const result = await fetchGlobalContext(authConfig, perspective, apiBase)
       setGlobalStats(result.portfolio)
-      setGlobalConversation(result.history || [])
+      // Only update conversation if we got valid history back
+      if (result.history) {
+        setGlobalConversation(result.history)
+      }
     } catch (err) {
       console.error('Failed to load portfolio context:', err)
-      setGlobalConversation([])
+      // Don't clear conversation on error - keep existing conversation
     }
   }
   
@@ -855,8 +869,8 @@ function App() {
       
       if (result.success) {
         setPortfolioPendingActions([])
-        // Refresh tasks
-        await refreshTasks()
+        // Refresh tasks but stay in Portfolio View (don't auto-select a task)
+        await refreshTasks(true)
       } else {
         setAssistError(`${result.failureCount} of ${result.totalUpdates} updates failed`)
       }

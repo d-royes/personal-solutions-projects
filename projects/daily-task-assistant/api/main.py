@@ -639,6 +639,22 @@ def bulk_update_tasks(
                 error=str(exc)[:200]
             ))
     
+    # Log summary to conversation history for audit trail and DATA context
+    if success_count > 0:
+        conversation_id = f"global:{request.perspective}"
+        summary = _build_bulk_update_summary(request.updates, results, success_count)
+        log_assistant_message(
+            conversation_id,
+            content=summary,
+            plan=None,
+            metadata={
+                "source": "bulk_update",
+                "perspective": request.perspective,
+                "success_count": success_count,
+                "total_count": len(request.updates),
+            },
+        )
+    
     return {
         "success": success_count == len(request.updates),
         "totalUpdates": len(request.updates),
@@ -646,6 +662,63 @@ def bulk_update_tasks(
         "failureCount": len(request.updates) - success_count,
         "results": [r.model_dump(by_alias=True) for r in results],
     }
+
+
+def _build_bulk_update_summary(
+    updates: List[BulkTaskUpdate],
+    results: List[BulkUpdateResult],
+    success_count: int
+) -> str:
+    """Build a human-readable summary of bulk update results for conversation history."""
+    from collections import Counter
+    from datetime import datetime
+    from daily_task_assistant.portfolio_context import USER_TIMEZONE
+    
+    timestamp = datetime.now(USER_TIMEZONE).strftime("%I:%M %p")
+    
+    # Count actions by type
+    action_counts: Counter = Counter()
+    for update, result in zip(updates, results):
+        if result.success:
+            action_counts[update.action] += 1
+    
+    # Build action summary
+    action_labels = {
+        "update_due_date": "due date changes",
+        "update_number": "sequence updates",
+        "mark_complete": "tasks marked complete",
+        "update_status": "status changes",
+        "update_priority": "priority changes",
+        "add_comment": "comments added",
+        "update_contact_flag": "contact flags updated",
+        "update_recurring": "recurrence changes",
+        "update_project": "project assignments",
+        "update_task": "task renames",
+        "update_assigned_to": "assignee changes",
+        "update_notes": "notes updated",
+        "update_estimated_hours": "hour estimates updated",
+    }
+    
+    action_parts = []
+    for action, count in action_counts.items():
+        label = action_labels.get(action, action.replace("_", " "))
+        action_parts.append(f"{count} {label}")
+    
+    failure_count = len(updates) - success_count
+    
+    lines = [f"📋 **Rebalancing applied** at {timestamp}"]
+    lines.append("")
+    
+    if action_parts:
+        lines.append(f"**{success_count} updates executed:**")
+        for part in action_parts:
+            lines.append(f"  • {part}")
+    
+    if failure_count > 0:
+        lines.append("")
+        lines.append(f"⚠️ {failure_count} update(s) failed")
+    
+    return "\n".join(lines)
 
 
 # ============================================================================
