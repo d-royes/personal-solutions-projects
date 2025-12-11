@@ -464,6 +464,9 @@ export function AssistPanel({
   const [horizontalSplit, setHorizontalSplit] = useState(60) // % for top zones height
   const [conversationCollapsed, setConversationCollapsed] = useState(false)
   
+  // Portfolio dashboard collapsed state (for global mode)
+  const [dashboardCollapsed, setDashboardCollapsed] = useState(true)
+  
   // Workspace items (content pushed from chat) - initialized from props
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(() => {
     if (initialWorkspaceItems && initialWorkspaceItems.length > 0) {
@@ -847,51 +850,78 @@ export function AssistPanel({
           <p className="perspective-description">{perspectiveDescriptions[perspective]}</p>
         </header>
         
-        {/* Portfolio Stats */}
+        {/* Portfolio Stats - Collapsible */}
         {stats && (
-          <div className="portfolio-stats">
-            <div className="stats-row">
-              <div className="stat-item">
-                <span className="stat-value">{stats.totalOpen}</span>
-                <span className="stat-label">Open</span>
+          <div className={`portfolio-stats ${dashboardCollapsed ? 'collapsed' : ''}`}>
+            {/* Compact summary bar (always visible) */}
+            <div 
+              className="stats-summary-bar"
+              onClick={() => setDashboardCollapsed(!dashboardCollapsed)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && setDashboardCollapsed(!dashboardCollapsed)}
+            >
+              <div className="stats-compact">
+                <span className="stat-compact">{stats.totalOpen} open</span>
+                {stats.overdue > 0 && <span className="stat-compact overdue">• {stats.overdue} overdue</span>}
+                <span className="stat-compact today">• {stats.dueToday} today</span>
+                <span className="stat-compact">• {stats.dueThisWeek} this week</span>
+                {perspective === 'holistic' && stats.conflicts.length > 0 && (
+                  <span className="stat-compact conflict">• ⚠️ {stats.conflicts.length} conflicts</span>
+                )}
               </div>
-              <div className="stat-item overdue">
-                <span className="stat-value">{stats.overdue}</span>
-                <span className="stat-label">Overdue</span>
-              </div>
-              <div className="stat-item today">
-                <span className="stat-value">{stats.dueToday}</span>
-                <span className="stat-label">Due Today</span>
-              </div>
-              <div className="stat-item week">
-                <span className="stat-value">{stats.dueThisWeek}</span>
-                <span className="stat-label">This Week</span>
-              </div>
+              <button className="collapse-toggle" aria-label={dashboardCollapsed ? 'Expand dashboard' : 'Collapse dashboard'}>
+                {dashboardCollapsed ? '▼' : '▲'}
+              </button>
             </div>
             
-            {/* Conflicts warning for holistic mode */}
-            {perspective === 'holistic' && stats.conflicts.length > 0 && (
-              <div className="conflicts-warning">
-                <strong>⚠️ Cross-Domain Conflicts:</strong>
-                <ul>
-                  {stats.conflicts.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            
-            {/* Domain breakdown for holistic mode */}
-            {perspective === 'holistic' && Object.keys(stats.domainBreakdown).length > 0 && (
-              <div className="domain-breakdown">
-                {Object.entries(stats.domainBreakdown).map(([domain, count]) => (
-                  count > 0 && (
-                    <span key={domain} className="domain-badge">
-                      {domain}: {count}
-                    </span>
-                  )
-                ))}
-              </div>
+            {/* Full stats (collapsible) */}
+            {!dashboardCollapsed && (
+              <>
+                <div className="stats-row">
+                  <div className="stat-item">
+                    <span className="stat-value">{stats.totalOpen}</span>
+                    <span className="stat-label">Open</span>
+                  </div>
+                  <div className="stat-item overdue">
+                    <span className="stat-value">{stats.overdue}</span>
+                    <span className="stat-label">Overdue</span>
+                  </div>
+                  <div className="stat-item today">
+                    <span className="stat-value">{stats.dueToday}</span>
+                    <span className="stat-label">Due Today</span>
+                  </div>
+                  <div className="stat-item week">
+                    <span className="stat-value">{stats.dueThisWeek}</span>
+                    <span className="stat-label">This Week</span>
+                  </div>
+                </div>
+                
+                {/* Conflicts warning for holistic mode */}
+                {perspective === 'holistic' && stats.conflicts.length > 0 && (
+                  <div className="conflicts-warning">
+                    <strong>⚠️ Cross-Domain Conflicts:</strong>
+                    <ul>
+                      {stats.conflicts.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {/* Domain breakdown for holistic mode */}
+                {perspective === 'holistic' && Object.keys(stats.domainBreakdown).length > 0 && (
+                  <div className="domain-breakdown">
+                    {Object.entries(stats.domainBreakdown).map(([domain, count]) => (
+                      count > 0 && (
+                        <span key={domain} className="domain-badge">
+                          {domain}: {count}
+                        </span>
+                      )
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -997,7 +1027,9 @@ export function AssistPanel({
                     ×
                   </button>
                   <div className="chat-meta">
-                    <span className="chat-role">{msg.role === 'user' ? 'You' : 'DATA'}</span>
+                    <span className="chat-role">
+                      {msg.role === 'user' ? 'You' : 'DATA'} | {new Date(msg.ts).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })}
+                    </span>
                   </div>
                   <div className="chat-content">
                     {renderMarkdown(msg.content)}
@@ -1037,7 +1069,7 @@ export function AssistPanel({
               autoComplete="off"
             />
             <button type="submit" disabled={globalChatLoading}>
-              Send
+              {globalChatLoading ? '...' : 'Send'}
             </button>
           </form>
         </div>
@@ -1431,8 +1463,7 @@ export function AssistPanel({
                   // Normal message
                   <div key={`${entry.ts}-${index}`} className={`chat-bubble ${entry.role}`}>
                     <div className="chat-meta">
-                      <span>{entry.role === 'assistant' ? 'DATA' : 'You'}</span>
-                      <span>{new Date(entry.ts).toLocaleString()}</span>
+                      <span>{entry.role === 'assistant' ? 'DATA' : 'You'} | {new Date(entry.ts).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })}</span>
                       {entry.role === 'assistant' && (
                         <>
                           <button

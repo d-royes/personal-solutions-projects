@@ -379,6 +379,7 @@ def global_chat(
             logger.warning(f"[DEBUG] No task found for row_id: {action.row_id}")
         formatted_actions.append({
             "rowId": action.row_id,
+            "source": task_info.get("source", "personal"),  # Which Smartsheet to update
             "action": action.action,
             "status": action.status,
             "priority": action.priority,
@@ -511,6 +512,7 @@ class BulkTaskUpdate(BaseModel):
     model_config = {"populate_by_name": True}
     
     row_id: str = Field(..., alias="rowId", description="Smartsheet row ID")
+    source: str = Field("personal", description="Source sheet: 'personal' or 'work'")
     action: Literal[
         "mark_complete", "update_status", "update_priority", "update_due_date",
         "add_comment", "update_number", "update_contact_flag", "update_recurring",
@@ -565,6 +567,11 @@ def bulk_update_tasks(
     Each update is executed independently - failures don't stop subsequent updates.
     Returns results for each update with success/failure status.
     """
+    import logging
+    logging.warning(f"[BULK-UPDATE] Received {len(request.updates)} updates")
+    for i, upd in enumerate(request.updates):
+        logging.warning(f"[BULK-UPDATE] Update {i}: row_id={upd.row_id}, action={upd.action}, number={upd.number}, due_date={upd.due_date}")
+    
     from daily_task_assistant.smartsheet_client import SmartsheetClient
     
     settings = _get_settings()
@@ -579,15 +586,19 @@ def bulk_update_tasks(
     
     for update in request.updates:
         try:
+            # Handle mark_complete specially - uses dedicated method with recurring logic
+            if update.action == "mark_complete":
+                logging.warning(f"[BULK-UPDATE] Executing mark_complete: row_id={update.row_id}, source={update.source}")
+                client.mark_complete(update.row_id, source=update.source)
+                logging.warning(f"[BULK-UPDATE] Success: row_id={update.row_id}")
+                results.append(BulkUpdateResult(row_id=update.row_id, success=True))
+                success_count += 1
+                continue
+            
             # Build the update payload based on action
             update_data = {}
             
-            if update.action == "mark_complete":
-                # Check if task is recurring - if so, only set done
-                update_data["done"] = True
-                # Note: For recurring tasks, status should NOT change per user's requirements
-                
-            elif update.action == "update_status":
+            if update.action == "update_status":
                 update_data["status"] = update.status
                 # Terminal statuses also mark done
                 if update.status in ("Completed", "Cancelled", "Delegated", "Ticket Created"):
@@ -627,7 +638,9 @@ def bulk_update_tasks(
                 update_data["estimated_hours"] = update.estimated_hours
             
             # Execute the update
-            client.update_row(update.row_id, update_data)
+            logging.warning(f"[BULK-UPDATE] Executing: row_id={update.row_id}, source={update.source}, update_data={update_data}")
+            client.update_row(update.row_id, update_data, source=update.source)
+            logging.warning(f"[BULK-UPDATE] Success: row_id={update.row_id}")
             
             results.append(BulkUpdateResult(row_id=update.row_id, success=True))
             success_count += 1
@@ -639,6 +652,22 @@ def bulk_update_tasks(
                 error=str(exc)[:200]
             ))
     
+    # Log summary to conversation history for audit trail and DATA context
+    if success_count > 0:
+        conversation_id = f"global:{request.perspective}"
+        summary = _build_bulk_update_summary(request.updates, results, success_count)
+        log_assistant_message(
+            conversation_id,
+            content=summary,
+            plan=None,
+            metadata={
+                "source": "bulk_update",
+                "perspective": request.perspective,
+                "success_count": success_count,
+                "total_count": len(request.updates),
+            },
+        )
+    
     return {
         "success": success_count == len(request.updates),
         "totalUpdates": len(request.updates),
@@ -646,6 +675,63 @@ def bulk_update_tasks(
         "failureCount": len(request.updates) - success_count,
         "results": [r.model_dump(by_alias=True) for r in results],
     }
+
+
+def _build_bulk_update_summary(
+    updates: List[BulkTaskUpdate],
+    results: List[BulkUpdateResult],
+    success_count: int
+) -> str:
+    """Build a human-readable summary of bulk update results for conversation history."""
+    from collections import Counter
+    from datetime import datetime
+    from daily_task_assistant.portfolio_context import USER_TIMEZONE
+    
+    timestamp = datetime.now(USER_TIMEZONE).strftime("%I:%M %p")
+    
+    # Count actions by type
+    action_counts: Counter = Counter()
+    for update, result in zip(updates, results):
+        if result.success:
+            action_counts[update.action] += 1
+    
+    # Build action summary
+    action_labels = {
+        "update_due_date": "due date changes",
+        "update_number": "sequence updates",
+        "mark_complete": "tasks marked complete",
+        "update_status": "status changes",
+        "update_priority": "priority changes",
+        "add_comment": "comments added",
+        "update_contact_flag": "contact flags updated",
+        "update_recurring": "recurrence changes",
+        "update_project": "project assignments",
+        "update_task": "task renames",
+        "update_assigned_to": "assignee changes",
+        "update_notes": "notes updated",
+        "update_estimated_hours": "hour estimates updated",
+    }
+    
+    action_parts = []
+    for action, count in action_counts.items():
+        label = action_labels.get(action, action.replace("_", " "))
+        action_parts.append(f"{count} {label}")
+    
+    failure_count = len(updates) - success_count
+    
+    lines = [f"📋 **Rebalancing applied** at {timestamp}"]
+    lines.append("")
+    
+    if action_parts:
+        lines.append(f"**{success_count} updates executed:**")
+        for part in action_parts:
+            lines.append(f"  • {part}")
+    
+    if failure_count > 0:
+        lines.append("")
+        lines.append(f"⚠️ {failure_count} update(s) failed")
+    
+    return "\n".join(lines)
 
 
 # ============================================================================
@@ -944,7 +1030,7 @@ def assist_task(
     from daily_task_assistant.conversations.history import get_latest_plan
     
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1008,7 +1094,7 @@ def generate_plan(
     The plan is stored in conversation history for persistence across sessions.
     """
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1125,7 +1211,7 @@ def chat_with_task(
     from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1292,7 +1378,7 @@ def research_task_endpoint(
     from daily_task_assistant.llm.anthropic_client import research_task, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1374,7 +1460,7 @@ def contact_search_endpoint(
     from daily_task_assistant.contacts import search_contacts, ContactCard
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1479,7 +1565,7 @@ def summarize_task_endpoint(
     from daily_task_assistant.llm.anthropic_client import summarize_task, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1558,7 +1644,7 @@ def draft_email_endpoint(
     from daily_task_assistant.llm.anthropic_client import generate_email_draft, AnthropicError
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -1611,7 +1697,7 @@ def send_email_endpoint(
     from daily_task_assistant.mailer import GmailError, load_account_from_env, send_email
 
     tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source
+        limit=None, source=request.source, include_work_in_all=True
     )
     target = next((task for task in tasks if task.row_id == task_id), None)
     if not target:
@@ -2382,6 +2468,7 @@ def clear_workspace_endpoint(
 
 class TaskUpdateRequest(BaseModel):
     """Request body for task update endpoint."""
+    source: Literal["personal", "work"] = "personal"  # Which Smartsheet to update
     action: Literal[
         "mark_complete", "update_status", "update_priority", "update_due_date", "add_comment",
         "update_number", "update_contact_flag", "update_recurring", "update_project",
@@ -2589,35 +2676,35 @@ def update_task(
         client = SmartsheetClient(settings)
         
         if request.action == "mark_complete":
-            client.mark_complete(task_id)
+            client.mark_complete(task_id, source=request.source)
         elif request.action == "update_status":
             # Terminal statuses also mark Done checkbox
             if request.status in TERMINAL_STATUSES:
-                client.update_row(task_id, {"status": request.status, "done": True})
+                client.update_row(task_id, {"status": request.status, "done": True}, source=request.source)
             else:
-                client.update_row(task_id, {"status": request.status})
+                client.update_row(task_id, {"status": request.status}, source=request.source)
         elif request.action == "update_priority":
-            client.update_row(task_id, {"priority": request.priority})
+            client.update_row(task_id, {"priority": request.priority}, source=request.source)
         elif request.action == "update_due_date":
-            client.update_row(task_id, {"due_date": request.due_date})
+            client.update_row(task_id, {"due_date": request.due_date}, source=request.source)
         elif request.action == "add_comment":
-            client.post_comment(task_id, request.comment)
+            client.post_comment(task_id, request.comment, source=request.source)
         elif request.action == "update_number":
-            client.update_row(task_id, {"number": request.number})
+            client.update_row(task_id, {"number": request.number}, source=request.source)
         elif request.action == "update_contact_flag":
-            client.update_row(task_id, {"contact_flag": request.contact_flag})
+            client.update_row(task_id, {"contact_flag": request.contact_flag}, source=request.source)
         elif request.action == "update_recurring":
-            client.update_row(task_id, {"recurring_pattern": request.recurring})
+            client.update_row(task_id, {"recurring_pattern": request.recurring}, source=request.source)
         elif request.action == "update_project":
-            client.update_row(task_id, {"project": request.project})
+            client.update_row(task_id, {"project": request.project}, source=request.source)
         elif request.action == "update_task":
-            client.update_row(task_id, {"task": request.task_title})
+            client.update_row(task_id, {"task": request.task_title}, source=request.source)
         elif request.action == "update_assigned_to":
-            client.update_row(task_id, {"assigned_to": request.assigned_to})
+            client.update_row(task_id, {"assigned_to": request.assigned_to}, source=request.source)
         elif request.action == "update_notes":
-            client.update_row(task_id, {"notes": request.notes})
+            client.update_row(task_id, {"notes": request.notes}, source=request.source)
         elif request.action == "update_estimated_hours":
-            client.update_row(task_id, {"estimated_hours": request.estimated_hours})
+            client.update_row(task_id, {"estimated_hours": request.estimated_hours}, source=request.source)
         
         # Log the action to conversation history
         action_description = preview["description"]

@@ -2739,6 +2739,78 @@ button:not(:disabled):hover {
   border-radius: 12px;
   padding: 1rem;
   margin-bottom: 1rem;
+  transition: padding 0.2s ease;
+}
+
+.portfolio-stats.collapsed {
+  padding: 0.5rem 1rem;
+}
+
+/* Compact summary bar - always visible */
+.stats-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.stats-summary-bar:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.stats-compact {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: rgba(248, 250, 252, 0.85);
+}
+
+.stat-compact {
+  white-space: nowrap;
+}
+
+.stat-compact.overdue {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.stat-compact.today {
+  color: #fbbf24;
+}
+
+.stat-compact.conflict {
+  color: #fb923c;
+}
+
+.collapse-toggle {
+  background: none;
+  border: none;
+  color: rgba(148, 163, 184, 0.7);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  transition: color 0.15s ease;
+}
+
+.collapse-toggle:hover {
+  color: rgba(248, 250, 252, 0.9);
+}
+
+/* When expanded, make summary bar more subtle (it's still the toggle) */
+.portfolio-stats:not(.collapsed) .stats-summary-bar {
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.portfolio-stats:not(.collapsed) .stats-compact {
+  opacity: 0.6;
+  font-size: 0.75rem;
 }
 
 .stats-row {

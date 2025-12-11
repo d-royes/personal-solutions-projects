@@ -126,7 +126,7 @@ def _load_data_preferences() -> str:
 # Cache the preferences at module load
 _DATA_PREFERENCES = _load_data_preferences()
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-opus-4-20250514"
 SYSTEM_PROMPT = """You are the Daily Task Assistant, a diligent chief of staff.
 Produce concise, actionable guidance and respect the user's time.
 
@@ -1284,8 +1284,23 @@ Provide a concise summary following the format specified."""
     return _extract_text(response)
 
 
-# Portfolio Chat System Prompt
-PORTFOLIO_CHAT_SYSTEM_PROMPT = """You are DATA, David's AI chief of staff, analyzing his task portfolio.
+# Portfolio Chat System Prompt - built dynamically to include current date
+def _build_portfolio_system_prompt() -> str:
+    """Build the portfolio chat system prompt with current date."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    today = datetime.now(ZoneInfo("America/New_York"))
+    today_formatted = today.strftime("%A, %B %d, %Y")  # e.g., "Thursday, December 11, 2025"
+    
+    return f"""You are DATA, David's AI chief of staff, analyzing his task portfolio.
+
+TODAY'S DATE: {today_formatted}
+
+Use this date to determine if tasks are overdue, due today, or due in the future.
+- A task with due_date before today is OVERDUE
+- A task with due_date equal to today is DUE TODAY
+- A task with due_date after today is UPCOMING
 
 YOU HAVE THE ABILITY TO UPDATE TASKS IN SMARTSHEET. You have an update_task tool that lets you modify any task in the portfolio by specifying its row_id.
 
@@ -1324,9 +1339,9 @@ RIGHT (do this):
 - The UI handles the confirmation flow
 
 EXAMPLE - "Rebalance my 5 overdue tasks across next week":
-1. Call update_task(row_id="123", action="update_due_date", due_date="2024-12-11", reason="Rebalancing")
-2. Call update_task(row_id="456", action="update_due_date", due_date="2024-12-12", reason="Rebalancing")
-3. Call update_task(row_id="789", action="update_due_date", due_date="2024-12-13", reason="Rebalancing")
+1. Call update_task(row_id="123", action="update_due_date", due_date="2025-12-15", reason="Rebalancing")
+2. Call update_task(row_id="456", action="update_due_date", due_date="2025-12-16", reason="Rebalancing")
+3. Call update_task(row_id="789", action="update_due_date", due_date="2025-12-17", reason="Rebalancing")
 ... (one call per task)
 
 YOUR ROLE: Execute task updates efficiently. The frontend handles user confirmation."""
@@ -1405,7 +1420,7 @@ TASKS (with row_id for updates):
             model=config.model,
             max_tokens=4000,  # Increased for multiple tool calls
             temperature=0.5,
-            system=PORTFOLIO_CHAT_SYSTEM_PROMPT,
+            system=_build_portfolio_system_prompt(),
             messages=messages,
             tools=[PORTFOLIO_TASK_UPDATE_TOOL],
         )

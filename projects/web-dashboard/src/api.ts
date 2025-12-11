@@ -701,6 +701,7 @@ export type TaskUpdateAction =
   | 'update_task' | 'update_assigned_to' | 'update_notes' | 'update_estimated_hours'
 
 export interface TaskUpdateRequest {
+  source: 'personal' | 'work'  // Which Smartsheet to update
   action: TaskUpdateAction
   status?: string
   priority?: string
@@ -746,6 +747,7 @@ export async function updateTask(
       ...buildHeaders(auth),
     },
     body: JSON.stringify({
+      source: request.source,
       action: request.action,
       status: request.status,
       priority: request.priority,
@@ -980,6 +982,7 @@ export interface GlobalContextResponse {
 
 export interface PortfolioPendingAction {
   rowId: string
+  source: 'personal' | 'work'  // Which Smartsheet the task belongs to
   action: TaskUpdateAction
   status?: string
   priority?: string
@@ -1172,6 +1175,7 @@ export async function deleteGlobalMessage(
 
 export interface BulkTaskUpdate {
   rowId: string
+  source: 'personal' | 'work'  // Which Smartsheet to update
   action: TaskUpdateAction
   status?: string
   priority?: string
@@ -1294,10 +1298,14 @@ export function proposalToBulkUpdates(
   const updates: BulkTaskUpdate[] = []
   
   for (const change of changes) {
+    // Derive source from domain - Work domain = work sheet, else personal
+    const source: 'personal' | 'work' = change.domain === 'Work' ? 'work' : 'personal'
+    
     // Add due date update if changed
     if (change.proposedDue && change.proposedDue !== change.currentDue) {
       updates.push({
         rowId: change.rowId,
+        source,
         action: 'update_due_date',
         dueDate: change.proposedDue,
         reason: change.reason,
@@ -1308,6 +1316,7 @@ export function proposalToBulkUpdates(
     if (change.proposedNumber != null && change.proposedNumber !== change.currentNumber) {
       updates.push({
         rowId: change.rowId,
+        source,
         action: 'update_number',
         number: change.proposedNumber,
         reason: change.reason,

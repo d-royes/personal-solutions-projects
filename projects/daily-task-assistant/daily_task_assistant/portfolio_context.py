@@ -14,6 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
+
+# User's local timezone - TODO: make configurable per user
+USER_TIMEZONE = ZoneInfo("America/New_York")
 
 from .smartsheet_client import SmartsheetClient
 from .tasks import TaskDetail
@@ -109,7 +113,16 @@ def build_portfolio_context(
 
 
 def _is_task_open(task: TaskDetail) -> bool:
-    """Check if task is open (not completed/cancelled/delegated)."""
+    """Check if task is open (not done, completed, cancelled, or delegated).
+    
+    The Done checkbox takes precedence - if checked, task is considered done
+    regardless of status. This is important for recurring tasks which use
+    Done to mark current occurrence complete while keeping status as 'Recurring'.
+    """
+    # Done checkbox takes precedence
+    if task.done:
+        return False
+    
     status_lower = (task.status or "").lower()
     return status_lower not in ("completed", "cancelled", "delegated")
 
@@ -148,7 +161,8 @@ def _aggregate_portfolio(
     tasks: List[TaskDetail],
 ) -> PortfolioContext:
     """Aggregate task data into portfolio statistics."""
-    now = datetime.now(timezone.utc)
+    # Use user's local timezone for "today" calculations
+    now = datetime.now(USER_TIMEZONE)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
     week_end = today_start + timedelta(days=7)
@@ -161,13 +175,18 @@ def _aggregate_portfolio(
     same_day_tasks: Dict[str, List[tuple]] = {}  # date -> [(domain, title)]
     
     for task in tasks:
-        # Ensure due date is timezone-aware for comparison
+        # Ensure due date is timezone-aware and in user's timezone for comparison
         due = task.due
         if due.tzinfo is None:
-            due = due.replace(tzinfo=timezone.utc)
+            # Assume naive dates are in user's local timezone
+            due = due.replace(tzinfo=USER_TIMEZONE)
+        else:
+            # Convert to user's timezone for proper comparison
+            due = due.astimezone(USER_TIMEZONE)
         
-        # Due date buckets
-        if due < now:
+        # Due date buckets - compare to today_start, not now
+        # A task due on 12/11 at midnight should be "due today" all day on 12/11
+        if due < today_start:
             ctx.overdue += 1
             ctx.by_due_date["overdue"] = ctx.by_due_date.get("overdue", 0) + 1
         elif due <= today_end:
