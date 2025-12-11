@@ -1497,6 +1497,8 @@ VALID_PROJECTS_WORK = [
     "AI/Automation Projects", "DTS Transformation", "New Technology Evaluation", "Innovation"
 ]
 VALID_ESTIMATED_HOURS = [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"]
+# Terminal statuses that should also mark Done checkbox
+TERMINAL_STATUSES = ["Completed", "Cancelled", "Delegated", "Ticket Created"]
 
 
 @app.post("/assist/{task_id}/update")
@@ -1597,11 +1599,17 @@ def update_task(
     }
     
     if request.action == "mark_complete":
-        preview["changes"] = {"status": "Complete", "done": True}
-        preview["description"] = "Mark task as complete (Status → Complete, Done → checked)"
+        preview["changes"] = {"status": "Completed", "done": True}
+        preview["description"] = "Mark task as complete (Status → Completed, Done → checked)"
     elif request.action == "update_status":
-        preview["changes"] = {"status": request.status}
-        preview["description"] = f"Update status to '{request.status}'"
+        # Determine if Done checkbox should be updated based on status
+        if request.status in TERMINAL_STATUSES:
+            preview["changes"] = {"status": request.status, "done": True}
+            preview["description"] = f"Update status to '{request.status}' (Done → checked)"
+        else:
+            # Active status - only update status, don't touch Done
+            preview["changes"] = {"status": request.status}
+            preview["description"] = f"Update status to '{request.status}'"
     elif request.action == "update_priority":
         preview["changes"] = {"priority": request.priority}
         preview["description"] = f"Update priority to '{request.priority}'"
@@ -1655,7 +1663,11 @@ def update_task(
         if request.action == "mark_complete":
             client.mark_complete(task_id)
         elif request.action == "update_status":
-            client.update_row(task_id, {"status": request.status})
+            # Terminal statuses also mark Done checkbox
+            if request.status in TERMINAL_STATUSES:
+                client.update_row(task_id, {"status": request.status, "done": True})
+            else:
+                client.update_row(task_id, {"status": request.status})
         elif request.action == "update_priority":
             client.update_row(task_id, {"priority": request.priority})
         elif request.action == "update_due_date":
