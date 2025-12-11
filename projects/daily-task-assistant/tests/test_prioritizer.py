@@ -34,7 +34,7 @@ def _task(
 def test_rank_tasks_orders_by_priority_and_due():
     tasks = [
         _task(row_id="low", priority="Low", status="Scheduled", due_offset_days=1),
-        _task(row_id="urgent", priority="Critical", status="Blocked", due_offset_days=3),
+        _task(row_id="urgent", priority="Critical", status="On Hold", due_offset_days=3),
         _task(row_id="due_soon", priority="Important", status="In Progress", due_offset_days=0),
     ]
 

@@ -3,7 +3,6 @@ import type { Task, WorkBadge } from '../types'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
-const ACTIVE_STATUSES = ['In Progress', 'Follow-up', 'Delivered']
 const BLOCKED_STATUSES = ['On Hold', 'Awaiting Reply', 'Needs Approval']
 const URGENT_PRIORITIES = ['Critical', 'Urgent', '5-Critical', '4-Urgent']
 
@@ -23,7 +22,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'needs_attention', label: 'Needs attention' },
-  { id: 'active', label: 'Active' },
+  { id: 'blocked', label: 'Blocked' },
   { id: 'personal', label: 'Personal' },
   { id: 'church', label: 'Church' },
   { id: 'work', label: 'Work' },
@@ -74,6 +73,7 @@ interface TaskListProps {
   tasks: Task[]
   selectedTaskId: string | null
   onSelect: (taskId: string) => void
+  onDeselectAll?: () => void  // Go to Global Mode / Portfolio View
   loading: boolean
   liveTasks: boolean
   warning?: string | null
@@ -86,6 +86,7 @@ export function TaskList({
   tasks,
   selectedTaskId,
   onSelect,
+  onDeselectAll,
   loading,
   liveTasks,
   warning,
@@ -98,13 +99,15 @@ export function TaskList({
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
-      // Apply search filter first (works within any view)
+      // First apply search filter if there's a search term
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase()
-        const searchable = `${task.title} ${task.notes ?? ''} ${task.project ?? ''}`.toLowerCase()
-        if (!searchable.includes(term)) return false
+        const matchesSearch = 
+          (task.title?.toLowerCase().includes(term)) ||
+          (task.notes?.toLowerCase().includes(term)) ||
+          (task.project?.toLowerCase().includes(term))
+        if (!matchesSearch) return false
       }
-
       const domain = deriveDomain(task)
       const status = task.status ?? ''
       switch (filter) {
@@ -116,10 +119,10 @@ export function TaskList({
             isDueSoon(task.due) ||
             BLOCKED_STATUSES.includes(status)
           )
-        case 'active':
-          // Exclude work tasks from "Active" unless explicitly in Work filter
+        case 'blocked':
+          // Exclude work tasks from "Blocked" unless explicitly in Work filter
           if (task.source === 'work') return false
-          return ACTIVE_STATUSES.includes(status)
+          return BLOCKED_STATUSES.includes(status)
         case 'personal':
           return domain === 'Personal'
         case 'church':
@@ -161,7 +164,7 @@ export function TaskList({
             of {tasks.length}
           </p>
         </div>
-        <div className="header-controls">
+        <div className="task-header-buttons">
           <input
             type="text"
             className="task-search"
@@ -169,6 +172,15 @@ export function TaskList({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+          {onDeselectAll && (
+            <button
+              className="secondary portfolio-btn"
+              onClick={onDeselectAll}
+              title="View Portfolio Overview"
+            >
+              📊 Portfolio
+            </button>
+          )}
           {onRefresh && (
             <button 
               className="secondary refresh-btn" 
@@ -176,7 +188,7 @@ export function TaskList({
               disabled={refreshing || loading}
               title="Refresh tasks"
             >
-              ↻ Refresh
+              {refreshing ? '↻' : '↻'} Refresh
             </button>
           )}
         </div>
@@ -186,33 +198,18 @@ export function TaskList({
 
       <div className="task-filters">
         {FILTERS.map((chip) => {
-          // Calculate badge counts for each filter type
-          let badgeCount = 0
-          let badgeClass = ''
-          
-          if (chip.id === 'work' && workBadge) {
-            badgeCount = workBadge.needsAttention
-            badgeClass = 'work'
-          } else if (chip.id === 'personal') {
-            badgeCount = tasks.filter(t => t.source !== 'work' && deriveDomain(t) === 'Personal').length
-            badgeClass = 'personal'
-          } else if (chip.id === 'church') {
-            badgeCount = tasks.filter(t => t.source !== 'work' && deriveDomain(t) === 'Church').length
-            badgeClass = 'church'
-          }
-          
-          const showBadge = badgeCount > 0
-          
+          // Show badge for Work filter when there are urgent/overdue items
+          const showWorkBadge = chip.id === 'work' && workBadge && workBadge.needsAttention > 0
           return (
             <button
               key={chip.id}
-              className={`${filter === chip.id ? 'active' : ''} ${showBadge ? 'has-badge' : ''}`}
+              className={`${filter === chip.id ? 'active' : ''} ${showWorkBadge ? 'has-badge' : ''}`}
               onClick={() => setFilter(chip.id)}
             >
               {chip.label}
-              {showBadge && (
-                <span className={`filter-badge ${badgeClass}`} title={`${badgeCount} task(s)`}>
-                  {badgeCount}
+              {showWorkBadge && (
+                <span className="work-badge" title={`${workBadge.needsAttention} work task(s) need attention`}>
+                  {workBadge.needsAttention}
                 </span>
               )}
             </button>

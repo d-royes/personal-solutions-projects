@@ -21,8 +21,9 @@ class TaskDetail:
     notes: Optional[str]
     next_step: str
     automation_hint: str
-    source: str = "personal"  # "personal" or "work" - identifies which sheet this task came from
-    done: bool = False  # True if the Done checkbox is checked
+    source: str = "personal"  # "personal" or "work" - identifies which sheet
+    done: bool = False  # True if Done checkbox is checked
+    number: Optional[float] = None  # # field for ordering: 0.1-0.9 for recurring (early AM), 1+ for regular tasks
 
 
 @dataclass(slots=True)
@@ -72,7 +73,7 @@ def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:
         TaskDetail(
             row_id="1002",
             title="Schedule onboarding with vendor",
-            status="Blocked",
+            status="Awaiting Reply",
             due=now + timedelta(days=3),
             priority="Urgent",
             project="Zendesk Ticket",
@@ -85,7 +86,7 @@ def fetch_stubbed_tasks(*, limit: Optional[int] = None) -> List[TaskDetail]:
         TaskDetail(
             row_id="1003",
             title="Review security questionnaire",
-            status="Not Started",
+            status="Scheduled",
             due=now + timedelta(days=5),
             priority="Important",
             project="Around The House",

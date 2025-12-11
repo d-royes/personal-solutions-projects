@@ -4,12 +4,15 @@ import { TaskList } from './components/TaskList'
 import { AssistPanel } from './components/AssistPanel'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
+import { RebalancingEditor } from './components/RebalancingEditor'
 import {
+  clearGlobalHistory,
+  deleteGlobalMessage,
   deleteDraft,
   draftEmail,
   fetchActivity,
-  fetchAttachments,
   fetchConversationHistory,
+  fetchGlobalContext,
   fetchTasks,
   fetchWorkBadge,
   generatePlan,
@@ -23,13 +26,15 @@ import {
   searchContacts,
   sendChatMessage,
   sendEmail,
+  sendGlobalChat,
+  strikeGlobalMessage,
   strikeMessage,
   submitFeedback,
   unstrikeMessage,
   updateTask,
+  bulkUpdateTasks,
 } from './api'
-import type { AttachmentInfo } from './api'
-import type { SavedEmailDraft } from './api'
+import type { Perspective, PortfolioStats, SavedEmailDraft, PortfolioPendingAction, BulkTaskUpdate } from './api'
 import type {
   ContactCard,
   ContactSearchResponse,
@@ -82,10 +87,6 @@ function App() {
   const [workspaceSaveTimeout, setWorkspaceSaveTimeout] = useState<ReturnType<typeof setTimeout> | null>(null)
   const [sendingMessage, setSendingMessage] = useState(false)
   
-  // Attachments state
-  const [attachments, setAttachments] = useState<AttachmentInfo[]>([])
-  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
-  
   // Task update state
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [updateExecuting, setUpdateExecuting] = useState(false)
@@ -106,6 +107,16 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment'>('auth')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
+  
+  // Global Mode state
+  const [globalPerspective, setGlobalPerspective] = useState<Perspective>('personal')
+  const [globalConversation, setGlobalConversation] = useState<ConversationMessage[]>([])
+  const [globalStats, setGlobalStats] = useState<PortfolioStats | null>(null)
+  const [portfolioPendingActions, setPortfolioPendingActions] = useState<PortfolioPendingAction[]>([])
+  const [editablePendingActions, setEditablePendingActions] = useState<PortfolioPendingAction[]>([])
+  const [portfolioActionsExecuting, setPortfolioActionsExecuting] = useState(false)
+  const [globalChatLoading, setGlobalChatLoading] = useState(false)
+  const [globalExpanded, setGlobalExpanded] = useState(false)
 
   const handleQuickAction = useCallback((action: { type: string; content: string }) => {
     // Action handling is now done within AssistPanel
@@ -158,6 +169,24 @@ function App() {
     }
     void loadConversation(selectedTaskId)
   }, [authConfig, selectedTaskId])
+
+  // Load global context (stats + history) when Portfolio View opens
+  useEffect(() => {
+    if (!authConfig || selectedTaskId !== null) {
+      // Not in global mode - don't load
+      return
+    }
+    async function loadGlobalContext() {
+      try {
+        const result = await fetchGlobalContext(authConfig!, globalPerspective, apiBase)
+        setGlobalStats(result.portfolio)
+        setGlobalConversation(result.history || [])
+      } catch (err) {
+        console.error('Failed to load portfolio context:', err)
+      }
+    }
+    void loadGlobalContext()
+  }, [authConfig, selectedTaskId, apiBase])
 
   async function refreshTasks() {
     if (!authConfig) return
@@ -275,19 +304,6 @@ function App() {
         // Workspace load failed - start with empty
         setWorkspaceItems([])
       }
-      
-      // Load attachments (non-blocking)
-      setAttachmentsLoading(true)
-      fetchAttachments(selectedTask.rowId, authConfig, apiBase)
-        .then(response => {
-          setAttachments(response.attachments ?? [])
-        })
-        .catch(() => {
-          setAttachments([])
-        })
-        .finally(() => {
-          setAttachmentsLoading(false)
-        })
     } catch (error) {
       setAssistError((error as Error).message)
     } finally {
@@ -295,8 +311,8 @@ function App() {
     }
   }
 
-  async function handleGeneratePlan(workspaceContext?: string) {
-    // Explicitly generate/update the plan based on task + conversation + optional workspace context
+  async function handleGeneratePlan() {
+    // Explicitly generate/update the plan based on task + conversation
     if (!selectedTask) return
     if (!authConfig) {
       setAssistError('Please sign in first.')
@@ -308,7 +324,6 @@ function App() {
       const response = await generatePlan(selectedTask.rowId, authConfig, apiBase, {
         source: dataSource,
         anthropicModel: import.meta.env.VITE_ANTHROPIC_MODEL,
-        workspaceContext,
       })
       setAssistPlan(response.plan)
       void refreshActivity()
@@ -620,10 +635,7 @@ function App() {
     }
   }, [selectedTaskId, authConfig, apiBase, workspaceSaveTimeout])
 
-  async function handleSendMessage(
-    message: string, 
-    context?: { selectedAttachments?: string[], workspaceContext?: string }
-  ) {
+  async function handleSendMessage(message: string) {
     if (!selectedTaskId || !authConfig) return
     
     setSendingMessage(true)
@@ -635,11 +647,7 @@ function App() {
         message,
         authConfig,
         apiBase,
-        {
-          source: dataSource,
-          selectedAttachments: context?.selectedAttachments,
-          workspaceContext: context?.workspaceContext,
-        },
+        dataSource,
       )
       // Update conversation with the response
       setConversation(result.history)
@@ -652,18 +660,14 @@ function App() {
       // Check if DATA suggested email draft updates
       if (result.emailDraftUpdate) {
         const update = result.emailDraftUpdate
-        // Convert single email strings to arrays if provided
-        const newTo = update.to ? [update.to] : undefined
-        const newCc = update.cc ? [update.cc] : undefined
-        
         // Update the saved draft with the new content
         setSavedDraft(prev => {
           if (!prev) {
             // Create a new draft if none exists
             return {
               taskId: selectedTaskId,
-              to: newTo ?? [],
-              cc: newCc ?? [],
+              to: [],
+              cc: [],
               subject: update.subject ?? '',
               body: update.body ?? '',
               fromAccount: '',
@@ -672,21 +676,19 @@ function App() {
               updatedAt: new Date().toISOString(),
             }
           }
-          // Update existing draft - merge recipients if already present
+          // Update existing draft
           return {
             ...prev,
-            to: newTo ? [...new Set([...prev.to, ...newTo])] : prev.to,
-            cc: newCc ? [...new Set([...prev.cc, ...newCc])] : prev.cc,
             subject: update.subject ?? prev.subject,
             body: update.body ?? prev.body,
             updatedAt: new Date().toISOString(),
           }
         })
         // Also save to backend
-        if (savedDraft || update.subject || update.body || update.to || update.cc) {
+        if (savedDraft || update.subject || update.body) {
           void saveDraft(selectedTaskId, {
-            to: newTo ? [...new Set([...(savedDraft?.to ?? []), ...newTo])] : (savedDraft?.to ?? []),
-            cc: newCc ? [...new Set([...(savedDraft?.cc ?? []), ...newCc])] : (savedDraft?.cc ?? []),
+            to: savedDraft?.to ?? [],
+            cc: savedDraft?.cc ?? [],
             subject: update.subject ?? savedDraft?.subject ?? '',
             body: update.body ?? savedDraft?.body ?? '',
             fromAccount: savedDraft?.fromAccount ?? '',
@@ -807,6 +809,139 @@ function App() {
     }
   }
 
+  // Global Mode handlers
+  async function handlePerspectiveChange(perspective: Perspective) {
+    setGlobalPerspective(perspective)
+    
+    // Fetch fresh stats AND conversation history for the new perspective
+    if (!authConfig) return
+    try {
+      const result = await fetchGlobalContext(authConfig, perspective, apiBase)
+      setGlobalStats(result.portfolio)
+      setGlobalConversation(result.history || [])
+    } catch (err) {
+      console.error('Failed to load portfolio context:', err)
+      setGlobalConversation([])
+    }
+  }
+  
+  async function handleSendGlobalMessage(message: string) {
+    if (!authConfig) return
+    
+    setGlobalChatLoading(true)
+    try {
+      const result = await sendGlobalChat(message, authConfig, apiBase, {
+        perspective: globalPerspective,
+      })
+      setGlobalConversation(result.history)
+      setGlobalStats(result.portfolio)
+      // Capture pending actions for user editing and confirmation
+      if (result.pendingActions && result.pendingActions.length > 0) {
+        setPortfolioPendingActions(result.pendingActions)
+        // Create editable copy for user modifications
+        setEditablePendingActions([...result.pendingActions])
+      }
+    } catch (err) {
+      console.error('Global chat failed:', err)
+      setAssistError(err instanceof Error ? err.message : 'Global chat failed')
+    } finally {
+      setGlobalChatLoading(false)
+    }
+  }
+  
+  async function handleConfirmPortfolioActions(updates: BulkTaskUpdate[]) {
+    if (!authConfig || updates.length === 0) return
+    
+    setPortfolioActionsExecuting(true)
+    try {
+      const result = await bulkUpdateTasks(updates, authConfig, globalPerspective, apiBase)
+      
+      if (result.success) {
+        setPortfolioPendingActions([])
+        setEditablePendingActions([])
+        // Refresh tasks
+        await handleRefresh()
+      } else {
+        setAssistError(`${result.failureCount} of ${result.totalUpdates} updates failed`)
+      }
+    } catch (err) {
+      console.error('Bulk update failed:', err)
+      setAssistError(err instanceof Error ? err.message : 'Failed to execute updates')
+    } finally {
+      setPortfolioActionsExecuting(false)
+    }
+  }
+  
+  function handleCancelPortfolioActions() {
+    setPortfolioPendingActions([])
+    setEditablePendingActions([])
+  }
+  
+  async function handleClearGlobalHistory() {
+    if (!authConfig) return
+    
+    try {
+      await clearGlobalHistory(authConfig, apiBase, globalPerspective)
+      setGlobalConversation([])
+    } catch (err) {
+      console.error('Failed to clear global history:', err)
+    }
+  }
+  
+  async function handleStrikeGlobalMessages(messageTimestamps: string[]) {
+    if (!authConfig) return
+    
+    try {
+      // Strike each message sequentially (could optimize with batch endpoint later)
+      for (const ts of messageTimestamps) {
+        const result = await strikeGlobalMessage(authConfig, ts, globalPerspective, apiBase)
+        setGlobalConversation(result.history)
+      }
+    } catch (err) {
+      console.error('Failed to strike global messages:', err)
+    }
+  }
+  
+  async function handleDeleteGlobalMessage(messageTs: string) {
+    if (!authConfig) return
+    
+    try {
+      const result = await deleteGlobalMessage(authConfig, messageTs, globalPerspective, apiBase)
+      setGlobalConversation(result.history)
+    } catch (err) {
+      console.error('Failed to delete global message:', err)
+    }
+  }
+  
+  function handleToggleGlobalExpand() {
+    setGlobalExpanded(prev => !prev)
+    if (!globalExpanded) {
+      // Collapsing tasks when expanding global view
+      setTaskPanelCollapsed(true)
+    }
+  }
+  
+  function handleExpandTasksFromGlobal() {
+    setGlobalExpanded(false)
+    setTaskPanelCollapsed(false)
+  }
+  
+  // Fetch global context when entering global mode (no task selected)
+  useEffect(() => {
+    async function loadGlobalContext() {
+      if (selectedTaskId || !authConfig) return
+      
+      try {
+        const result = await fetchGlobalContext(authConfig, globalPerspective, apiBase)
+        setGlobalStats(result.portfolio)
+      } catch (err) {
+        console.error('Failed to load portfolio context:', err)
+      }
+    }
+    
+    loadGlobalContext()
+  }, [selectedTaskId, authConfig, apiBase, globalPerspective])
+
   const isAuthenticated = !!authConfig
   const envLabel = environmentName ?? 'DEV'
 
@@ -913,6 +1048,16 @@ function App() {
       </div>
       )}
 
+      {/* Rebalancing Editor - Full page overlay when pending actions exist */}
+      {portfolioPendingActions.length > 0 && (
+        <RebalancingEditor
+          pendingActions={portfolioPendingActions}
+          onApply={handleConfirmPortfolioActions}
+          onCancel={handleCancelPortfolioActions}
+          executing={portfolioActionsExecuting}
+        />
+      )}
+
       <main className={`grid ${taskPanelCollapsed ? 'task-collapsed' : ''}`}>
         {!authConfig ? (
           <section className="panel">
@@ -925,6 +1070,7 @@ function App() {
                 tasks={tasks}
                 selectedTaskId={selectedTaskId}
                 onSelect={handleSelectTask}
+                onDeselectAll={() => setSelectedTaskId(null)}
                 loading={tasksLoading}
                 liveTasks={liveTasks}
                 warning={tasksWarning}
@@ -958,7 +1104,6 @@ function App() {
               onSendMessage={handleSendMessage}
               sendingMessage={sendingMessage}
               taskPanelCollapsed={taskPanelCollapsed}
-              onExpandTasks={() => setTaskPanelCollapsed(false)}
               onCollapseTasks={() => setTaskPanelCollapsed(true)}
               onQuickAction={handleQuickAction}
               pendingAction={pendingAction}
@@ -981,8 +1126,24 @@ function App() {
               setEmailDraftOpen={setEmailDraftOpen}
               onStrikeMessage={handleStrikeMessage}
               onUnstrikeMessage={handleUnstrikeMessage}
-              attachments={attachments}
-              attachmentsLoading={attachmentsLoading}
+              // Global Mode props
+              globalPerspective={globalPerspective}
+              onPerspectiveChange={handlePerspectiveChange}
+              globalConversation={globalConversation}
+              globalStats={globalStats}
+              onSendGlobalMessage={handleSendGlobalMessage}
+              globalChatLoading={globalChatLoading}
+              onClearGlobalHistory={handleClearGlobalHistory}
+              globalExpanded={globalExpanded}
+              onToggleGlobalExpand={handleToggleGlobalExpand}
+              onExpandTasks={handleExpandTasksFromGlobal}
+              onStrikeGlobalMessages={handleStrikeGlobalMessages}
+              onDeleteGlobalMessage={handleDeleteGlobalMessage}
+              // Portfolio pending actions
+              portfolioPendingActions={portfolioPendingActions}
+              portfolioActionsExecuting={portfolioActionsExecuting}
+              onConfirmPortfolioActions={handleConfirmPortfolioActions}
+              onCancelPortfolioActions={handleCancelPortfolioActions}
             />
           </>
         )}

@@ -10,7 +10,7 @@ from urllib import parse as urlparse
 from urllib import request as urlrequest
 
 from .config import Settings
-from .tasks import AttachmentDetail, AttachmentInfo, TaskDetail, fetch_stubbed_tasks
+from .tasks import TaskDetail, fetch_stubbed_tasks
 
 try:  # Optional dependency
     import yaml
@@ -394,9 +394,11 @@ class SmartsheetClient:
                     f"Allowed: {column.allowed_values}"
                 )
 
-            # Checkbox columns should receive boolean values directly
-            # (Smartsheet API accepts true/false for CHECKBOX type)
+            # Checkbox columns expect boolean values (True/False), not integers
             cell_value = value
+            if column.col_type == "checkbox":
+                # Ensure boolean type for checkbox
+                cell_value = bool(value)
 
             # Handle special column types that require objectValue format
             if field_name == "recurring_pattern":
@@ -439,7 +441,12 @@ class SmartsheetClient:
             raise SmartsheetAPIError(f"Failed to update row {row_id}: {exc}") from exc
 
     def mark_complete(self, row_id: str, *, source: str = "personal") -> Dict[str, Any]:
-        """Mark a task as complete by setting Status='Completed' and Done=true.
+        """Mark a task as complete.
+        
+        For recurring tasks: Only checks the Done box (leaves status as "Recurring")
+        so Smartsheet automation can reset the task for the next occurrence.
+        
+        For regular tasks: Sets Status='Completed' and Done=true.
         
         Args:
             row_id: The Smartsheet row ID to mark complete
@@ -448,76 +455,39 @@ class SmartsheetClient:
         Returns:
             The API response containing the updated row data.
         """
+        # Fetch the row to check current status
+        schema = self._get_schema(source)
+        try:
+            row_data = self._request(
+                "GET",
+                f"/sheets/{schema.sheet_id}/rows/{row_id}",
+            )
+        except SmartsheetAPIError:
+            # If we can't fetch, fall back to standard completion
+            return self.update_row(row_id, {
+                "status": "Completed",
+                "done": True,
+            }, source=source)
+        
+        # Check if task is recurring by looking at the status cell
+        current_status = None
+        status_col = schema.get_column("status")
+        if status_col and "cells" in row_data:
+            for cell in row_data["cells"]:
+                if cell.get("columnId") == int(status_col.column_id):
+                    current_status = cell.get("displayValue") or cell.get("value")
+                    break
+        
+        # For recurring tasks: only check Done box (don't change status)
+        # This allows Smartsheet automation to reset the task
+        if current_status == "Recurring":
+            return self.update_row(row_id, {"done": True}, source=source)
+        
+        # For regular tasks: set both status and done
         return self.update_row(row_id, {
             "status": "Completed",
             "done": True,
         }, source=source)
-
-    def list_attachments(
-        self, row_id: str, *, source: str = "personal"
-    ) -> List[AttachmentInfo]:
-        """Fetch attachment metadata for a specific row.
-        
-        Args:
-            row_id: The Smartsheet row ID
-            source: Source key ("personal" or "work") to determine which sheet
-            
-        Returns:
-            List of AttachmentInfo objects for the row.
-        """
-        schema = self._get_schema_for_source(source)
-        try:
-            response = self._request(
-                "GET",
-                f"/sheets/{schema.sheet_id}/rows/{row_id}/attachments",
-            )
-        except SmartsheetAPIError:
-            return []
-
-        attachments: List[AttachmentInfo] = []
-        for att in response.get("data", []):
-            attachments.append(
-                AttachmentInfo(
-                    attachment_id=str(att.get("id", "")),
-                    name=att.get("name", ""),
-                    mime_type=att.get("mimeType", "application/octet-stream"),
-                    size_bytes=int(att.get("sizeInKb", 0)) * 1024,
-                    created_at=att.get("createdAt", ""),
-                    attachment_type=att.get("attachmentType", "FILE"),
-                )
-            )
-        return attachments
-
-    def get_attachment_url(
-        self, attachment_id: str, *, source: str = "personal"
-    ) -> Optional[AttachmentDetail]:
-        """Get the temporary download URL for an attachment.
-        
-        Args:
-            attachment_id: The Smartsheet attachment ID
-            source: Source key ("personal" or "work") to determine which sheet
-            
-        Returns:
-            AttachmentDetail with download URL, or None if not found.
-        """
-        schema = self._get_schema_for_source(source)
-        try:
-            response = self._request(
-                "GET",
-                f"/sheets/{schema.sheet_id}/attachments/{attachment_id}",
-            )
-        except SmartsheetAPIError:
-            return None
-
-        return AttachmentDetail(
-            attachment_id=str(response.get("id", "")),
-            name=response.get("name", ""),
-            mime_type=response.get("mimeType", "application/octet-stream"),
-            size_bytes=int(response.get("sizeInKb", 0)) * 1024,
-            created_at=response.get("createdAt", ""),
-            attachment_type=response.get("attachmentType", "FILE"),
-            download_url=response.get("url", ""),
-        )
 
     @property
     def last_fetch_used_live(self) -> bool:
@@ -550,6 +520,13 @@ class SmartsheetClient:
                 done_value = self._cell_value(cell_map, "done", allow_optional=True, schema=schema)
                 is_done = bool(done_value) if done_value is not None else False
                 
+                # Parse number field for task sequencing (supports decimals for recurring: 0.1-0.9)
+                number_value = self._cell_value(cell_map, "number", allow_optional=True, schema=schema)
+                try:
+                    task_number = float(number_value) if number_value is not None else None
+                except (ValueError, TypeError):
+                    task_number = None  # Invalid number values are treated as unset
+                
                 summary = TaskDetail(
                     row_id=str(row.get("id")),
                     title=self._cell_value(cell_map, "task", schema=schema),
@@ -571,6 +548,7 @@ class SmartsheetClient:
                     automation_hint=self._derive_hint(cell_map, schema=schema),
                     source=source_key,
                     done=is_done,
+                    number=task_number,
                 )
             except (KeyError, ValueError) as exc:
                 errors.append(self._format_row_error(row, exc))

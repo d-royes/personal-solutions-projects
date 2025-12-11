@@ -75,7 +75,7 @@ sheets:
           - "8"
       number:
         column_id: "4360397999787908"
-        type: int
+        type: number  # Supports decimals: 0.1-0.9 for recurring (early AM), 1+ for regular
       done:
         column_id: "2108598186102660"
         type: checkbox
@@ -200,7 +200,7 @@ sheets:
           - "8"
       number:
         column_id: "7057747878406020"
-        type: int
+        type: number  # Supports decimals: 0.1-0.9 for recurring (early AM), 1+ for regular
       done:
         column_id: "802613450041220"
         type: checkbox
@@ -325,7 +325,7 @@ columns:
   number:
     column_id: "4360397999787908"
     label: "#"
-    type: int
+    type: number  # Supports decimals: 0.1-0.9 for recurring (early AM), 1+ for regular tasks
     description: Daily ordering field; assistant may reorder to reprioritize.
   done:
     column_id: "2108598186102660"

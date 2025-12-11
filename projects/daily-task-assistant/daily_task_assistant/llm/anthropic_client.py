@@ -538,8 +538,8 @@ TASK_UPDATE_TOOL = {
             },
             "status": {
                 "type": "string",
-                "enum": ["Scheduled", "In Progress", "Blocked", "Waiting", "Complete", "Recurring", "On Hold", "Follow-up", "Awaiting Reply", "Delivered", "Cancelled", "Delegated", "Completed"],
-                "description": "New status value (required for update_status)"
+                "enum": ["Scheduled", "Recurring", "On Hold", "In Progress", "Follow-up", "Awaiting Reply", "Delivered", "Create ZD Ticket", "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"],
+                "description": "New status value (required for update_status). Terminal statuses (Ticket Created, Cancelled, Delegated, Completed) also mark task as Done."
             },
             "priority": {
                 "type": "string",
@@ -558,8 +558,8 @@ TASK_UPDATE_TOOL = {
                 "description": "Comment text to add (required for add_comment)"
             },
             "number": {
-                "type": "integer",
-                "description": "Task number (positive integer, required for update_number)"
+                "type": "number",
+                "description": "Task number for daily ordering: 0.1-0.9 for recurring tasks (early AM), 1+ for regular tasks (required for update_number)"
             },
             "contact_flag": {
                 "type": "boolean",
@@ -600,6 +600,88 @@ TASK_UPDATE_TOOL = {
     }
 }
 
+# Tool definition for portfolio-level task updates (requires row_id)
+PORTFOLIO_TASK_UPDATE_TOOL = {
+    "name": "update_task",
+    "description": "Update a specific task in Smartsheet from portfolio view. You MUST specify the row_id to identify which task to update.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "row_id": {
+                "type": "string",
+                "description": "The Smartsheet row ID of the task to update (REQUIRED - get from task_summaries)"
+            },
+            "action": {
+                "type": "string",
+                "enum": [
+                    "mark_complete", "update_status", "update_priority", "update_due_date", "add_comment",
+                    "update_number", "update_contact_flag", "update_recurring", "update_project",
+                    "update_task", "update_assigned_to", "update_notes", "update_estimated_hours"
+                ],
+                "description": "The type of update to perform"
+            },
+            "status": {
+                "type": "string",
+                "enum": ["Scheduled", "Recurring", "On Hold", "In Progress", "Follow-up", "Awaiting Reply", "Delivered", "Create ZD Ticket", "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"],
+                "description": "New status value (required for update_status)"
+            },
+            "priority": {
+                "type": "string",
+                "enum": ["Critical", "Urgent", "Important", "Standard", "Low", "5-Critical", "4-Urgent", "3-Important", "2-Standard", "1-Low"],
+                "description": "New priority value (required for update_priority)"
+            },
+            "due_date": {
+                "type": "string",
+                "description": "New due date in YYYY-MM-DD format (required for update_due_date)"
+            },
+            "comment": {
+                "type": "string",
+                "description": "Comment text to add (required for add_comment)"
+            },
+            "number": {
+                "type": "number",
+                "description": "Task number for daily ordering: 0.1-0.9 for recurring tasks (early AM), 1+ for regular tasks (required for update_number)"
+            },
+            "contact_flag": {
+                "type": "boolean",
+                "description": "Contact checkbox value (required for update_contact_flag)"
+            },
+            "recurring": {
+                "type": "string",
+                "enum": ["M", "T", "W", "H", "F", "Sa", "Monthly"],
+                "description": "Recurring pattern (required for update_recurring)"
+            },
+            "project": {
+                "type": "string",
+                "description": "Project name (required for update_project)"
+            },
+            "task_title": {
+                "type": "string",
+                "description": "Task title text (required for update_task action)"
+            },
+            "assigned_to": {
+                "type": "string",
+                "description": "Email address of assignee (required for update_assigned_to)"
+            },
+            "notes": {
+                "type": "string",
+                "description": "Notes text (required for update_notes)"
+            },
+            "estimated_hours": {
+                "type": "string",
+                "enum": [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"],
+                "description": "Estimated hours (required for update_estimated_hours)"
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of why this update is being made"
+            }
+        },
+        "required": ["row_id", "action", "reason"]
+    }
+}
+
+
 # Tool definition for updating email drafts
 EMAIL_DRAFT_UPDATE_TOOL = {
     "name": "update_email_draft",
@@ -630,7 +712,7 @@ def _build_chat_system_prompt() -> str:
 
 YOU HAVE THE ABILITY TO UPDATE SMARTSHEET TASKS. You have an update_task tool that lets you:
 - Mark tasks complete
-- Change status (Scheduled, In Progress, Blocked, Waiting, Complete, etc.)
+- Change status (Scheduled, Recurring, On Hold, In Progress, Follow-up, Awaiting Reply, Delivered, Create ZD Ticket, Ticket Created, Validation, Needs Approval, Cancelled, Delegated, Completed)
 - Change priority (Critical, Urgent, Important, Standard, Low)
 - Update due dates
 - Add comments
@@ -647,7 +729,8 @@ CRITICAL INSTRUCTION: When David asks you to update ANY task field, you MUST cal
 
 TASK UPDATE TRIGGERS - CALL THE TOOL IMMEDIATELY:
 - "done", "finished", "complete", "close it", "mark it done" → update_task(action="mark_complete", reason="...")
-- "blocked", "stuck", "waiting on..." → update_task(action="update_status", status="Blocked", reason="...")
+- "on hold", "paused", "waiting on..." → update_task(action="update_status", status="On Hold", reason="...")
+- "waiting for reply", "emailed them" → update_task(action="update_status", status="Awaiting Reply", reason="...")
 - "push to...", "change due date" → update_task(action="update_due_date", due_date="YYYY-MM-DD", reason="...")
 - "make this urgent", "lower priority" → update_task(action="update_priority", priority="...", reason="...")
 - "add note:", "note that..." → update_task(action="add_comment", comment="...", reason="...")
@@ -717,7 +800,7 @@ class TaskUpdateAction:
     priority: Optional[str] = None
     due_date: Optional[str] = None
     comment: Optional[str] = None
-    number: Optional[int] = None
+    number: Optional[float] = None  # 0.1-0.9 for recurring, 1+ for regular
     contact_flag: Optional[bool] = None
     recurring: Optional[str] = None
     project: Optional[str] = None
@@ -742,6 +825,37 @@ class ChatResponse:
     message: str
     pending_action: Optional[TaskUpdateAction] = None
     email_draft_update: Optional[EmailDraftUpdate] = None
+
+
+@dataclass(slots=True)
+class PortfolioTaskUpdateAction:
+    """Structured task update action for portfolio mode (includes row_id)."""
+    row_id: str  # Required - identifies which task to update
+    action: str
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = None
+    comment: Optional[str] = None
+    number: Optional[float] = None  # 0.1-0.9 for recurring, 1+ for regular
+    contact_flag: Optional[bool] = None
+    recurring: Optional[str] = None
+    project: Optional[str] = None
+    task_title: Optional[str] = None
+    assigned_to: Optional[str] = None
+    notes: Optional[str] = None
+    estimated_hours: Optional[str] = None
+    reason: str = ""
+
+
+@dataclass(slots=True) 
+class PortfolioChatResponse:
+    """Response from portfolio_chat_with_tools."""
+    message: str
+    pending_actions: List["PortfolioTaskUpdateAction"] = None  # Can have multiple task updates
+    
+    def __post_init__(self):
+        if self.pending_actions is None:
+            self.pending_actions = []
 
 
 def chat_with_tools(
@@ -1168,4 +1282,215 @@ Provide a concise summary following the format specified."""
         raise AnthropicError(f"Anthropic request failed: {exc}") from exc
 
     return _extract_text(response)
+
+
+# Portfolio Chat System Prompt
+PORTFOLIO_CHAT_SYSTEM_PROMPT = """You are DATA, David's AI chief of staff, analyzing his task portfolio.
+
+YOU HAVE THE ABILITY TO UPDATE TASKS IN SMARTSHEET. You have an update_task tool that lets you modify any task in the portfolio by specifying its row_id.
+
+CRITICAL INSTRUCTION: When David asks you to update, rebalance, reschedule, or modify tasks, you MUST call the update_task tool for EACH task. Do NOT just describe what you would do - actually CALL THE TOOL.
+
+AVAILABLE ACTIONS:
+- mark_complete: Mark a task as done
+- update_status: Change status
+- update_priority: Change priority (Critical, Urgent, Important, Standard, Low)
+- update_due_date: Change due date (YYYY-MM-DD format)
+- add_comment: Add notes/comments
+- update_number: Change the # field (0.1-0.9 for recurring, 1+ for regular)
+- update_contact_flag: Toggle Contact checkbox
+- update_recurring: Set recurring pattern (M, T, W, H, F, Sa, Monthly)
+- update_project: Change project
+- update_task: Rename the task
+- update_assigned_to: Change assignee
+- update_notes: Update notes
+- update_estimated_hours: Set time estimate
+
+WHEN TO CALL THE TOOL - DO IT IMMEDIATELY:
+- "rebalance my tasks" → Call update_task for EACH task with new due_date
+- "spread tasks over next week" → Call update_task for EACH task with new due_date
+- "push overdue to next week" → Call update_task for EACH overdue task
+- "mark X as complete" → Call update_task with action="mark_complete"
+- "set priorities for today" → Call update_task for EACH task with new number
+
+WRONG (do NOT do this):
+- Describing what you WOULD do without calling the tool
+- Saying "Let me update..." without actual tool calls
+- Asking "Should I proceed?" for clear requests
+
+RIGHT (do this):
+- Call update_task immediately for each change
+- David will see pending actions and can confirm/reject
+- The UI handles the confirmation flow
+
+EXAMPLE - "Rebalance my 5 overdue tasks across next week":
+1. Call update_task(row_id="123", action="update_due_date", due_date="2024-12-11", reason="Rebalancing")
+2. Call update_task(row_id="456", action="update_due_date", due_date="2024-12-12", reason="Rebalancing")
+3. Call update_task(row_id="789", action="update_due_date", due_date="2024-12-13", reason="Rebalancing")
+... (one call per task)
+
+YOUR ROLE: Execute task updates efficiently. The frontend handles user confirmation."""
+
+
+def portfolio_chat_with_tools(
+    portfolio_context: str,
+    task_summaries: List[Dict[str, Any]],
+    user_message: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    perspective: str = "holistic",
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> PortfolioChatResponse:
+    """Chat with portfolio-level task update tool support.
+    
+    This enables DATA to update specific tasks from the portfolio view
+    by specifying row_id in the tool call.
+    
+    Args:
+        portfolio_context: Formatted portfolio statistics
+        task_summaries: List of tasks with row_id, title, due, priority, etc.
+        user_message: The user's latest message
+        history: Previous conversation messages
+        perspective: Current perspective (personal, church, work, holistic)
+        client: Optional pre-built Anthropic client
+        config: Optional configuration override
+    
+    Returns:
+        PortfolioChatResponse with message and optional pending_actions list
+    """
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+
+    # Build task list for context (include row_id for targeting)
+    task_list_text = "\n".join([
+        f"- [{t.get('row_id')}] {t.get('title', 'Untitled')[:50]} | {t.get('priority')} | Due: {t.get('due', 'N/A')[:10]} | #: {t.get('number', '-')}"
+        for t in task_summaries[:30]  # Limit for context window
+    ])
+    
+    # Build messages
+    messages: List[Dict[str, Any]] = []
+    
+    # Portfolio context as priming
+    context_message = f"""[Portfolio View - {perspective.title()}]
+
+{portfolio_context}
+
+TASKS (with row_id for updates):
+{task_list_text}
+
+---
+{user_message}"""
+
+    if not history:
+        messages.append({
+            "role": "user",
+            "content": [{"type": "text", "text": context_message}]
+        })
+    else:
+        # Add history
+        for msg in history:
+            messages.append({
+                "role": msg["role"],
+                "content": [{"type": "text", "text": msg["content"]}]
+            })
+        # Add current message with brief context update
+        messages.append({
+            "role": "user",
+            "content": [{"type": "text", "text": f"[Portfolio: {len(task_summaries)} tasks]\n\n{user_message}"}]
+        })
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=4000,  # Increased for multiple tool calls
+            temperature=0.5,
+            system=PORTFOLIO_CHAT_SYSTEM_PROMPT,
+            messages=messages,
+            tools=[PORTFOLIO_TASK_UPDATE_TOOL],
+        )
+    except APIStatusError as exc:
+        raise AnthropicError(f"Anthropic API error: {exc}") from exc
+    except Exception as exc:
+        raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+
+    # Extract text and tool uses from response
+    text_content = []
+    pending_actions = []
+    
+    # Debug: Log response details
+    print(f"[DEBUG] Response stop_reason: {getattr(response, 'stop_reason', 'N/A')}")
+    print(f"[DEBUG] Response content blocks: {len(getattr(response, 'content', []))}")
+    for i, block in enumerate(getattr(response, "content", [])):
+        print(f"[DEBUG] Block {i}: type={getattr(block, 'type', 'unknown')}")
+    
+    for block in getattr(response, "content", []):
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            text_content.append(getattr(block, "text", ""))
+        elif block_type == "tool_use":
+            tool_name = getattr(block, "name", "")
+            if tool_name == "update_task":
+                tool_input = getattr(block, "input", {})
+                action = PortfolioTaskUpdateAction(
+                    row_id=tool_input.get("row_id", ""),
+                    action=tool_input.get("action", ""),
+                    status=tool_input.get("status"),
+                    priority=tool_input.get("priority"),
+                    due_date=tool_input.get("due_date"),
+                    comment=tool_input.get("comment"),
+                    number=tool_input.get("number"),
+                    contact_flag=tool_input.get("contact_flag"),
+                    recurring=tool_input.get("recurring"),
+                    project=tool_input.get("project"),
+                    task_title=tool_input.get("task_title"),
+                    assigned_to=tool_input.get("assigned_to"),
+                    notes=tool_input.get("notes"),
+                    estimated_hours=tool_input.get("estimated_hours"),
+                    reason=tool_input.get("reason", ""),
+                )
+                pending_actions.append(action)
+
+    message = "\n".join(text_content).strip()
+    
+    # Generate confirmation message if actions but no text
+    if pending_actions and not message:
+        if len(pending_actions) == 1:
+            action = pending_actions[0]
+            message = f"I'll update task {action.row_id}: {_describe_portfolio_action(action)}. Proceed?"
+        else:
+            message = f"I have {len(pending_actions)} task updates ready. Review and confirm?"
+
+    return PortfolioChatResponse(message=message, pending_actions=pending_actions)
+
+
+def _describe_portfolio_action(action: PortfolioTaskUpdateAction) -> str:
+    """Generate a human-readable description of a portfolio task action."""
+    if action.action == "mark_complete":
+        return "mark as complete"
+    elif action.action == "update_status":
+        return f"change status to '{action.status}'"
+    elif action.action == "update_priority":
+        return f"change priority to '{action.priority}'"
+    elif action.action == "update_due_date":
+        return f"change due date to {action.due_date}"
+    elif action.action == "add_comment":
+        return f"add comment"
+    elif action.action == "update_number":
+        return f"set # to {action.number}"
+    elif action.action == "update_contact_flag":
+        return f"{'check' if action.contact_flag else 'uncheck'} Contact flag"
+    elif action.action == "update_recurring":
+        return f"set recurring to '{action.recurring}'"
+    elif action.action == "update_project":
+        return f"change project to '{action.project}'"
+    elif action.action == "update_task":
+        return f"rename to '{action.task_title}'"
+    elif action.action == "update_assigned_to":
+        return f"assign to '{action.assigned_to}'"
+    elif action.action == "update_notes":
+        return f"update notes"
+    elif action.action == "update_estimated_hours":
+        return f"set hours to {action.estimated_hours}"
+    return f"{action.action}"
 
