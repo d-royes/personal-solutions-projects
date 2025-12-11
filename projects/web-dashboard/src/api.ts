@@ -1296,10 +1296,14 @@ export function proposalToBulkUpdates(
   const updates: BulkTaskUpdate[] = []
   
   for (const change of changes) {
+    // Derive source from domain - Work domain = work sheet, else personal
+    const source: 'personal' | 'work' = change.domain === 'Work' ? 'work' : 'personal'
+    
     // Add due date update if changed
     if (change.proposedDue && change.proposedDue !== change.currentDue) {
       updates.push({
         rowId: change.rowId,
+        source,
         action: 'update_due_date',
         dueDate: change.proposedDue,
         reason: change.reason,
@@ -1310,6 +1314,7 @@ export function proposalToBulkUpdates(
     if (change.proposedNumber != null && change.proposedNumber !== change.currentNumber) {
       updates.push({
         rowId: change.rowId,
+        source,
         action: 'update_number',
         number: change.proposedNumber,
         reason: change.reason,
