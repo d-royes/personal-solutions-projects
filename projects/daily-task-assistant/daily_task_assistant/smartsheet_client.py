@@ -394,10 +394,11 @@ class SmartsheetClient:
                     f"Allowed: {column.allowed_values}"
                 )
 
-            # Convert boolean to int for checkbox columns (Smartsheet expects 1/0)
+            # Checkbox columns expect boolean values (True/False), not integers
             cell_value = value
-            if column.col_type == "checkbox" and isinstance(value, bool):
-                cell_value = 1 if value else 0
+            if column.col_type == "checkbox":
+                # Ensure boolean type for checkbox
+                cell_value = bool(value)
 
             # Handle special column types that require objectValue format
             if field_name == "recurring_pattern":

@@ -1457,11 +1457,23 @@ def clear_workspace_endpoint(
 
 class TaskUpdateRequest(BaseModel):
     """Request body for task update endpoint."""
-    action: Literal["mark_complete", "update_status", "update_priority", "update_due_date", "add_comment"]
+    action: Literal[
+        "mark_complete", "update_status", "update_priority", "update_due_date", "add_comment",
+        "update_number", "update_contact_flag", "update_recurring", "update_project",
+        "update_task", "update_assigned_to", "update_notes", "update_estimated_hours"
+    ]
     status: Optional[str] = Field(None, description="New status value (for update_status)")
     priority: Optional[str] = Field(None, description="New priority value (for update_priority)")
     due_date: Optional[str] = Field(None, description="New due date in YYYY-MM-DD format (for update_due_date)")
     comment: Optional[str] = Field(None, description="Comment text (for add_comment)")
+    number: Optional[int] = Field(None, description="Task number (for update_number)")
+    contact_flag: Optional[bool] = Field(None, description="Contact checkbox value (for update_contact_flag)")
+    recurring: Optional[str] = Field(None, description="Recurring pattern (for update_recurring)")
+    project: Optional[str] = Field(None, description="Project name (for update_project)")
+    task_title: Optional[str] = Field(None, description="New task title (for update_task)")
+    assigned_to: Optional[str] = Field(None, description="Assignee email (for update_assigned_to)")
+    notes: Optional[str] = Field(None, description="Notes text (for update_notes)")
+    estimated_hours: Optional[str] = Field(None, description="Estimated hours value (for update_estimated_hours)")
     confirmed: bool = Field(False, description="User has confirmed this action")
 
 
@@ -1472,6 +1484,19 @@ VALID_STATUSES = [
     "Ticket Created", "Validation", "Needs Approval", "Cancelled", "Delegated", "Completed"
 ]
 VALID_PRIORITIES = ["Critical", "Urgent", "Important", "Standard", "Low"]
+VALID_PRIORITIES_WORK = ["5-Critical", "4-Urgent", "3-Important", "2-Standard", "1-Low"]
+VALID_RECURRING = ["M", "T", "W", "H", "F", "Sa", "Monthly"]
+VALID_PROJECTS_PERSONAL = [
+    "Around The House", "Church Tasks", "Family Time", "Shopping", 
+    "Sm. Projects & Tasks", "Zendesk Ticket"
+]
+VALID_PROJECTS_WORK = [
+    "Atlassian (Jira/Confluence)", "Crafter Studio", "Internal Application Support",
+    "Team Management", "Strategic Planning", "Stakeholder Relations", "Process Improvement",
+    "Daily Operations", "Zendesk Support", "Intranet Management", "Vendor Management",
+    "AI/Automation Projects", "DTS Transformation", "New Technology Evaluation", "Innovation"
+]
+VALID_ESTIMATED_HOURS = [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"]
 
 
 @app.post("/assist/{task_id}/update")
@@ -1502,10 +1527,11 @@ def update_task(
     elif request.action == "update_priority":
         if not request.priority:
             raise HTTPException(status_code=400, detail="priority field required for update_priority action")
-        if request.priority not in VALID_PRIORITIES:
+        all_valid_priorities = VALID_PRIORITIES + VALID_PRIORITIES_WORK
+        if request.priority not in all_valid_priorities:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid priority '{request.priority}'. Valid: {VALID_PRIORITIES}"
+                detail=f"Invalid priority '{request.priority}'. Valid: {all_valid_priorities}"
             )
     elif request.action == "update_due_date":
         if not request.due_date:
@@ -1517,6 +1543,51 @@ def update_task(
     elif request.action == "add_comment":
         if not request.comment:
             raise HTTPException(status_code=400, detail="comment field required for add_comment action")
+    elif request.action == "update_number":
+        if request.number is None:
+            raise HTTPException(status_code=400, detail="number field required for update_number action")
+        if not isinstance(request.number, int) or request.number < 0:
+            raise HTTPException(status_code=400, detail="number must be a non-negative integer")
+    elif request.action == "update_contact_flag":
+        if request.contact_flag is None:
+            raise HTTPException(status_code=400, detail="contact_flag field required for update_contact_flag action")
+    elif request.action == "update_recurring":
+        if not request.recurring:
+            raise HTTPException(status_code=400, detail="recurring field required for update_recurring action")
+        if request.recurring not in VALID_RECURRING:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid recurring '{request.recurring}'. Valid: {VALID_RECURRING}"
+            )
+    elif request.action == "update_project":
+        if not request.project:
+            raise HTTPException(status_code=400, detail="project field required for update_project action")
+        all_valid_projects = VALID_PROJECTS_PERSONAL + VALID_PROJECTS_WORK
+        if request.project not in all_valid_projects:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid project '{request.project}'. Valid: {all_valid_projects}"
+            )
+    elif request.action == "update_task":
+        if not request.task_title:
+            raise HTTPException(status_code=400, detail="task_title field required for update_task action")
+    elif request.action == "update_assigned_to":
+        if not request.assigned_to:
+            raise HTTPException(status_code=400, detail="assigned_to field required for update_assigned_to action")
+        # Basic email validation
+        if "@" not in request.assigned_to:
+            raise HTTPException(status_code=400, detail="assigned_to must be a valid email address")
+    elif request.action == "update_notes":
+        if request.notes is None:
+            raise HTTPException(status_code=400, detail="notes field required for update_notes action")
+    elif request.action == "update_estimated_hours":
+        if not request.estimated_hours:
+            raise HTTPException(status_code=400, detail="estimated_hours field required for update_estimated_hours action")
+        if request.estimated_hours not in VALID_ESTIMATED_HOURS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid estimated_hours '{request.estimated_hours}'. Valid: {VALID_ESTIMATED_HOURS}"
+            )
     
     # Build preview of proposed changes
     preview = {
@@ -1539,7 +1610,35 @@ def update_task(
         preview["description"] = f"Update due date to '{request.due_date}'"
     elif request.action == "add_comment":
         preview["changes"] = {"comment": request.comment}
-        preview["description"] = f"Add comment: '{request.comment[:50]}...'" if len(request.comment or "") > 50 else f"Add comment: '{request.comment}'"
+        comment_preview = request.comment[:50] + "..." if len(request.comment or "") > 50 else request.comment
+        preview["description"] = f"Add comment: '{comment_preview}'"
+    elif request.action == "update_number":
+        preview["changes"] = {"number": request.number}
+        preview["description"] = f"Update task number to {request.number}"
+    elif request.action == "update_contact_flag":
+        preview["changes"] = {"contact_flag": request.contact_flag}
+        flag_text = "checked" if request.contact_flag else "unchecked"
+        preview["description"] = f"Set contact flag to {flag_text}"
+    elif request.action == "update_recurring":
+        preview["changes"] = {"recurring_pattern": request.recurring}
+        preview["description"] = f"Set recurring pattern to '{request.recurring}'"
+    elif request.action == "update_project":
+        preview["changes"] = {"project": request.project}
+        preview["description"] = f"Move task to project '{request.project}'"
+    elif request.action == "update_task":
+        preview["changes"] = {"task": request.task_title}
+        title_preview = request.task_title[:50] + "..." if len(request.task_title or "") > 50 else request.task_title
+        preview["description"] = f"Rename task to '{title_preview}'"
+    elif request.action == "update_assigned_to":
+        preview["changes"] = {"assigned_to": request.assigned_to}
+        preview["description"] = f"Assign task to '{request.assigned_to}'"
+    elif request.action == "update_notes":
+        preview["changes"] = {"notes": request.notes}
+        notes_preview = request.notes[:50] + "..." if len(request.notes or "") > 50 else request.notes
+        preview["description"] = f"Update notes to '{notes_preview}'"
+    elif request.action == "update_estimated_hours":
+        preview["changes"] = {"estimated_hours": request.estimated_hours}
+        preview["description"] = f"Set estimated hours to {request.estimated_hours}"
     
     # If not confirmed, return preview for user confirmation
     if not request.confirmed:
@@ -1563,6 +1662,22 @@ def update_task(
             client.update_row(task_id, {"due_date": request.due_date})
         elif request.action == "add_comment":
             client.post_comment(task_id, request.comment)
+        elif request.action == "update_number":
+            client.update_row(task_id, {"number": request.number})
+        elif request.action == "update_contact_flag":
+            client.update_row(task_id, {"contact_flag": request.contact_flag})
+        elif request.action == "update_recurring":
+            client.update_row(task_id, {"recurring_pattern": request.recurring})
+        elif request.action == "update_project":
+            client.update_row(task_id, {"project": request.project})
+        elif request.action == "update_task":
+            client.update_row(task_id, {"task": request.task_title})
+        elif request.action == "update_assigned_to":
+            client.update_row(task_id, {"assigned_to": request.assigned_to})
+        elif request.action == "update_notes":
+            client.update_row(task_id, {"notes": request.notes})
+        elif request.action == "update_estimated_hours":
+            client.update_row(task_id, {"estimated_hours": request.estimated_hours})
         
         # Log the action to conversation history
         action_description = preview["description"]
