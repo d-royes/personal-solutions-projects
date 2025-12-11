@@ -44,6 +44,10 @@ ALLOWED_ORIGINS = [
     "http://localhost:5174",
     "http://127.0.0.1:5174",
     os.getenv("DTA_ALLOWED_FRONTEND", "").strip(),
+    # Custom domains
+    "https://staging.dailytaskassistant.ai",
+    "https://dailytaskassistant.ai",
+    "https://www.dailytaskassistant.ai",
 ]
 origins = [origin for origin in ALLOWED_ORIGINS if origin]
 
