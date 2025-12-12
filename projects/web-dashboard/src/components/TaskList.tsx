@@ -213,23 +213,16 @@ export function TaskList({
         {FILTERS.map((chip) => {
           // Show badge for Work filter when there are urgent/overdue items
           const showWorkBadge = chip.id === 'work' && workBadge && workBadge.needsAttention > 0
-          // Show badge for Email Tasks when there are tasks
-          const showEmailBadge = chip.id === 'email_tasks' && emailTasks.length > 0
           return (
             <button
               key={chip.id}
-              className={`${filter === chip.id ? 'active' : ''} ${showWorkBadge || showEmailBadge ? 'has-badge' : ''}`}
+              className={`${filter === chip.id ? 'active' : ''} ${showWorkBadge ? 'has-badge' : ''}`}
               onClick={() => handleFilterChange(chip.id)}
             >
               {chip.label}
               {showWorkBadge && (
                 <span className="work-badge" title={`${workBadge.needsAttention} work task(s) need attention`}>
                   {workBadge.needsAttention}
-                </span>
-              )}
-              {showEmailBadge && (
-                <span className="work-badge" title={`${emailTasks.length} email task(s)`}>
-                  {emailTasks.length}
                 </span>
               )}
             </button>
