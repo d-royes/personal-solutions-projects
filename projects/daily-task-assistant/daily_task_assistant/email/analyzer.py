@@ -733,8 +733,27 @@ def generate_action_suggestions(
     
     analyzer = EmailAnalyzer(email_account)
     
+    # System labels to ignore when checking for user labels
+    SYSTEM_LABELS = {
+        "INBOX", "UNREAD", "STARRED", "IMPORTANT", "SENT", "DRAFT", 
+        "SPAM", "TRASH", "CATEGORY_PERSONAL", "CATEGORY_SOCIAL",
+        "CATEGORY_PROMOTIONS", "CATEGORY_UPDATES", "CATEGORY_FORUMS"
+    }
+    
+    def has_user_label(email_labels: List[str]) -> bool:
+        """Check if email has any user-defined label."""
+        for lbl in email_labels:
+            # User labels start with "Label_" or aren't in system labels
+            if lbl.startswith("Label_") or lbl not in SYSTEM_LABELS:
+                return True
+        return False
+    
     for msg in messages:
         content = (msg.subject + " " + msg.snippet).lower()
+        
+        # Skip emails that already have user-defined labels (already categorized)
+        if has_user_label(msg.labels):
+            continue
         
         # Check for emails that should be archived (old promotional)
         age_hours = msg.age_hours()
