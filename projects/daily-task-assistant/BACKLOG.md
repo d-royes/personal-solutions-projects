@@ -111,6 +111,8 @@ Features that have been implemented and can be removed from backlog:
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| **Email Reply Feature** | 2025-12-12 | Full email body loading, thread context summarization, AI reply drafts, Tiptap rich text editor, Reply/Reply All, conversational triggers |
+| **Email-Task Integration** | 2025-12-12 | Task creation icon on all Dashboard emails, task exists indicator, Email Tasks filter in Task panel, Project field in task form |
 | Email Management (Chief of Staff) | 2025-12-11 | Gmail inbox reader, Google Sheets rules integration, Apps Script automation for Personal + Church accounts |
 | E2E Regression Testing | 2025-12-11 | Playwright framework with 34 tests (31 passing) covering API, Tasks, Email features |
 | Smartsheet Attachments + Claude Vision | 2025-12-07 | Task attachments displayed, image selection checkboxes, AI vision analysis |

@@ -10,6 +10,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.0] - 2025-12-12
+
+### 🚀 Email Reply Feature & Enhanced Email-Task Integration
+
+This release delivers a complete email reply workflow with AI assistance and significant improvements to email-task integration.
+
+### Added
+
+#### Email Reply Feature
+- **Full email body loading**: Click on any email to load the complete message content
+- **Expand/collapse toggle**: Arrow button to show/hide full email body in DATA panel
+- **Thread context with AI summarization**: Gemini Flash summarizes thread history for context
+- **Reply & Reply All buttons**: Quick action buttons in the DATA panel
+- **AI-generated reply drafts**: DATA generates human-like responses based on email context
+- **Conversational reply trigger**: Say "draft a reply" in chat and DATA opens the reply panel
+- **Tiptap rich text editor**: Full formatting support (bold, italic, lists, links) for email body
+- **Smart recipient handling**: From account defaults based on active account, CC recipients pre-filled
+
+#### Email-Task Integration
+- **Task creation icon on Dashboard emails**: Small 📋 icon in top-right corner of every email
+  - Works in Recent Messages and Search Results
+  - Click to instantly open task creation form
+- **Task exists indicator**: Emails with linked tasks show "📋 Task exists" badge
+- **Project field**: Task creation form now includes Project dropdown
+- **Email Tasks filter**: New filter in Task panel to view Firestore-created tasks
+
+#### Email Suggestions Enhancement
+- **Skip already-labeled emails**: Suggestions no longer appear for emails with custom labels
+
+### Changed
+- **Dark theme email readability**: HTML email content now has proper color contrast
+  - White text on dark background
+  - Blue links
+  - Subtle blockquote styling
+  - Table border styling
+- **Removed bullet point restriction**: EMAIL_REPLY_SYSTEM_PROMPT no longer discourages bullets
+
+### Technical
+- **API Endpoints Added**:
+  - `GET /email/{account}/message/{message_id}` - Fetch full email with body
+  - `GET /email/{account}/thread/{thread_id}` - Get summarized thread context
+  - `POST /email/{account}/reply-draft` - Generate AI reply draft
+  - `POST /email/{account}/reply-send` - Send reply with proper threading headers
+- **EmailMessage dataclass extended**: body, bodyHtml, attachmentCount, attachments fields
+- **Gmail threading support**: In-Reply-To, References headers for proper thread continuation
+
+---
+
 ## [0.2.1] - 2025-12-03
 
 ### 🚀 First Production Deployment!
@@ -121,7 +169,8 @@ This release marks the first successful automated deployment to staging using ou
 
 | Version | Date | Milestone |
 |---------|------|-----------|
-| 0.2.1 | 2025-12-03 | **First production deployment** |
+| 0.3.0 | 2025-12-12 | **Email Reply Feature & Email-Task Integration** |
+| 0.2.1 | 2025-12-03 | First production deployment |
 | 0.2.0 | 2025-12-02 | First CI/CD staging deployment |
 | 0.1.0 | 2025-11-XX | Initial development release |
 
