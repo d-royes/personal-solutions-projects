@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-11  
+> **Last Updated**: 2025-12-12  
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -74,6 +74,12 @@ Earned autonomy through demonstrated understanding and tracked success.
 ---
 
 ## Feature Backlog
+
+### Urgent Priority
+
+| Feature | Description | Documentation |
+|---------|-------------|---------------|
+| **Email Task Assistant Integration** | Complete integration of Email Tasks (Firestore) into the Assistant workflow. When selecting an email-created task, DATA should have full context of the source email, be able to suggest next actions, draft replies, and update task status. Connect the Email Tasks filter to the full assist experience. | - |
 
 ### High Priority
 
