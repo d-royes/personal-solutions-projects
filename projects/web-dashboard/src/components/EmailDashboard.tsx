@@ -513,21 +513,25 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     try {
       const response = await getTaskPreviewFromEmail(selectedAccount, emailId, authConfig, apiBase)
       setTaskPreview(response.preview)
+      const domain = response.preview.domain || (selectedAccount === 'church' ? 'church' : 'personal')
       setTaskFormData({
         title: response.preview.title || '',
         dueDate: response.preview.dueDate || '',
         priority: response.preview.priority || 'Standard',
-        domain: response.preview.domain || (selectedAccount === 'church' ? 'church' : 'personal'),
+        domain: domain,
+        project: response.preview.project || '',
         notes: response.preview.notes || '',
       })
     } catch (err) {
       // Fallback to email subject
       const email = selectedEmail
+      const domain = selectedAccount === 'church' ? 'church' : 'personal'
       setTaskFormData({
         title: email?.subject.replace(/^(Re:|Fwd:|FW:)\s*/gi, '').trim() || '',
         dueDate: '',
         priority: 'Standard',
-        domain: selectedAccount === 'church' ? 'church' : 'personal',
+        domain: domain,
+        project: domain === 'church' ? 'Church Tasks' : 'Sm. Projects & Tasks',
         notes: `From: ${email?.fromName || email?.fromAddress || ''}`,
       })
     } finally {
@@ -551,6 +555,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
           dueDate: taskFormData.dueDate || undefined,
           priority: taskFormData.priority,
           domain: taskFormData.domain,
+          project: taskFormData.project || undefined,
           notes: taskFormData.notes || undefined,
         },
         authConfig,
@@ -570,6 +575,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         dueDate: '',
         priority: 'Standard',
         domain: 'personal',
+        project: '',
         notes: '',
       })
       setTaskPreview(null)
@@ -589,6 +595,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
       dueDate: '',
       priority: 'Standard',
       domain: 'personal',
+      project: '',
       notes: '',
     })
   }
@@ -777,8 +784,36 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     dueDate: '',
     priority: 'Standard',
     domain: 'personal',
+    project: '',
     notes: '',
   })
+  
+  // Project options based on domain
+  const projectOptions = taskFormData.domain === 'work' 
+    ? [
+        'Atlassian (Jira/Confluence)',
+        'Crafter Studio',
+        'Internal Application Support',
+        'Team Management',
+        'Strategic Planning',
+        'Stakeholder Relations',
+        'Process Improvement',
+        'Daily Operations',
+        'Zendesk Support',
+        'Intranet Management',
+        'Vendor Management',
+        'AI/Automation Projects',
+        'DTS Transformation',
+        'New Technology Evaluation',
+      ]
+    : [
+        'Around The House',
+        'Church Tasks',
+        'Family Time',
+        'Shopping',
+        'Sm. Projects & Tasks',
+        'Zendesk Ticket',
+      ]
   const [creatingTask, setCreatingTask] = useState(false)
 
   // Handle quick action on email
@@ -1675,16 +1710,35 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                         </div>
                       </div>
                       
-                      <div className="task-form-field">
-                        <label>Domain</label>
-                        <select
-                          value={taskFormData.domain}
-                          onChange={(e) => setTaskFormData(prev => ({ ...prev, domain: e.target.value }))}
-                        >
-                          <option value="personal">Personal</option>
-                          <option value="church">Church</option>
-                          <option value="work">Work</option>
-                        </select>
+                      <div className="task-form-row">
+                        <div className="task-form-field">
+                          <label>Domain</label>
+                          <select
+                            value={taskFormData.domain}
+                            onChange={(e) => setTaskFormData(prev => ({ 
+                              ...prev, 
+                              domain: e.target.value,
+                              project: '' // Reset project when domain changes
+                            }))}
+                          >
+                            <option value="personal">Personal</option>
+                            <option value="church">Church</option>
+                            <option value="work">Work</option>
+                          </select>
+                        </div>
+                        
+                        <div className="task-form-field">
+                          <label>Project</label>
+                          <select
+                            value={taskFormData.project}
+                            onChange={(e) => setTaskFormData(prev => ({ ...prev, project: e.target.value }))}
+                          >
+                            <option value="">Select project...</option>
+                            {projectOptions.map(proj => (
+                              <option key={proj} value={proj}>{proj}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                       
                       <div className="task-form-field">

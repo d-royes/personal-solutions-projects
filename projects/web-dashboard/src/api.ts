@@ -1803,6 +1803,7 @@ export interface TaskPreview {
   dueDate: string | null
   priority: string
   domain: string
+  project: string | null
   notes: string | null
 }
 
@@ -1844,6 +1845,7 @@ export interface TaskCreateRequest {
   dueDate?: string
   priority: string
   domain: string
+  project?: string
   notes?: string
 }
 
@@ -1885,6 +1887,7 @@ export async function createTaskFromEmail(
       due_date: request.dueDate,
       priority: request.priority,
       domain: request.domain,
+      project: request.project,
       notes: request.notes,
     }),
   })

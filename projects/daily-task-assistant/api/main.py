@@ -2812,6 +2812,7 @@ class TaskCreateRequest(BaseModel):
     due_date: Optional[str] = Field(None, description="Due date (YYYY-MM-DD)")
     priority: str = Field("Standard", description="Task priority")
     domain: str = Field("personal", description="Task domain")
+    project: Optional[str] = Field(None, description="Project category")
     notes: Optional[str] = Field(None, description="Task notes")
 
 
@@ -2852,11 +2853,13 @@ def preview_task_from_email(
         )
     except AnthropicError as exc:
         # Fallback to simple extraction
+        domain = "church" if account == "church" else "personal"
         task_preview = {
             "title": email.subject.replace("Re:", "").replace("Fwd:", "").strip(),
             "dueDate": None,
             "priority": "Standard",
-            "domain": "church" if account == "church" else "personal",
+            "domain": domain,
+            "project": "Church Tasks" if domain == "church" else "Sm. Projects & Tasks",
             "notes": f"From: {email.from_name or email.from_address}",
         }
     
@@ -2911,6 +2914,7 @@ def create_task_from_email_endpoint(
             due_date=due_date,
             priority=request.priority,
             domain=request.domain,
+            project=request.project,
             notes=request.notes,
         )
     except Exception as exc:

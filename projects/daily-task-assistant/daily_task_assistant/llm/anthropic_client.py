@@ -1703,6 +1703,9 @@ Given the email information, suggest appropriate task details:
 - dueDate: Extract any mentioned deadline (format: YYYY-MM-DD) or null
 - priority: Critical, Urgent, Important, Standard, or Low based on email urgency
 - domain: "personal", "church", or "work" based on context
+- project: Select from the allowed values based on domain:
+  - For personal/church: "Around The House", "Church Tasks", "Family Time", "Shopping", "Sm. Projects & Tasks", or "Zendesk Ticket"
+  - For work: "Atlassian (Jira/Confluence)", "Crafter Studio", "Internal Application Support", "Team Management", "Strategic Planning", "Stakeholder Relations", "Process Improvement", "Daily Operations", "Zendesk Support", "Intranet Management", "Vendor Management", "AI/Automation Projects", "DTS Transformation", "New Technology Evaluation"
 - notes: Brief context from the email (1-2 sentences max)
 
 Be concise and action-oriented. The title should describe what David needs to DO, not just what the email is about.
@@ -1774,11 +1777,13 @@ def extract_task_from_email(
         result = json.loads(text)
     except json.JSONDecodeError:
         # Fallback to simple extraction
+        domain = "church" if email_account == "church" else "personal"
         result = {
             "title": subject.replace("Re:", "").replace("Fwd:", "").strip(),
             "dueDate": None,
             "priority": "Standard",
-            "domain": "church" if email_account == "church" else "personal",
+            "domain": domain,
+            "project": "Church Tasks" if domain == "church" else "Sm. Projects & Tasks",
             "notes": f"From: {from_name or from_address}",
         }
     

@@ -601,6 +601,7 @@ def create_task_from_email(
     due_date: Optional[date] = None,
     priority: str = TaskPriority.STANDARD.value,
     domain: Optional[str] = None,
+    project: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> FirestoreTask:
     """Create a task from an email.
@@ -614,6 +615,7 @@ def create_task_from_email(
         due_date: Optional due date
         priority: Task priority
         domain: Task domain (defaults based on email account)
+        project: Project category (e.g., "Church Tasks", "Around The House")
         notes: Optional notes
     
     Returns:
@@ -637,6 +639,7 @@ def create_task_from_email(
         priority=priority,
         domain=domain,
         due_date=due_date,
+        project=project,
         notes=notes,
         source=TaskSource.EMAIL.value,
         source_email_id=email_id,
