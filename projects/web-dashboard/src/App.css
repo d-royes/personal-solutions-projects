@@ -5112,8 +5112,15 @@ button:not(:disabled):hover {
 
 .email-body-expanded .email-body-html {
   font-size: 0.85rem;
-  color: rgba(226, 232, 240, 0.85);
+  color: rgba(226, 232, 240, 0.9) !important;
   line-height: 1.5;
+}
+
+/* Override email's inline styles to ensure readability on dark theme */
+.email-body-expanded .email-body-html,
+.email-body-expanded .email-body-html * {
+  color: rgba(226, 232, 240, 0.9) !important;
+  background-color: transparent !important;
 }
 
 .email-body-expanded .email-body-html p {
@@ -5126,13 +5133,53 @@ button:not(:disabled):hover {
   padding: 0;
 }
 
-.email-body-expanded .email-body-html a {
-  color: #60a5fa;
+.email-body-expanded .email-body-html a,
+.email-body-expanded .email-body-html a * {
+  color: #60a5fa !important;
   text-decoration: none;
 }
 
 .email-body-expanded .email-body-html a:hover {
   text-decoration: underline;
+}
+
+/* Handle email signatures and quoted text */
+.email-body-expanded .email-body-html blockquote {
+  border-left: 2px solid rgba(99, 102, 241, 0.3);
+  padding-left: 0.75rem;
+  margin: 0.5rem 0;
+  color: rgba(148, 163, 184, 0.8) !important;
+}
+
+/* Ensure tables in emails are readable */
+.email-body-expanded .email-body-html table {
+  border-collapse: collapse;
+}
+
+.email-body-expanded .email-body-html td,
+.email-body-expanded .email-body-html th {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+/* Handle horizontal rules in emails */
+.email-body-expanded .email-body-html hr {
+  border: none;
+  border-top: 1px solid rgba(99, 102, 241, 0.2);
+  margin: 0.75rem 0;
+}
+
+/* Handle images in emails - don't override their colors */
+.email-body-expanded .email-body-html img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+/* Fix broken image placeholders */
+.email-body-expanded .email-body-html img[src=""],
+.email-body-expanded .email-body-html img:not([src]) {
+  display: none;
 }
 
 .email-body-expanded .email-body-text {
