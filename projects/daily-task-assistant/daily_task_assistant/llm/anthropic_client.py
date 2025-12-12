@@ -1534,6 +1534,16 @@ Use the email_action tool when David explicitly requests an action like:
 - "Star this email"
 - "Mark as important"
 - "Create a task from this"
+- "Draft a reply" / "Draft an email" / "Compose a response" → use draft_reply action
+- "Reply all" / "Draft reply all" → use draft_reply_all action
+
+When using draft_reply or draft_reply_all:
+- Include the draft_body field with the complete email body
+- Include draft_subject only if it differs from "Re: [original subject]"
+- Write human-like responses: no AI-isms like "I hope this email finds you well"
+- Match the tone of the original email
+- Use bullet points when they help organize information (David prefers them)
+- Sign off naturally as "David"
 
 Be proactive but not presumptuous - suggest actions but wait for confirmation before executing.
 
@@ -1548,7 +1558,7 @@ EMAIL_ACTION_TOOL = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["archive", "delete", "star", "unstar", "mark_important", "unmark_important", "create_task"],
+                "enum": ["archive", "delete", "star", "unstar", "mark_important", "unmark_important", "create_task", "draft_reply", "draft_reply_all"],
                 "description": "The action to perform on the email"
             },
             "reason": {
@@ -1558,6 +1568,14 @@ EMAIL_ACTION_TOOL = {
             "task_title": {
                 "type": "string",
                 "description": "Title for the task (only if action is create_task)"
+            },
+            "draft_body": {
+                "type": "string",
+                "description": "The email body content for the draft (only if action is draft_reply or draft_reply_all)"
+            },
+            "draft_subject": {
+                "type": "string",
+                "description": "The subject line for the draft (only if action is draft_reply or draft_reply_all)"
             },
         },
         "required": ["action", "reason"]
@@ -1571,6 +1589,8 @@ class EmailAction:
     action: str
     reason: str
     task_title: Optional[str] = None
+    draft_body: Optional[str] = None
+    draft_subject: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -1660,6 +1680,8 @@ def chat_with_email(
                     action=tool_input.get("action", ""),
                     reason=tool_input.get("reason", ""),
                     task_title=tool_input.get("task_title"),
+                    draft_body=tool_input.get("draft_body"),
+                    draft_subject=tool_input.get("draft_subject"),
                 )
 
     message = "\n".join(text_content).strip()
@@ -1689,6 +1711,10 @@ def _describe_email_action(action: EmailAction) -> str:
     elif action.action == "create_task":
         title = action.task_title or "from this email"
         return f"create a task: '{title}'"
+    elif action.action == "draft_reply":
+        return "open the reply draft panel with my suggested response"
+    elif action.action == "draft_reply_all":
+        return "open the reply all draft panel with my suggested response"
     return f"perform action: {action.action}"
 
 

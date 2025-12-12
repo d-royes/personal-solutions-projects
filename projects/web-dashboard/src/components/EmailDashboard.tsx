@@ -959,6 +959,15 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         case 'create_task':
           await handleOpenTaskForm(selectedEmailId)
           break
+        case 'draft_reply':
+        case 'draft_reply_all':
+          // Open the reply panel with DATA's draft pre-filled
+          handleOpenReplyWithDraft(
+            action === 'draft_reply_all',
+            pendingEmailAction.draftBody ?? '',
+            pendingEmailAction.draftSubject
+          )
+          break
       }
       
       // Add confirmation to chat
@@ -970,6 +979,38 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
       setPendingEmailAction(null)
       setActionLoading(null)
     }
+  }
+  
+  // Handle opening reply panel with DATA's draft pre-filled from chat
+  function handleOpenReplyWithDraft(replyAll: boolean, draftBody: string, draftSubject?: string) {
+    if (!selectedEmailId || !selectedEmail) return
+    
+    // Build the draft from DATA's suggestion
+    const subject = draftSubject || (
+      selectedEmail.subject.toLowerCase().startsWith('re:') 
+        ? selectedEmail.subject 
+        : `Re: ${selectedEmail.subject}`
+    )
+    
+    // Get recipients
+    const to = [selectedEmail.fromAddress]
+    const cc: string[] = []
+    // For reply all, we'd need CC from the full email - handled by the panel
+    
+    setReplyDraft({
+      to,
+      cc,
+      subject,
+      body: draftBody,
+      fromAccount: selectedAccount,
+    })
+    
+    setReplyContext({
+      messageId: selectedEmailId,
+      replyAll,
+    })
+    
+    setShowReplyPanel(true)
   }
 
   // State for email actions

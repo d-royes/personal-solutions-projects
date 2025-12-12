@@ -1671,6 +1671,8 @@ export interface EmailPendingAction {
   action: string
   reason: string
   taskTitle?: string
+  draftBody?: string
+  draftSubject?: string
 }
 
 export interface EmailChatResponse {

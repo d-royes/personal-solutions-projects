@@ -3178,11 +3178,17 @@ def chat_about_email(
     # Include pending action if DATA detected one
     if chat_response.pending_action:
         action = chat_response.pending_action
-        response_data["pendingAction"] = {
+        pending_action_data = {
             "action": action.action,
             "reason": action.reason,
-            "taskTitle": action.task_title,
         }
+        if action.task_title:
+            pending_action_data["taskTitle"] = action.task_title
+        if action.draft_body:
+            pending_action_data["draftBody"] = action.draft_body
+        if action.draft_subject:
+            pending_action_data["draftSubject"] = action.draft_subject
+        response_data["pendingAction"] = pending_action_data
     
     return response_data
 
