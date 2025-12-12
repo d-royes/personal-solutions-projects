@@ -1,6 +1,6 @@
 # Project Directive — Daily Task Assistant (DATA)
 
-Version: 2025-12-05  
+Version: 2025-12-11  
 Owner: David Royes  
 AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 
@@ -8,10 +8,10 @@ AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 
 ## 1. Vision & Guardrails
 
-- **Mission**: AI-backed command center that ingests Smartsheet tasks, prioritizes them, recommends next actions, and executes assists (email drafting/sending, context logging) through a secure web experience.
+- **Mission**: AI-backed command center that ingests Smartsheet tasks, prioritizes them, recommends next actions, executes assists (email drafting/sending, context logging), and manages email workflow through a secure web experience.
 - **Security**: Secrets never committed. All live sends require explicit confirmation. Google OAuth protects the web UI with email allowlist. Personal + church Gmail accounts run as separate OAuth clients.
-- **Deliverables**: Maintain a CLI + FastAPI backend + React web UI. Preserve traceability through Smartsheet comments and Firestore activity log.
-- **Primary Use Case**: DATA partners with David (across Personal / Church / Work domains) to surface the most important active tasks, collaborate on refining next steps, and execute assists while conversations accumulate intelligence.
+- **Deliverables**: Maintain a CLI + FastAPI backend + React web UI + E2E test suite. Preserve traceability through Smartsheet comments and Firestore activity log.
+- **Primary Use Case**: DATA partners with David (across Personal / Church / Work domains) to surface the most important active tasks, collaborate on refining next steps, execute assists, and manage email inbox using a "Chief of Staff" delegation model.
 
 ---
 
@@ -71,9 +71,11 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 | **Analysis** | ✅ | `analysis/prioritizer.py` scores tasks + detects automation hints. |
 | **Assist Engine** | ✅ | Anthropic-backed planner with web search, Research, Summarize, Contact features. |
 | **Automation** | ✅ | Gmail sender for church + personal accounts, Smartsheet comments, Firestore activity log. |
-| **Interfaces** | ✅ | CLI + FastAPI backend + React web dashboard (all operational). |
+| **Email Management** | ✅ | Chief of Staff model: DATA suggests rules, Apps Script executes. Google Sheets as rules DB. |
+| **Interfaces** | ✅ | CLI + FastAPI backend + React web dashboard + Email Dashboard (all operational). |
 | **Storage/Logs** | ✅ | Firestore for activity log + conversation history (with local file fallback). |
 | **CI/CD** | ✅ | GitHub Actions: automated testing, staging deploy, production deploy with approval. |
+| **E2E Testing** | ✅ | Playwright regression tests: 32 tests across API, Tasks, Email, multi-browser. |
 | **Hosting** | ✅ | Cloud Run (backend) + Firebase Hosting (frontend) for staging and production. |
 
 ---
@@ -105,6 +107,11 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 | 2025-12-02 | **CI/CD Pipeline**: GitHub Actions for test/staging/prod workflows. Branch protection configured. |
 | 2025-12-02 | **First Staging Deployment** (PR #8, 2m 32s). Auth persistence, email allowlist, Research improvements. |
 | 2025-12-03 | **First Production Deployment** (PR #10, 8m 7s). Firebase multi-site hosting, IAM configuration. |
+| 2025-12-05 | Portfolio View: Category-based task organization (Personal/Church/Work/Holistic) with quick questions. |
+| 2025-12-08 | Feedback System: Thumbs up/down on DATA responses, Firestore storage, tuning session support. |
+| 2025-12-10 | **Email Management**: Chief of Staff model with Google Sheets integration, Gmail inbox reader, pattern analyzer. |
+| 2025-12-11 | **Apps Script Automation**: Personal + Church email labeling rules deployed with 15-min triggers. |
+| 2025-12-11 | **E2E Regression Tests**: Playwright framework with 32 tests across API, Tasks, Email features. |
 
 ---
 
@@ -137,6 +144,25 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 18. **Health checks**: Post-deployment verification of Anthropic, Smartsheet, Gmail configuration.
 19. **Secret Manager**: 10 secrets for API keys and OAuth credentials.
 
+### Email Management (Chief of Staff Model)
+20. **Email Dashboard**: Mode switcher (Tasks/Email), account selector (Personal/Church), tabbed interface.
+21. **Filter Rules Manager**: Google Sheets integration for CRUD operations on email labeling rules.
+22. **Gmail Inbox Reader**: Read inbox messages, extract sender patterns, identify attention items.
+23. **Email Analyzer**: Pattern detection for promotional, transactional, junk emails; rule suggestions.
+24. **Apps Script Delegation**: DATA suggests rules; Google Apps Script executes labeling every 15 minutes.
+25. **Multi-Account Support**: Shared Google Sheet serves both Personal and Church Gmail accounts.
+
+### Portfolio & Feedback
+26. **Portfolio View**: Task organization by category (Personal/Church/Work) with holistic cross-domain view.
+27. **Quick Questions**: Pre-defined prompts for rapid task consultation without full assist workflow.
+28. **Feedback System**: Thumbs up/down ratings on DATA responses stored in Firestore.
+29. **Tuning Sessions**: Feedback aggregation endpoint for periodic DATA behavior improvements.
+
+### Testing & Quality
+30. **Unit Tests**: 69 tests covering inbox, filter rules, email analyzer, API endpoints.
+31. **E2E Regression Tests**: Playwright framework with 32 browser-automated tests.
+32. **Multi-Browser Coverage**: Chrome, Firefox, Safari, Mobile Chrome test configurations.
+
 ---
 
 ## 6. Implementation Notes & Decisions
@@ -149,6 +175,10 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 - **API auth**: FastAPI enforces Google ID tokens. Local dev can set `DTA_DEV_AUTH_BYPASS=1` and pass `X-User-Email`.
 - **Email allowlist**: Only `davidroyes@southpointsda.org` and `david.a.royes@gmail.com` can access (configurable via `DTA_ALLOWED_EMAILS`).
 - **Branch strategy**: `develop` → `staging` → `main` with PR requirements and status checks.
+- **Email filter rules**: Stored in shared Google Sheet (`Gmail_Filter_Index`). Each rule has Email, Filter Category, Filter Field, Operator, Value, Action columns.
+- **Apps Script integration**: Separate scripts for Personal/Church accounts filter rules by `Email` column. Runs every 15 minutes via time-based trigger.
+- **E2E test framework**: Playwright tests in `projects/e2e-tests/`. Auto-starts backend/frontend servers. Run with `npm test` or `npm run test:ui` for interactive mode.
+- **Feedback storage**: Stored in Firestore (`feedback` collection) or local file via `DTA_FEEDBACK_FORCE_FILE=1`.
 
 ---
 
@@ -196,10 +226,37 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 | `docs/CI_CD_Setup.md` | CI/CD pipeline setup and deployment instructions |
 | `DATA_PREFERENCES.md` | DATA's behavioral guidelines and persona tuning (chatbot behavior only) |
 | `README.md` | Developer setup and API documentation |
+| `.cursorrules` | AI assistant project rules, code style, testing workflow |
+| `e2e-tests/README.md` | Playwright E2E test documentation and commands |
 
 ---
 
 ## 10. Recent Session Log
+
+### 2025-12-11: Email Management & E2E Testing
+
+**Email Management (Chief of Staff Model)**
+- ✅ Built Gmail inbox reader module (`mailer.py` enhancements)
+- ✅ Created Google Sheets integration (`sheets/filter_rules.py`) for filter rules CRUD
+- ✅ Built email pattern analyzer (`email/analyzer.py`) for suggestions
+- ✅ Added Email Dashboard to React frontend with account switching
+- ✅ Deployed Apps Script automation for Personal account (308 rules, 31 applied in test)
+- ✅ Deployed Apps Script automation for Church account (34 rules, 135 applied in test)
+- ✅ Optimized Apps Script for performance (batch processing, rule indexing, email extraction)
+- ✅ Both accounts now auto-label emails every 15 minutes
+
+**E2E Regression Testing**
+- ✅ Set up Playwright framework in `projects/e2e-tests/`
+- ✅ Created 32 tests: API health (4), Tasks (14), Email (14)
+- ✅ Multi-browser support: Chrome, Firefox, Safari, Mobile
+- ✅ Auto-server startup configuration
+- ✅ npm scripts: `test`, `test:ui`, `test:headed`, `test:chrome`, `codegen`
+
+**Documentation**
+- ✅ Updated `.cursorrules` with E2E testing workflow and guidelines
+- ✅ Updated `README.md` with email management and testing sections
+- ✅ Created `e2e-tests/README.md` with comprehensive test documentation
+- ✅ Updated `PROJECT_DIRECTIVE.md` with all new features
 
 ### 2025-12-03: Production Deployment
 - ✅ Created Firebase production hosting site (`daily-task-assistant-prod`)
