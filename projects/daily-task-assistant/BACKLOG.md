@@ -5,6 +5,20 @@
 
 ---
 
+## DATA Cloud Vision
+
+> **NEW**: A strategic vision document has been created for evolving DATA into a marketable product.
+> See [DATA_CLOUD_VISION.md](docs/DATA_CLOUD_VISION.md) for the full roadmap.
+
+**Key Decisions (2025-12-11):**
+- Decouple from Smartsheet, build native task storage
+- Abstract integrations (Gmail/Outlook, GCal/Outlook Calendar)
+- User-scope all data for multi-tenancy
+- Target: Tech-savvy early adopters
+- Timeline: Phase A starts January 2025
+
+---
+
 ## DATA 2.0 Roadmap
 
 ### The North Star
@@ -63,7 +77,9 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 ### High Priority
 
-*None currently*
+| Feature | Description | Documentation |
+|---------|-------------|---------------|
+| **Phase A: Smartsheet Decoupling** | Create native Firestore task storage, abstract integrations into provider interfaces, user-scope all data. Foundation for DATA Cloud. | [DATA_CLOUD_VISION.md](docs/DATA_CLOUD_VISION.md) |
 
 ### Medium Priority
 
