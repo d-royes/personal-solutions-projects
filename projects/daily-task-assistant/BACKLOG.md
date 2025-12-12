@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-07  
+> **Last Updated**: 2025-12-11  
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -55,6 +55,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 |-------|-------------|--------|-------------|
 | Smartsheet Comment on Email Send | When an email is sent, the system should post a comment to the Smartsheet task (e.g., "Email sent: [subject] to [recipient] via [account]"). Currently, comments may not be posting reliably. Requires investigation of `live_tasks` flag and `SmartsheetClient.post_comment()` execution path. | Open | 2025-12-01 |
 | Google OAuth blocks personal Gmail | `david.a.royes@gmail.com` gets "user not in org" error. OAuth consent screen in GCP is likely set to "Internal" (Workspace only) instead of "External", or email isn't added as test user. | **Resolved** - Changed to External | 2025-12-05 |
+| E2E Flaky Tests (3) | Three Playwright tests fail intermittently due to timing: (1) `should display the task list on load`, (2) `should filter tasks by category when clicking Personal`, (3) `should filter rules by category`. Fix with longer timeouts, retry logic, or waitFor conditions. 31/34 tests currently pass. | Open | 2025-12-11 |
 
 ---
 
@@ -88,6 +89,8 @@ Features that have been implemented and can be removed from backlog:
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Email Management (Chief of Staff) | 2025-12-11 | Gmail inbox reader, Google Sheets rules integration, Apps Script automation for Personal + Church accounts |
+| E2E Regression Testing | 2025-12-11 | Playwright framework with 34 tests (31 passing) covering API, Tasks, Email features |
 | Smartsheet Attachments + Claude Vision | 2025-12-07 | Task attachments displayed, image selection checkboxes, AI vision analysis |
 | Chat Rearchitecture (Token Efficiency) | 2025-12-07 | Intent classification, modular prompts, 73-86% token reduction |
 | Multi-LLM Support (Gemini) | 2025-12-07 | Gemini Flash for classification & conversational, Claude for tools/vision |
