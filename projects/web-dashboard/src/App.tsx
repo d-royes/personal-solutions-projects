@@ -17,6 +17,7 @@ import {
   fetchTasks,
   fetchWorkBadge,
   generatePlan,
+  listFirestoreTasks,
   loadDraft,
   loadWorkspace,
   runAssist,
@@ -49,6 +50,7 @@ import type {
   AssistPlan,
   ConversationMessage,
   DataSource,
+  FirestoreTask,
   Task,
   WorkBadge,
 } from './types'
@@ -103,6 +105,11 @@ function App() {
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [activityError, setActivityError] = useState<string | null>(null)
   const [workBadge, setWorkBadge] = useState<WorkBadge | null>(null)
+  
+  // Email Tasks (Firestore) state
+  const [emailTasks, setEmailTasks] = useState<FirestoreTask[]>([])
+  const [emailTasksLoading, setEmailTasksLoading] = useState(false)
+  
   const [environmentName, setEnvironmentName] = useState(
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
@@ -250,6 +257,21 @@ function App() {
       setTasks([])
     } finally {
       setTasksLoading(false)
+    }
+  }
+  
+  // Load email tasks from Firestore
+  async function loadEmailTasks() {
+    if (!authConfig) return
+    setEmailTasksLoading(true)
+    try {
+      const response = await listFirestoreTasks(authConfig, apiBase, { limit: 100 })
+      setEmailTasks(response.tasks)
+    } catch (error) {
+      console.error('Failed to load email tasks:', error)
+      setEmailTasks([])
+    } finally {
+      setEmailTasksLoading(false)
     }
   }
 
@@ -1115,6 +1137,9 @@ function App() {
                 onRefresh={refreshTasks}
                 refreshing={tasksLoading}
                 workBadge={workBadge}
+                emailTasks={emailTasks}
+                emailTasksLoading={emailTasksLoading}
+                onLoadEmailTasks={loadEmailTasks}
               />
             )}
 

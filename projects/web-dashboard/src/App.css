@@ -407,6 +407,18 @@ button:not(:disabled):hover {
   color: #c7d2fe;
 }
 
+.badge.source {
+  border-color: rgba(236, 72, 153, 0.5);
+  color: #f9a8d4;
+  font-size: 0.7rem;
+}
+
+.task-panel .empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .task-next {
   margin-top: 0.65rem;
   font-size: 0.9rem;

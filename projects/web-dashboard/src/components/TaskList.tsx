@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { Task, WorkBadge } from '../types'
+import type { Task, WorkBadge, FirestoreTask } from '../types'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
@@ -22,7 +22,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'needs_attention', label: 'Needs attention' },
-  { id: 'blocked', label: 'Blocked' },
+  { id: 'email_tasks', label: 'Email Tasks' },
   { id: 'personal', label: 'Personal' },
   { id: 'church', label: 'Church' },
   { id: 'work', label: 'Work' },
@@ -80,6 +80,9 @@ interface TaskListProps {
   onRefresh?: () => void
   refreshing?: boolean
   workBadge?: WorkBadge | null  // Work task counts for badge indicator
+  emailTasks?: FirestoreTask[]  // Tasks created from emails (Firestore)
+  emailTasksLoading?: boolean
+  onLoadEmailTasks?: () => void  // Callback to load email tasks on demand
 }
 
 export function TaskList({
@@ -93,9 +96,20 @@ export function TaskList({
   onRefresh,
   refreshing,
   workBadge,
+  emailTasks = [],
+  emailTasksLoading = false,
+  onLoadEmailTasks,
 }: TaskListProps) {
   const [filter, setFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
+  
+  // Load email tasks when that filter is selected
+  const handleFilterChange = (filterId: string) => {
+    setFilter(filterId)
+    if (filterId === 'email_tasks' && onLoadEmailTasks && emailTasks.length === 0) {
+      onLoadEmailTasks()
+    }
+  }
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -119,10 +133,9 @@ export function TaskList({
             isDueSoon(task.due) ||
             BLOCKED_STATUSES.includes(status)
           )
-        case 'blocked':
-          // Exclude work tasks from "Blocked" unless explicitly in Work filter
-          if (task.source === 'work') return false
-          return BLOCKED_STATUSES.includes(status)
+        case 'email_tasks':
+          // Email tasks are handled separately, not in this filter
+          return false
         case 'personal':
           return domain === 'Personal'
         case 'church':
@@ -200,11 +213,13 @@ export function TaskList({
         {FILTERS.map((chip) => {
           // Show badge for Work filter when there are urgent/overdue items
           const showWorkBadge = chip.id === 'work' && workBadge && workBadge.needsAttention > 0
+          // Show badge for Email Tasks when there are tasks
+          const showEmailBadge = chip.id === 'email_tasks' && emailTasks.length > 0
           return (
             <button
               key={chip.id}
-              className={`${filter === chip.id ? 'active' : ''} ${showWorkBadge ? 'has-badge' : ''}`}
-              onClick={() => setFilter(chip.id)}
+              className={`${filter === chip.id ? 'active' : ''} ${showWorkBadge || showEmailBadge ? 'has-badge' : ''}`}
+              onClick={() => handleFilterChange(chip.id)}
             >
               {chip.label}
               {showWorkBadge && (
@@ -212,12 +227,65 @@ export function TaskList({
                   {workBadge.needsAttention}
                 </span>
               )}
+              {showEmailBadge && (
+                <span className="work-badge" title={`${emailTasks.length} email task(s)`}>
+                  {emailTasks.length}
+                </span>
+              )}
             </button>
           )
         })}
       </div>
 
-      {loading ? (
+      {/* Email Tasks Filter - Show Firestore tasks */}
+      {filter === 'email_tasks' ? (
+        emailTasksLoading ? (
+          <p>Loading email tasks…</p>
+        ) : emailTasks.length === 0 ? (
+          <p className="empty-state">No email tasks yet. Create tasks from emails using the Email Management view.</p>
+        ) : (
+          <ul className="task-list">
+            {emailTasks.map((task) => {
+              const domain = task.domain.charAt(0).toUpperCase() + task.domain.slice(1)
+              const status = task.status ?? 'pending'
+              const dueText = task.dueDate ? dueLabel(task.dueDate) : 'No due date'
+              return (
+                <li
+                  key={task.id}
+                  className={
+                    selectedTaskId === task.id ? 'task-item selected' : 'task-item'
+                  }
+                  onClick={() => onSelect(task.id)}
+                >
+                  <div className="task-signals">
+                    <span className={`badge domain ${domain.toLowerCase()}`}>{domain}</span>
+                    <span className="badge status">{status}</span>
+                    {task.priority && (
+                      <span className={`badge priority ${task.priority.toLowerCase()}`}>
+                        {task.priority}
+                      </span>
+                    )}
+                    <span className="badge due">{dueText}</span>
+                    <span className="badge source">📧 Email</span>
+                  </div>
+                  <div className="task-title-row">
+                    <div className="task-title">{task.title}</div>
+                  </div>
+                  <div className="task-meta">
+                    <span>{task.project || 'No project'}</span>
+                    {task.sourceEmailSubject && (
+                      <span title={`From email: ${task.sourceEmailSubject}`}>
+                        📨 {task.sourceEmailAccount}
+                      </span>
+                    )}
+                  </div>
+                  <p className="task-next">{task.notes || task.nextStep || 'No notes'}</p>
+                </li>
+              )
+            })}
+          </ul>
+        )
+      ) : loading ? (
         <p>Loading tasks…</p>
       ) : filteredTasks.length === 0 ? (
         <p>No tasks match this filter.</p>

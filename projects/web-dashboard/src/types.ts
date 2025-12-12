@@ -164,3 +164,22 @@ export interface AnalyzeInboxResponse {
 // App mode for navigation
 export type AppMode = 'tasks' | 'email'
 
+// Firestore Task (created from emails)
+export interface FirestoreTask {
+  id: string
+  title: string
+  status: string
+  priority: string
+  domain: string
+  createdAt: string
+  updatedAt: string
+  dueDate: string | null
+  project: string | null
+  notes: string | null
+  nextStep: string | null
+  source: string
+  sourceEmailId: string | null
+  sourceEmailAccount: string | null
+  sourceEmailSubject: string | null
+}
+
