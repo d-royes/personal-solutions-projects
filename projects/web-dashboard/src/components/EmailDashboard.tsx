@@ -22,6 +22,7 @@ import {
   getEmailActionSuggestions,
   getEmailLabels,
   applyEmailLabel,
+  modifyEmailLabel,
   getTaskPreviewFromEmail,
   createTaskFromEmail,
   checkEmailsHaveTasks,
@@ -967,6 +968,17 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
             pendingEmailAction.draftBody ?? '',
             pendingEmailAction.draftSubject
           )
+          break
+        case 'add_label':
+          if (pendingEmailAction.labelName) {
+            await modifyEmailLabel(
+              selectedAccount,
+              selectedEmailId,
+              { labelName: pendingEmailAction.labelName, action: 'apply' },
+              authConfig,
+              apiBase
+            )
+          }
           break
       }
       

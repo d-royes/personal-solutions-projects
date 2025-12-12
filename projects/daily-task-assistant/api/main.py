@@ -3188,6 +3188,8 @@ def chat_about_email(
             pending_action_data["draftBody"] = action.draft_body
         if action.draft_subject:
             pending_action_data["draftSubject"] = action.draft_subject
+        if action.label_name:
+            pending_action_data["labelName"] = action.label_name
         response_data["pendingAction"] = pending_action_data
     
     return response_data

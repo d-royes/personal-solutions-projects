@@ -1536,6 +1536,7 @@ Use the email_action tool when David explicitly requests an action like:
 - "Create a task from this"
 - "Draft a reply" / "Draft an email" / "Compose a response" → use draft_reply action
 - "Reply all" / "Draft reply all" → use draft_reply_all action
+- "Label as...", "Add label...", "Mark as transactional" → use add_label action with label_name
 
 When using draft_reply or draft_reply_all:
 - Include the draft_body field with the complete email body
@@ -1558,7 +1559,7 @@ EMAIL_ACTION_TOOL = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["archive", "delete", "star", "unstar", "mark_important", "unmark_important", "create_task", "draft_reply", "draft_reply_all"],
+                "enum": ["archive", "delete", "star", "unstar", "mark_important", "unmark_important", "create_task", "draft_reply", "draft_reply_all", "add_label"],
                 "description": "The action to perform on the email"
             },
             "reason": {
@@ -1577,6 +1578,10 @@ EMAIL_ACTION_TOOL = {
                 "type": "string",
                 "description": "The subject line for the draft (only if action is draft_reply or draft_reply_all)"
             },
+            "label_name": {
+                "type": "string",
+                "description": "The label to add (only if action is add_label). Use category labels like: Transactional, Promotional, Newsletters, Important, or custom labels."
+            },
         },
         "required": ["action", "reason"]
     }
@@ -1591,6 +1596,7 @@ class EmailAction:
     task_title: Optional[str] = None
     draft_body: Optional[str] = None
     draft_subject: Optional[str] = None
+    label_name: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -1682,6 +1688,7 @@ def chat_with_email(
                     task_title=tool_input.get("task_title"),
                     draft_body=tool_input.get("draft_body"),
                     draft_subject=tool_input.get("draft_subject"),
+                    label_name=tool_input.get("label_name"),
                 )
 
     message = "\n".join(text_content).strip()
