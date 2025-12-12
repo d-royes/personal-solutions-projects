@@ -293,11 +293,19 @@ class TestGetMessage:
 class TestGetInboxSummary:
     """Tests for get_inbox_summary function."""
     
+    @patch("daily_task_assistant.mailer.inbox.get_label_counts")
     @patch("daily_task_assistant.mailer.inbox.get_message")
     @patch("daily_task_assistant.mailer.inbox.list_messages")
     def test_inbox_summary_structure(
-        self, mock_list, mock_get, mock_account
+        self, mock_list, mock_get, mock_label_counts, mock_account
     ):
+        # Mock get_label_counts to return inbox and important counts
+        # Called twice: once for INBOX, once for IMPORTANT
+        mock_label_counts.side_effect = [
+            {"messagesTotal": 100, "messagesUnread": 2},  # INBOX
+            {"messagesTotal": 10, "messagesUnread": 1},   # IMPORTANT
+        ]
+        
         # Mock list_messages to return message refs
         mock_list.side_effect = [
             [{"id": "1"}, {"id": "2"}],  # unread
@@ -326,11 +334,19 @@ class TestGetInboxSummary:
         assert result.total_unread == 2
         assert result.unread_important == 1
     
+    @patch("daily_task_assistant.mailer.inbox.get_label_counts")
     @patch("daily_task_assistant.mailer.inbox.get_message")
     @patch("daily_task_assistant.mailer.inbox.list_messages")
     def test_inbox_summary_with_vips(
-        self, mock_list, mock_get, mock_account
+        self, mock_list, mock_get, mock_label_counts, mock_account
     ):
+        # Mock get_label_counts to return inbox and important counts
+        # Called twice: once for INBOX, once for IMPORTANT
+        mock_label_counts.side_effect = [
+            {"messagesTotal": 50, "messagesUnread": 1},  # INBOX
+            {"messagesTotal": 5, "messagesUnread": 0},   # IMPORTANT
+        ]
+        
         mock_list.return_value = [{"id": "1"}]
         
         mock_msg = EmailMessage(

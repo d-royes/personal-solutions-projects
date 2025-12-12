@@ -421,8 +421,8 @@ class TestRuleSuggestion:
         
         assert result["type"] == "new_label"
         assert result["confidence"] == "high"
-        assert result["email_count"] == 5
-        assert result["suggested_rule"]["value"] == "@marketing.com"
+        assert result["emailCount"] == 5  # camelCase for JavaScript
+        assert result["suggestedRule"]["value"] == "@marketing.com"  # camelCase
 
 
 class TestAttentionItem:
@@ -452,10 +452,10 @@ class TestAttentionItem:
         
         result = item.to_dict()
         
-        assert result["email_id"] == "1"
+        assert result["emailId"] == "1"  # camelCase for JavaScript
         assert result["subject"] == "Review needed"
         assert result["urgency"] == "medium"
-        assert result["suggested_action"] == "Review needed"
+        assert result["suggestedAction"] == "Review needed"  # camelCase
 
 
 # Tests for convenience functions
