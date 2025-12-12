@@ -4049,7 +4049,9 @@ button:not(:disabled):hover {
 }
 
 .message-list li {
+  position: relative;
   padding: 0.75rem 1rem;
+  padding-right: 2.5rem; /* Make room for task button */
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(99, 102, 241, 0.1);
   border-radius: 10px;
@@ -4061,6 +4063,36 @@ button:not(:disabled):hover {
 .message-list li:hover {
   background: rgba(99, 102, 241, 0.08);
   border-color: rgba(99, 102, 241, 0.2);
+}
+
+/* Task creation button on email items */
+.message-list .msg-task-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-list li:hover .msg-task-btn {
+  opacity: 0.7;
+}
+
+.message-list .msg-task-btn:hover {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.2);
+  transform: scale(1.1);
 }
 
 .message-list li.unread {

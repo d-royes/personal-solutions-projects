@@ -1353,6 +1353,17 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                         className={`${msg.isUnread ? 'unread' : ''} ${selectedEmailId === msg.id ? 'selected' : ''}`}
                         onClick={() => handleSelectEmail(msg.id)}
                       >
+                        <button
+                          className="msg-task-btn"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleSelectEmail(msg.id)
+                            handleOpenTaskForm(msg.id)
+                          }}
+                          title="Create task from this email"
+                        >
+                          📋
+                        </button>
                         <div className="msg-from">{msg.fromName || msg.fromAddress}</div>
                         <div className="msg-subject">{msg.subject}</div>
                         <div className="msg-snippet">{msg.snippet}</div>
@@ -1371,6 +1382,17 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                       className={`${msg.isUnread ? 'unread' : ''} ${selectedEmailId === msg.id ? 'selected' : ''}`}
                       onClick={() => handleSelectEmail(msg.id)}
                     >
+                      <button
+                        className="msg-task-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleSelectEmail(msg.id)
+                          handleOpenTaskForm(msg.id)
+                        }}
+                        title="Create task from this email"
+                      >
+                        📋
+                      </button>
                       <div className="msg-from">{msg.fromName || msg.fromAddress}</div>
                       <div className="msg-subject">{msg.subject}</div>
                       <div className="msg-snippet">{msg.snippet}</div>
