@@ -1509,3 +1509,185 @@ def _describe_portfolio_action(action: PortfolioTaskUpdateAction) -> str:
         return f"set hours to {action.estimated_hours}"
     return f"{action.action}"
 
+
+# =============================================================================
+# Email Chat (Phase 4)
+# =============================================================================
+
+EMAIL_CHAT_SYSTEM_PROMPT = """You are DATA, David's personal AI assistant helping manage emails.
+
+Your role is to help David:
+1. Triage and categorize emails efficiently
+2. Suggest actions (archive, delete, star, flag as important)
+3. Identify emails that need follow-up or tasks
+4. Draft quick replies when asked
+5. Summarize email threads
+
+When David asks about an email:
+- Provide concise, actionable insights
+- Suggest relevant actions based on the email content
+- Help identify if the email requires a response, can be archived, or should become a task
+
+Use the email_action tool when David explicitly requests an action like:
+- "Archive this"
+- "Delete this"
+- "Star this email"
+- "Mark as important"
+- "Create a task from this"
+
+Be proactive but not presumptuous - suggest actions but wait for confirmation before executing.
+
+Keep responses brief and focused. David values efficiency.
+"""
+
+EMAIL_ACTION_TOOL = {
+    "name": "email_action",
+    "description": "Perform an action on an email when the user requests it.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["archive", "delete", "star", "unstar", "mark_important", "unmark_important", "create_task"],
+                "description": "The action to perform on the email"
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of why this action is recommended"
+            },
+            "task_title": {
+                "type": "string",
+                "description": "Title for the task (only if action is create_task)"
+            },
+        },
+        "required": ["action", "reason"]
+    }
+}
+
+
+@dataclass(slots=True)
+class EmailAction:
+    """Structured email action from chat."""
+    action: str
+    reason: str
+    task_title: Optional[str] = None
+
+
+@dataclass(slots=True)
+class EmailChatResponse:
+    """Response from email chat, may include a pending action."""
+    message: str
+    pending_action: Optional[EmailAction] = None
+
+
+def chat_with_email(
+    email_context: str,
+    user_message: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> EmailChatResponse:
+    """Chat with DATA about an email with action tool support.
+    
+    Args:
+        email_context: Formatted string with email details (from, subject, snippet, etc.)
+        user_message: The user's latest message
+        history: Previous conversation messages
+        client: Optional pre-built Anthropic client
+        config: Optional configuration override
+    
+    Returns:
+        EmailChatResponse with message and optional pending_action
+    """
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+
+    # Build messages
+    messages: List[Dict[str, Any]] = []
+    
+    # Email context as priming
+    messages.append({
+        "role": "user",
+        "content": [{"type": "text", "text": email_context}]
+    })
+    messages.append({
+        "role": "assistant",
+        "content": [{"type": "text", "text": "I see this email. How can I help you with it?"}]
+    })
+
+    # Add history
+    if history:
+        for msg in history:
+            messages.append({
+                "role": msg["role"],
+                "content": [{"type": "text", "text": msg["content"]}]
+            })
+
+    # Add current message
+    messages.append({
+        "role": "user",
+        "content": [{"type": "text", "text": user_message}]
+    })
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=config.max_output_tokens,
+            temperature=0.5,
+            system=EMAIL_CHAT_SYSTEM_PROMPT,
+            messages=messages,
+            tools=[EMAIL_ACTION_TOOL],
+        )
+    except APIStatusError as exc:
+        raise AnthropicError(f"Anthropic API error: {exc}") from exc
+    except Exception as exc:
+        raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+
+    # Extract text and tool use from response
+    text_content = []
+    pending_action = None
+    
+    for block in getattr(response, "content", []):
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            text_content.append(getattr(block, "text", ""))
+        elif block_type == "tool_use":
+            tool_name = getattr(block, "name", "")
+            if tool_name == "email_action":
+                tool_input = getattr(block, "input", {})
+                pending_action = EmailAction(
+                    action=tool_input.get("action", ""),
+                    reason=tool_input.get("reason", ""),
+                    task_title=tool_input.get("task_title"),
+                )
+
+    message = "\n".join(text_content).strip()
+    
+    # If there's a pending action but no message, generate one
+    if pending_action and not message:
+        action_desc = _describe_email_action(pending_action)
+        message = f"I'll {action_desc}. Should I proceed?"
+
+    return EmailChatResponse(message=message, pending_action=pending_action)
+
+
+def _describe_email_action(action: EmailAction) -> str:
+    """Generate a human-readable description of an email action."""
+    if action.action == "archive":
+        return "archive this email"
+    elif action.action == "delete":
+        return "move this email to trash"
+    elif action.action == "star":
+        return "star this email"
+    elif action.action == "unstar":
+        return "remove the star from this email"
+    elif action.action == "mark_important":
+        return "mark this email as important"
+    elif action.action == "unmark_important":
+        return "remove importance from this email"
+    elif action.action == "create_task":
+        title = action.task_title or "from this email"
+        return f"create a task: '{title}'"
+    return f"perform action: {action.action}"
+

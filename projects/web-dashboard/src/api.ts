@@ -1572,3 +1572,184 @@ export async function createTaskFromEmail(
   }
   return resp.json()
 }
+
+// --- Email Actions (Phase 3) ---
+
+export interface EmailActionResult {
+  status: string
+  account: string
+  messageId: string
+  labels: string[]
+}
+
+export async function archiveEmail(
+  account: EmailAccount,
+  messageId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailActionResult> {
+  const url = new URL(`/email/${account}/archive/${messageId}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Archive failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function deleteEmail(
+  account: EmailAccount,
+  messageId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailActionResult> {
+  const url = new URL(`/email/${account}/delete/${messageId}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Delete failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function starEmail(
+  account: EmailAccount,
+  messageId: string,
+  starred: boolean,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailActionResult> {
+  const url = new URL(`/email/${account}/star/${messageId}`, baseUrl)
+  url.searchParams.set('starred', String(starred))
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Star action failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function markEmailImportant(
+  account: EmailAccount,
+  messageId: string,
+  important: boolean,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailActionResult> {
+  const url = new URL(`/email/${account}/important/${messageId}`, baseUrl)
+  url.searchParams.set('important', String(important))
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Mark important failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function markEmailRead(
+  account: EmailAccount,
+  messageId: string,
+  read: boolean,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailActionResult> {
+  const url = new URL(`/email/${account}/read/${messageId}`, baseUrl)
+  url.searchParams.set('read', String(read))
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Mark read failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Email Search ---
+
+export async function searchEmails(
+  account: EmailAccount,
+  query: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  maxResults: number = 20,
+): Promise<{ messages: EmailMessage[]; query: string; account: string }> {
+  const url = new URL(`/inbox/${account}/search`, baseUrl)
+  url.searchParams.set('q', query)
+  url.searchParams.set('max_results', String(maxResults))
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Search failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Email Chat (Phase 4) ---
+
+export interface EmailChatRequest {
+  message: string
+  emailId: string
+  history?: Array<{ role: string; content: string }>
+}
+
+export interface EmailPendingAction {
+  action: string
+  reason: string
+  taskTitle?: string
+}
+
+export interface EmailChatResponse {
+  response: string
+  account: string
+  emailId: string
+  pendingAction?: EmailPendingAction
+}
+
+export async function chatAboutEmail(
+  account: EmailAccount,
+  request: EmailChatRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailChatResponse> {
+  const url = new URL(`/email/${account}/chat`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      message: request.message,
+      email_id: request.emailId,
+      history: request.history,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Email chat failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}

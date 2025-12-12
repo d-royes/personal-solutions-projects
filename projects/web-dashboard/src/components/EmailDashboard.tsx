@@ -13,6 +13,13 @@ import {
   analyzeInbox,
   addFilterRule,
   deleteFilterRule,
+  archiveEmail,
+  deleteEmail,
+  starEmail,
+  markEmailImportant,
+  chatAboutEmail,
+  searchEmails,
+  type EmailPendingAction,
 } from '../api'
 
 interface EmailDashboardProps {
@@ -22,6 +29,14 @@ interface EmailDashboardProps {
 }
 
 type TabView = 'dashboard' | 'rules' | 'suggestions' | 'attention'
+
+// Quick action types for email management
+type EmailQuickAction = 
+  | { type: 'archive'; emailId: string }
+  | { type: 'delete'; emailId: string }
+  | { type: 'star'; emailId: string }
+  | { type: 'flag'; emailId: string }
+  | { type: 'create_task'; emailId: string; subject: string }
 
 // Filter categories with their order priorities
 const CATEGORIES = [
@@ -45,16 +60,44 @@ const OPERATORS = [
   { value: 'Equals', label: 'Equals' },
 ]
 
+// Per-account cache structure
+interface AccountCache {
+  inbox: InboxSummary | null
+  rules: FilterRule[]
+  suggestions: RuleSuggestion[]
+  attentionItems: AttentionItem[]
+  loaded: boolean
+}
+
+const emptyCache = (): AccountCache => ({
+  inbox: null,
+  rules: [],
+  suggestions: [],
+  attentionItems: [],
+  loaded: false,
+})
+
 export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardProps) {
   // Account selection
   const [selectedAccount, setSelectedAccount] = useState<EmailAccount>('personal')
   const [activeTab, setActiveTab] = useState<TabView>('dashboard')
   
-  // Data state
-  const [inboxSummary, setInboxSummary] = useState<InboxSummary | null>(null)
-  const [rules, setRules] = useState<FilterRule[]>([])
-  const [suggestions, setSuggestions] = useState<RuleSuggestion[]>([])
-  const [attentionItems, setAttentionItems] = useState<AttentionItem[]>([])
+  // Two-panel layout state
+  const [emailPanelCollapsed, setEmailPanelCollapsed] = useState(false)
+  const [assistPanelCollapsed, setAssistPanelCollapsed] = useState(true) // Start collapsed until Phase 4
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null)
+  
+  // Per-account data cache
+  const [cache, setCache] = useState<Record<EmailAccount, AccountCache>>({
+    personal: emptyCache(),
+    church: emptyCache(),
+  })
+  
+  // Derived state from cache for current account
+  const inboxSummary = cache[selectedAccount].inbox
+  const rules = cache[selectedAccount].rules
+  const suggestions = cache[selectedAccount].suggestions
+  const attentionItems = cache[selectedAccount].attentionItems
   
   // Loading states
   const [loadingInbox, setLoadingInbox] = useState(false)
@@ -77,34 +120,76 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   // Filter state for rules table
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [searchFilter, setSearchFilter] = useState('')
+  
+  // Email search state
+  const [emailSearchQuery, setEmailSearchQuery] = useState('')
+  const [emailSearchResults, setEmailSearchResults] = useState<Array<{
+    id: string
+    threadId: string
+    fromAddress: string
+    fromName: string
+    toAddress: string
+    subject: string
+    snippet: string
+    date: string
+    isUnread: boolean
+    isImportant: boolean
+    isStarred: boolean
+    ageHours: number
+  }> | null>(null)
+  const [searchingEmails, setSearchingEmails] = useState(false)
 
-  // Load inbox summary
-  const loadInbox = useCallback(async () => {
+  // Helper to update cache for current account
+  const updateCache = useCallback((updates: Partial<AccountCache>) => {
+    setCache(prev => ({
+      ...prev,
+      [selectedAccount]: { ...prev[selectedAccount], ...updates }
+    }))
+  }, [selectedAccount])
+
+  // Invalidate cache for current account (forces reload on next access)
+  // Kept for future actions that need to force a full reload
+  const _invalidateCache = useCallback(() => {
+    setCache(prev => ({
+      ...prev,
+      [selectedAccount]: { ...prev[selectedAccount], loaded: false }
+    }))
+  }, [selectedAccount])
+  void _invalidateCache // Suppress unused warning - available for future actions
+
+  // Load inbox summary (with force option for refresh)
+  const loadInbox = useCallback(async (force = false) => {
+    // Skip if already cached and not forcing
+    if (!force && cache[selectedAccount].inbox) return
+    
     setLoadingInbox(true)
     setError(null)
     try {
       const summary = await getInboxSummary(selectedAccount, authConfig, apiBase, 30)
-      setInboxSummary(summary)
+      updateCache({ inbox: summary })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load inbox')
     } finally {
       setLoadingInbox(false)
     }
-  }, [selectedAccount, authConfig, apiBase])
+  }, [selectedAccount, authConfig, apiBase, cache, updateCache])
 
-  // Load filter rules
-  const loadRules = useCallback(async () => {
+  // Load filter rules (with force option for refresh)
+  const loadRules = useCallback(async (force = false) => {
+    // Skip if already cached and not forcing
+    if (!force && cache[selectedAccount].rules.length > 0) return
+    
     setLoadingRules(true)
     setError(null)
     try {
       const response = await getFilterRules(selectedAccount, authConfig, apiBase)
-      setRules(response.rules)
+      updateCache({ rules: response.rules, loaded: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load rules')
     } finally {
       setLoadingRules(false)
     }
-  }, [selectedAccount, authConfig, apiBase])
+  }, [selectedAccount, authConfig, apiBase, cache, updateCache])
 
   // Analyze inbox for suggestions
   const runAnalysis = useCallback(async () => {
@@ -112,20 +197,54 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     setError(null)
     try {
       const response = await analyzeInbox(selectedAccount, authConfig, apiBase, 50)
-      setSuggestions(response.suggestions)
-      setAttentionItems(response.attentionItems)
+      updateCache({ 
+        suggestions: response.suggestions,
+        attentionItems: response.attentionItems 
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed')
     } finally {
       setLoadingAnalysis(false)
     }
+  }, [selectedAccount, authConfig, apiBase, updateCache])
+
+  // Refresh all data for current account
+  const refreshAll = useCallback(() => {
+    loadInbox(true)
+    loadRules(true)
+  }, [loadInbox, loadRules])
+
+  // Search emails
+  const handleEmailSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setEmailSearchResults(null)
+      return
+    }
+    
+    setSearchingEmails(true)
+    setError(null)
+    try {
+      const response = await searchEmails(selectedAccount, query.trim(), authConfig, apiBase, 30)
+      setEmailSearchResults(response.messages)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed')
+      setEmailSearchResults(null)
+    } finally {
+      setSearchingEmails(false)
+    }
   }, [selectedAccount, authConfig, apiBase])
 
-  // Load data when account changes
+  // Clear search results
+  const clearEmailSearch = useCallback(() => {
+    setEmailSearchQuery('')
+    setEmailSearchResults(null)
+  }, [])
+
+  // Load data when account changes (uses cache if available)
   useEffect(() => {
     loadInbox()
     loadRules()
-  }, [selectedAccount, loadInbox, loadRules])
+  }, [selectedAccount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle adding a new rule
   async function handleAddRule() {
@@ -148,8 +267,8 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         action: 'Add',
       }, authConfig, apiBase)
       
-      // Refresh rules and reset form
-      await loadRules()
+      // Force refresh rules and reset form
+      await loadRules(true)
       setShowAddRule(false)
       setNewRule({
         category: 'Personal',
@@ -170,7 +289,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     
     try {
       await deleteFilterRule(selectedAccount, rowNumber, authConfig, apiBase)
-      await loadRules()
+      await loadRules(true) // Force refresh after delete
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete rule')
     }
@@ -192,14 +311,216 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         action: 'Add',
       }, authConfig, apiBase)
       
-      // Remove from suggestions and refresh rules
-      setSuggestions(prev => prev.filter(s => s !== suggestion))
-      await loadRules()
+      // Remove from suggestions in cache and refresh rules
+      const updatedSuggestions = suggestions.filter(s => s !== suggestion)
+      updateCache({ suggestions: updatedSuggestions })
+      await loadRules(true) // Force refresh after adding
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add rule')
     } finally {
       setAddingRule(false)
     }
+  }
+  
+  // Handle dismissing a suggestion
+  function handleDismissSuggestion(suggestion: RuleSuggestion) {
+    const updatedSuggestions = suggestions.filter(s => s !== suggestion)
+    updateCache({ suggestions: updatedSuggestions })
+  }
+
+  // Handle selecting an email (opens assist panel)
+  function handleSelectEmail(emailId: string) {
+    setSelectedEmailId(emailId)
+    setAssistPanelCollapsed(false)
+    // Clear chat history when selecting a new email
+    setChatHistory([])
+    setPendingEmailAction(null)
+  }
+
+  // Handle sending a chat message about the selected email
+  async function handleSendChatMessage() {
+    if (!selectedEmailId || !chatInput.trim()) return
+    
+    setChatLoading(true)
+    setPendingEmailAction(null)
+    
+    // Add user message to history immediately
+    const userMessage = chatInput.trim()
+    setChatHistory(prev => [...prev, { role: 'user', content: userMessage }])
+    setChatInput('')
+    
+    try {
+      const response = await chatAboutEmail(
+        selectedAccount,
+        {
+          message: userMessage,
+          emailId: selectedEmailId,
+          history: chatHistory,
+        },
+        authConfig,
+        apiBase
+      )
+      
+      // Add assistant response to history
+      setChatHistory(prev => [...prev, { role: 'assistant', content: response.response }])
+      
+      // Handle pending action if DATA suggested one
+      if (response.pendingAction) {
+        setPendingEmailAction(response.pendingAction)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Chat failed')
+      // Add error message to history
+      setChatHistory(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  // Handle confirming a pending email action from chat
+  async function handleConfirmEmailAction() {
+    if (!pendingEmailAction || !selectedEmailId) return
+    
+    const action = pendingEmailAction.action
+    setActionLoading(action)
+    
+    try {
+      switch (action) {
+        case 'archive':
+          await handleEmailQuickAction({ type: 'archive', emailId: selectedEmailId })
+          break
+        case 'delete':
+          await handleEmailQuickAction({ type: 'delete', emailId: selectedEmailId })
+          break
+        case 'star':
+          await handleEmailQuickAction({ type: 'star', emailId: selectedEmailId })
+          break
+        case 'mark_important':
+          await handleEmailQuickAction({ type: 'flag', emailId: selectedEmailId })
+          break
+        case 'create_task':
+          handleEmailQuickAction({ 
+            type: 'create_task', 
+            emailId: selectedEmailId,
+            subject: pendingEmailAction.taskTitle || selectedEmail?.subject || 'Task from email'
+          })
+          break
+      }
+      
+      // Add confirmation to chat
+      setChatHistory(prev => [...prev, { 
+        role: 'assistant', 
+        content: `✓ Done! ${pendingEmailAction.reason}` 
+      }])
+    } finally {
+      setPendingEmailAction(null)
+      setActionLoading(null)
+    }
+  }
+
+  // State for email actions
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  
+  // Email chat state (Phase 4)
+  const [chatHistory, setChatHistory] = useState<Array<{ role: string; content: string }>>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [pendingEmailAction, setPendingEmailAction] = useState<EmailPendingAction | null>(null)
+
+  // Handle quick action on email
+  async function handleEmailQuickAction(action: EmailQuickAction) {
+    setActionLoading(action.type)
+    setError(null)
+    
+    try {
+      switch (action.type) {
+        case 'archive':
+          await archiveEmail(selectedAccount, action.emailId, authConfig, apiBase)
+          // Remove from recent messages in cache
+          updateCache({
+            inbox: inboxSummary ? {
+              ...inboxSummary,
+              recentMessages: inboxSummary.recentMessages.filter(m => m.id !== action.emailId)
+            } : null
+          })
+          setSelectedEmailId(null)
+          break
+          
+        case 'delete':
+          await deleteEmail(selectedAccount, action.emailId, authConfig, apiBase)
+          // Remove from recent messages in cache
+          updateCache({
+            inbox: inboxSummary ? {
+              ...inboxSummary,
+              recentMessages: inboxSummary.recentMessages.filter(m => m.id !== action.emailId)
+            } : null
+          })
+          setSelectedEmailId(null)
+          break
+          
+        case 'star':
+          await starEmail(selectedAccount, action.emailId, true, authConfig, apiBase)
+          // Update the message in cache
+          updateCache({
+            inbox: inboxSummary ? {
+              ...inboxSummary,
+              recentMessages: inboxSummary.recentMessages.map(m => 
+                m.id === action.emailId 
+                  ? { ...m, isStarred: true }
+                  : m
+              )
+            } : null
+          })
+          break
+          
+        case 'flag':
+          await markEmailImportant(selectedAccount, action.emailId, true, authConfig, apiBase)
+          // Update the message in cache
+          updateCache({
+            inbox: inboxSummary ? {
+              ...inboxSummary,
+              recentMessages: inboxSummary.recentMessages.map(m => 
+                m.id === action.emailId 
+                  ? { ...m, isImportant: true }
+                  : m
+              )
+            } : null
+          })
+          break
+          
+        case 'create_task':
+          // TODO: Implement task creation - for now show alert
+          alert(`Task creation coming soon: ${action.subject}`)
+          break
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Email action failed')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // Toggle panel collapse states
+  function handleToggleEmailPanel() {
+    setEmailPanelCollapsed(!emailPanelCollapsed)
+    // If collapsing email panel, ensure assist is visible
+    if (!emailPanelCollapsed) {
+      setAssistPanelCollapsed(false)
+    }
+  }
+
+  function handleToggleAssistPanel() {
+    setAssistPanelCollapsed(!assistPanelCollapsed)
+    // If collapsing assist panel, ensure email is visible
+    if (!assistPanelCollapsed) {
+      setEmailPanelCollapsed(false)
+    }
+  }
+
+  // Expand both panels
+  function handleExpandBoth() {
+    setEmailPanelCollapsed(false)
+    setAssistPanelCollapsed(false)
   }
 
   // Filter rules based on category and search
@@ -214,9 +535,15 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     return CATEGORIES.find(c => c.value === category)?.color || '#6b7280'
   }
 
+  // Get selected email details (check both search results and recent messages)
+  const selectedEmail = selectedEmailId 
+    ? (emailSearchResults?.find(m => m.id === selectedEmailId) 
+       ?? inboxSummary?.recentMessages?.find(m => m.id === selectedEmailId))
+    : null
+
   return (
-    <div className="email-dashboard">
-      {/* Header */}
+    <div className={`email-dashboard two-panel ${emailPanelCollapsed ? 'email-collapsed' : ''} ${assistPanelCollapsed ? 'assist-collapsed' : ''}`}>
+      {/* Header - spans full width */}
       <header className="email-dashboard-header">
         <button className="back-button" onClick={onBack}>
           ← Back to Tasks
@@ -238,7 +565,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         </div>
       </header>
 
-      {/* Error display */}
+      {/* Error display - spans full width */}
       {error && (
         <div className="email-error">
           {error}
@@ -246,39 +573,53 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         </div>
       )}
 
-      {/* Tab navigation */}
-      <nav className="email-tabs">
-        <button
-          className={activeTab === 'dashboard' ? 'active' : ''}
-          onClick={() => setActiveTab('dashboard')}
-        >
-          Dashboard
-        </button>
-        <button
-          className={activeTab === 'rules' ? 'active' : ''}
-          onClick={() => setActiveTab('rules')}
-        >
-          Rules ({rules.length})
-        </button>
-        <button
-          className={activeTab === 'suggestions' ? 'active' : ''}
-          onClick={() => {
-            setActiveTab('suggestions')
-            if (suggestions.length === 0) runAnalysis()
-          }}
-        >
-          Suggestions {suggestions.length > 0 && `(${suggestions.length})`}
-        </button>
-        <button
-          className={activeTab === 'attention' ? 'active' : ''}
-          onClick={() => {
-            setActiveTab('attention')
-            if (attentionItems.length === 0) runAnalysis()
-          }}
-        >
-          Attention {attentionItems.length > 0 && `(${attentionItems.length})`}
-        </button>
-      </nav>
+      {/* Two-panel content area */}
+      <div className="email-panels">
+        {/* Left Panel - Email List/Rules */}
+        {!emailPanelCollapsed && (
+          <section className="email-left-panel">
+            {/* Panel collapse control */}
+            <button 
+              className="panel-collapse-btn left"
+              onClick={handleToggleEmailPanel}
+              title="Collapse email panel"
+            >
+              ◀
+            </button>
+
+            {/* Tab navigation */}
+            <nav className="email-tabs">
+              <button
+                className={activeTab === 'dashboard' ? 'active' : ''}
+                onClick={() => setActiveTab('dashboard')}
+              >
+                Dashboard
+              </button>
+              <button
+                className={activeTab === 'rules' ? 'active' : ''}
+                onClick={() => setActiveTab('rules')}
+              >
+                Rules ({rules.length})
+              </button>
+              <button
+                className={activeTab === 'suggestions' ? 'active' : ''}
+                onClick={() => {
+                  setActiveTab('suggestions')
+                  if (suggestions.length === 0) runAnalysis()
+                }}
+              >
+                Suggestions {suggestions.length > 0 && `(${suggestions.length})`}
+              </button>
+              <button
+                className={activeTab === 'attention' ? 'active' : ''}
+                onClick={() => {
+                  setActiveTab('attention')
+                  if (attentionItems.length === 0) runAnalysis()
+                }}
+              >
+                Attention {attentionItems.length > 0 && `(${attentionItems.length})`}
+              </button>
+            </nav>
 
       {/* Tab content */}
       <div className="email-tab-content">
@@ -287,11 +628,11 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
           <div className="dashboard-view">
             <div className="stats-grid">
               <div className="stat-card">
-                <div className="stat-value">{inboxSummary?.totalUnread ?? '—'}</div>
+                <div className="stat-value">{inboxSummary?.totalUnread?.toLocaleString() ?? '—'}</div>
                 <div className="stat-label">Unread</div>
               </div>
               <div className="stat-card important">
-                <div className="stat-value">{inboxSummary?.unreadImportant ?? '—'}</div>
+                <div className="stat-value">{inboxSummary?.unreadImportant?.toLocaleString() ?? '—'}</div>
                 <div className="stat-label">Important</div>
               </div>
               <div className="stat-card">
@@ -305,6 +646,36 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
             </div>
 
             <div className="action-buttons">
+              <div className="email-search-container">
+                <input
+                  type="text"
+                  className="email-search-input"
+                  placeholder="Search emails..."
+                  value={emailSearchQuery}
+                  onChange={(e) => setEmailSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleEmailSearch(emailSearchQuery)
+                    }
+                  }}
+                />
+                {emailSearchQuery && (
+                  <button 
+                    className="email-search-clear"
+                    onClick={clearEmailSearch}
+                    title="Clear search"
+                  >
+                    ×
+                  </button>
+                )}
+                <button
+                  className="email-search-btn"
+                  onClick={() => handleEmailSearch(emailSearchQuery)}
+                  disabled={searchingEmails || !emailSearchQuery.trim()}
+                >
+                  {searchingEmails ? '...' : '🔍'}
+                </button>
+              </div>
               <button
                 className="action-btn primary"
                 onClick={runAnalysis}
@@ -314,20 +685,50 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
               </button>
               <button
                 className="action-btn"
-                onClick={loadInbox}
-                disabled={loadingInbox}
+                onClick={refreshAll}
+                disabled={loadingInbox || loadingRules}
               >
-                {loadingInbox ? 'Refreshing...' : 'Refresh'}
+                {(loadingInbox || loadingRules) ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
 
-            {/* Recent messages preview */}
-            {inboxSummary?.recentMessages && inboxSummary.recentMessages.length > 0 && (
+            {/* Search results or Recent messages */}
+            {emailSearchResults ? (
+              <div className="recent-messages search-results">
+                <div className="messages-header">
+                  <h3>Search Results ({emailSearchResults.length})</h3>
+                  <button className="clear-search-btn" onClick={clearEmailSearch}>
+                    Clear Search
+                  </button>
+                </div>
+                {emailSearchResults.length === 0 ? (
+                  <div className="no-results">No emails found matching "{emailSearchQuery}"</div>
+                ) : (
+                  <ul className="message-list">
+                    {emailSearchResults.map(msg => (
+                      <li 
+                        key={msg.id} 
+                        className={`${msg.isUnread ? 'unread' : ''} ${selectedEmailId === msg.id ? 'selected' : ''}`}
+                        onClick={() => handleSelectEmail(msg.id)}
+                      >
+                        <div className="msg-from">{msg.fromName || msg.fromAddress}</div>
+                        <div className="msg-subject">{msg.subject}</div>
+                        <div className="msg-snippet">{msg.snippet}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : inboxSummary?.recentMessages && inboxSummary.recentMessages.length > 0 ? (
               <div className="recent-messages">
                 <h3>Recent Messages</h3>
                 <ul className="message-list">
                   {inboxSummary.recentMessages.slice(0, 10).map(msg => (
-                    <li key={msg.id} className={msg.isUnread ? 'unread' : ''}>
+                    <li 
+                      key={msg.id} 
+                      className={`${msg.isUnread ? 'unread' : ''} ${selectedEmailId === msg.id ? 'selected' : ''}`}
+                      onClick={() => handleSelectEmail(msg.id)}
+                    >
                       <div className="msg-from">{msg.fromName || msg.fromAddress}</div>
                       <div className="msg-subject">{msg.subject}</div>
                       <div className="msg-snippet">{msg.snippet}</div>
@@ -335,7 +736,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
           </div>
         )}
 
@@ -497,12 +898,6 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                       <span className={`confidence-badge ${suggestion.confidence}`}>
                         {suggestion.confidence}
                       </span>
-                      <span
-                        className="category-badge"
-                        style={{ backgroundColor: getCategoryColor(suggestion.suggestedRule.category) }}
-                      >
-                        {suggestion.suggestedRule.category}
-                      </span>
                       <span className="email-count">
                         {suggestion.emailCount} email{suggestion.emailCount !== 1 ? 's' : ''}
                       </span>
@@ -524,6 +919,35 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                       </div>
                     )}
                     <div className="suggestion-actions">
+                      <select
+                        className="category-select"
+                        value={suggestion.suggestedRule.category}
+                        onChange={e => {
+                          const newCategory = e.target.value
+                          const categoryInfo = CATEGORIES.find(c => c.value === newCategory)
+                          const updatedSuggestions = suggestions.map((s, i) => 
+                            i === idx 
+                              ? {
+                                  ...s,
+                                  suggestedRule: {
+                                    ...s.suggestedRule,
+                                    category: newCategory,
+                                    order: categoryInfo?.order || s.suggestedRule.order
+                                  }
+                                }
+                              : s
+                          )
+                          updateCache({ suggestions: updatedSuggestions })
+                        }}
+                        style={{ 
+                          backgroundColor: getCategoryColor(suggestion.suggestedRule.category),
+                          color: 'white'
+                        }}
+                      >
+                        {CATEGORIES.map(cat => (
+                          <option key={cat.value} value={cat.value}>{cat.value}</option>
+                        ))}
+                      </select>
                       <button
                         className="approve-btn"
                         onClick={() => handleApproveSuggestion(suggestion)}
@@ -533,7 +957,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                       </button>
                       <button
                         className="dismiss-btn"
-                        onClick={() => setSuggestions(prev => prev.filter(s => s !== suggestion))}
+                        onClick={() => handleDismissSuggestion(suggestion)}
                       >
                         Dismiss
                       </button>
@@ -560,7 +984,11 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
             ) : (
               <ul className="attention-list">
                 {attentionItems.map(item => (
-                  <li key={item.emailId} className={`attention-card ${item.urgency}`}>
+                  <li 
+                    key={item.emailId} 
+                    className={`attention-card ${item.urgency} ${selectedEmailId === item.emailId ? 'selected' : ''}`}
+                    onClick={() => handleSelectEmail(item.emailId)}
+                  >
                     <div className="attention-header">
                       <span className={`urgency-badge ${item.urgency}`}>
                         {item.urgency}
@@ -581,7 +1009,17 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                     )}
                     {item.extractedTask && (
                       <div className="attention-task">
-                        <button className="create-task-btn">
+                        <button 
+                          className="create-task-btn"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleEmailQuickAction({ 
+                              type: 'create_task', 
+                              emailId: item.emailId, 
+                              subject: item.extractedTask || item.subject 
+                            })
+                          }}
+                        >
                           Create Task: {item.extractedTask}
                         </button>
                       </div>
@@ -590,6 +1028,184 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                 ))}
               </ul>
             )}
+          </div>
+        )}
+            </div>
+          </section>
+        )}
+
+        {/* Collapsed email panel indicator */}
+        {emailPanelCollapsed && (
+          <div className="collapsed-panel-indicator left" onClick={handleExpandBoth}>
+            <span className="expand-icon">▶</span>
+            <span className="collapsed-label">Inbox</span>
+          </div>
+        )}
+
+        {/* Right Panel - DATA Assist (placeholder until Phase 4) */}
+        {!assistPanelCollapsed && (
+          <section className="email-right-panel">
+            {/* Panel collapse control */}
+            <button 
+              className="panel-collapse-btn right"
+              onClick={handleToggleAssistPanel}
+              title="Collapse DATA panel"
+            >
+              ▶
+            </button>
+
+            <div className="email-assist-content">
+              <div className="email-assist-header">
+                <h2>DATA</h2>
+                {selectedEmail && (
+                  <span className="selected-email-indicator">
+                    Re: {selectedEmail.subject?.slice(0, 30)}...
+                  </span>
+                )}
+              </div>
+
+              {/* Email preview when selected */}
+              {selectedEmail && (
+                <div className="email-preview">
+                  <div className="preview-header">
+                    <strong>{selectedEmail.fromName || selectedEmail.fromAddress}</strong>
+                    <span className="preview-date">
+                      {selectedEmail.date ? new Date(selectedEmail.date).toLocaleString() : ''}
+                    </span>
+                  </div>
+                  <div className="preview-subject">{selectedEmail.subject}</div>
+                  <div className="preview-snippet">{selectedEmail.snippet}</div>
+                  
+                  {/* Quick action buttons */}
+                  <div className="email-quick-actions">
+                    <button 
+                      className="quick-action-btn"
+                      onClick={() => handleEmailQuickAction({ type: 'archive', emailId: selectedEmail.id })}
+                      disabled={actionLoading !== null}
+                      title="Archive"
+                    >
+                      {actionLoading === 'archive' ? '⏳' : '📥'}
+                    </button>
+                    <button 
+                      className="quick-action-btn"
+                      onClick={() => handleEmailQuickAction({ type: 'star', emailId: selectedEmail.id })}
+                      disabled={actionLoading !== null}
+                      title="Star"
+                    >
+                      {actionLoading === 'star' ? '⏳' : '⭐'}
+                    </button>
+                    <button 
+                      className="quick-action-btn"
+                      onClick={() => handleEmailQuickAction({ type: 'flag', emailId: selectedEmail.id })}
+                      disabled={actionLoading !== null}
+                      title="Mark Important"
+                    >
+                      {actionLoading === 'flag' ? '⏳' : '🚩'}
+                    </button>
+                    <button 
+                      className="quick-action-btn delete"
+                      onClick={() => handleEmailQuickAction({ type: 'delete', emailId: selectedEmail.id })}
+                      disabled={actionLoading !== null}
+                      title="Delete"
+                    >
+                      {actionLoading === 'delete' ? '⏳' : '🗑️'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* DATA Chat Interface */}
+              <div className="email-chat-container">
+                {/* Chat messages */}
+                <div className="email-chat-messages">
+                  {chatHistory.length === 0 ? (
+                    <div className="chat-empty-state">
+                      <div className="chat-empty-icon">💬</div>
+                      <p>Ask DATA about this email</p>
+                      <div className="chat-suggestions">
+                        <button onClick={() => setChatInput('What should I do with this email?')}>
+                          What should I do with this?
+                        </button>
+                        <button onClick={() => setChatInput('Summarize this email')}>
+                          Summarize
+                        </button>
+                        <button onClick={() => setChatInput('Should I archive this?')}>
+                          Should I archive?
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    chatHistory.map((msg, idx) => (
+                      <div key={idx} className={`chat-message ${msg.role}`}>
+                        <div className="chat-message-content">{msg.content}</div>
+                      </div>
+                    ))
+                  )}
+                  
+                  {chatLoading && (
+                    <div className="chat-message assistant loading">
+                      <div className="chat-message-content">Thinking...</div>
+                    </div>
+                  )}
+                  
+                  {/* Pending action confirmation */}
+                  {pendingEmailAction && (
+                    <div className="pending-action-card">
+                      <div className="pending-action-header">
+                        DATA suggests: <strong>{pendingEmailAction.action}</strong>
+                      </div>
+                      <div className="pending-action-reason">{pendingEmailAction.reason}</div>
+                      <div className="pending-action-buttons">
+                        <button 
+                          className="confirm-btn"
+                          onClick={handleConfirmEmailAction}
+                          disabled={actionLoading !== null}
+                        >
+                          {actionLoading ? 'Processing...' : 'Confirm'}
+                        </button>
+                        <button 
+                          className="cancel-btn"
+                          onClick={() => setPendingEmailAction(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Chat input */}
+                <form 
+                  className="email-chat-input"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    handleSendChatMessage()
+                  }}
+                >
+                  <input
+                    type="text"
+                    placeholder={selectedEmail ? "Ask DATA about this email..." : "Select an email to chat"}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    disabled={!selectedEmail || chatLoading}
+                  />
+                  <button 
+                    type="submit"
+                    disabled={!selectedEmail || !chatInput.trim() || chatLoading}
+                  >
+                    Send
+                  </button>
+                </form>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Collapsed assist panel indicator */}
+        {assistPanelCollapsed && (
+          <div className="collapsed-panel-indicator right" onClick={handleToggleAssistPanel}>
+            <span className="collapsed-label">DATA</span>
+            <span className="expand-icon">◀</span>
           </div>
         )}
       </div>

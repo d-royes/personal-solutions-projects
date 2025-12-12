@@ -2402,6 +2402,233 @@ def create_task_from_email(
     }
 
 
+# --- Email Action Endpoints (Phase 3) ---
+
+@app.post("/email/{account}/archive/{message_id}")
+def archive_email(
+    account: Literal["church", "personal"],
+    message_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Archive an email (remove from Inbox).
+    
+    Removes the INBOX label, moving the email to All Mail.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        archive_message,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+        result = archive_message(gmail_config, message_id)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "status": "archived",
+        "account": account,
+        "messageId": message_id,
+        "labels": result.get("labelIds", []),
+    }
+
+
+@app.post("/email/{account}/delete/{message_id}")
+def trash_email(
+    account: Literal["church", "personal"],
+    message_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Move an email to trash.
+    
+    Emails in trash are automatically deleted after 30 days.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        delete_message,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+        result = delete_message(gmail_config, message_id)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "status": "trashed",
+        "account": account,
+        "messageId": message_id,
+        "labels": result.get("labelIds", []),
+    }
+
+
+@app.post("/email/{account}/star/{message_id}")
+def star_email(
+    account: Literal["church", "personal"],
+    message_id: str,
+    starred: bool = Query(True, description="True to star, False to unstar"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Star or unstar an email.
+    
+    Starred emails appear in the Starred folder for quick access.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        star_message,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+        result = star_message(gmail_config, message_id, starred=starred)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "status": "starred" if starred else "unstarred",
+        "account": account,
+        "messageId": message_id,
+        "labels": result.get("labelIds", []),
+    }
+
+
+@app.post("/email/{account}/important/{message_id}")
+def mark_email_important(
+    account: Literal["church", "personal"],
+    message_id: str,
+    important: bool = Query(True, description="True to mark important, False to remove"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mark an email as important or remove importance.
+    
+    Important emails appear in the Important folder.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        mark_important,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+        result = mark_important(gmail_config, message_id, important=important)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "status": "important" if important else "not_important",
+        "account": account,
+        "messageId": message_id,
+        "labels": result.get("labelIds", []),
+    }
+
+
+@app.post("/email/{account}/read/{message_id}")
+def mark_email_read(
+    account: Literal["church", "personal"],
+    message_id: str,
+    read: bool = Query(True, description="True to mark read, False to mark unread"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mark an email as read or unread.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        mark_read,
+        mark_unread,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+        if read:
+            result = mark_read(gmail_config, message_id)
+        else:
+            result = mark_unread(gmail_config, message_id)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "status": "read" if read else "unread",
+        "account": account,
+        "messageId": message_id,
+        "labels": result.get("labelIds", []),
+    }
+
+
+# --- Email Chat Endpoint (Phase 4) ---
+
+class EmailChatRequest(BaseModel):
+    """Request body for email chat."""
+    message: str = Field(..., description="User's message about the email")
+    email_id: str = Field(..., description="Gmail message ID")
+    history: Optional[List[Dict[str, str]]] = Field(default=None, description="Previous conversation")
+
+
+@app.post("/email/{account}/chat")
+def chat_about_email(
+    account: Literal["church", "personal"],
+    request: EmailChatRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Chat with DATA about an email.
+    
+    DATA can help analyze, summarize, or suggest actions for the email.
+    If DATA detects an action request, returns a pending_action.
+    """
+    from daily_task_assistant.llm.anthropic_client import chat_with_email, AnthropicError
+    from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message
+    
+    # Load the email
+    try:
+        gmail_config = load_account_from_env(account)
+        email = get_message(gmail_config, request.email_id)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    # Build email context for DATA
+    email_context = f"""Email Details:
+- From: {email.from_name} <{email.from_address}>
+- To: {email.to_address}
+- Subject: {email.subject}
+- Date: {email.date.strftime("%Y-%m-%d %H:%M")}
+- Preview: {email.snippet}
+- Status: {"Unread" if email.is_unread else "Read"}
+- Important: {"Yes" if email.is_important else "No"}
+- Starred: {"Yes" if email.is_starred else "No"}"""
+
+    # Chat with DATA
+    try:
+        chat_response = chat_with_email(
+            email_context=email_context,
+            user_message=request.message,
+            history=request.history,
+        )
+    except AnthropicError as exc:
+        raise HTTPException(status_code=502, detail=f"AI service error: {exc}")
+    
+    # Build response
+    response_data = {
+        "response": chat_response.message,
+        "account": account,
+        "emailId": request.email_id,
+    }
+    
+    # Include pending action if DATA detected one
+    if chat_response.pending_action:
+        action = chat_response.pending_action
+        response_data["pendingAction"] = {
+            "action": action.action,
+            "reason": action.reason,
+            "taskTitle": action.task_title,
+        }
+    
+    return response_data
+
+
 # --- Workspace endpoints ---
 
 class WorkspaceSaveRequest(BaseModel):

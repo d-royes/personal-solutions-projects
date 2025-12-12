@@ -57,11 +57,11 @@ class RuleSuggestion:
     email_count: int = 1  # How many emails matched this pattern
     
     def to_dict(self) -> dict:
-        """Convert to API-friendly dict."""
+        """Convert to API-friendly dict (camelCase for JavaScript)."""
         return {
             "type": self.type.value,
-            "suggested_rule": {
-                "email_account": self.suggested_rule.email_account,
+            "suggestedRule": {
+                "emailAccount": self.suggested_rule.email_account,
                 "order": self.suggested_rule.order,
                 "category": self.suggested_rule.category,
                 "field": self.suggested_rule.field,
@@ -72,7 +72,7 @@ class RuleSuggestion:
             "confidence": self.confidence.value,
             "reason": self.reason,
             "examples": self.examples[:5],  # Limit examples
-            "email_count": self.email_count,
+            "emailCount": self.email_count,
         }
 
 
@@ -88,21 +88,21 @@ class AttentionItem:
     extracted_task: Optional[str] = None  # Suggested task title
     
     def to_dict(self) -> dict:
-        """Convert to API-friendly dict."""
+        """Convert to API-friendly dict (camelCase for JavaScript)."""
         return {
-            "email_id": self.email.id,
+            "emailId": self.email.id,
             "subject": self.email.subject,
-            "from_address": self.email.from_address,
-            "from_name": self.email.from_name,
+            "fromAddress": self.email.from_address,
+            "fromName": self.email.from_name,
             "date": self.email.date.isoformat(),
             "reason": self.reason,
             "urgency": self.urgency,
-            "suggested_action": self.suggested_action,
-            "extracted_deadline": (
+            "suggestedAction": self.suggested_action,
+            "extractedDeadline": (
                 self.extracted_deadline.isoformat() 
                 if self.extracted_deadline else None
             ),
-            "extracted_task": self.extracted_task,
+            "extractedTask": self.extracted_task,
         }
 
 

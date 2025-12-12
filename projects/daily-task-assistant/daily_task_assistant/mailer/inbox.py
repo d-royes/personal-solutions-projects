@@ -108,6 +108,83 @@ def list_messages(
         raise GmailError(f"Gmail network error: {exc}") from exc
 
 
+def count_messages(
+    account: GmailAccountConfig,
+    *,
+    query: str,
+) -> int:
+    """Get count of messages matching a query.
+    
+    Note: Uses Gmail's resultSizeEstimate which is approximate.
+    For exact counts, use get_label_counts() instead.
+    
+    Args:
+        account: Gmail account configuration.
+        query: Gmail search query (e.g., "is:unread in:inbox").
+        
+    Returns:
+        Estimated count of matching messages.
+    """
+    access_token = _fetch_access_token(account)
+    
+    # Request minimal results, we only need the count estimate
+    params = [
+        "maxResults=1",
+        f"q={urlrequest.quote(query)}",
+    ]
+    
+    url = f"{MESSAGES_URL}?{'&'.join(params)}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    req = urlrequest.Request(url, headers=headers, method="GET")
+    
+    try:
+        with urlrequest.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("resultSizeEstimate", 0)
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise GmailError(f"Gmail count failed ({exc.code}): {detail}") from exc
+    except urlerror.URLError as exc:
+        raise GmailError(f"Gmail network error: {exc}") from exc
+
+
+def get_label_counts(
+    account: GmailAccountConfig,
+    label_id: str,
+) -> dict:
+    """Get exact message counts for a Gmail label.
+    
+    Args:
+        account: Gmail account configuration.
+        label_id: Gmail label ID (e.g., "INBOX", "UNREAD", "IMPORTANT").
+        
+    Returns:
+        Dict with 'messagesTotal', 'messagesUnread', 'threadsTotal', 'threadsUnread'.
+    """
+    access_token = _fetch_access_token(account)
+    
+    url = f"https://gmail.googleapis.com/gmail/v1/users/me/labels/{label_id}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    req = urlrequest.Request(url, headers=headers, method="GET")
+    
+    try:
+        with urlrequest.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return {
+                "messagesTotal": data.get("messagesTotal", 0),
+                "messagesUnread": data.get("messagesUnread", 0),
+                "threadsTotal": data.get("threadsTotal", 0),
+                "threadsUnread": data.get("threadsUnread", 0),
+            }
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise GmailError(f"Gmail label info failed ({exc.code}): {detail}") from exc
+    except urlerror.URLError as exc:
+        raise GmailError(f"Gmail network error: {exc}") from exc
+
+
 def get_message(
     account: GmailAccountConfig,
     message_id: str,
@@ -204,21 +281,12 @@ def get_inbox_summary(
     """
     vip_senders = vip_senders or []
     
-    # Get unread count
-    unread_refs = list_messages(
-        account,
-        max_results=100,
-        query="is:unread in:inbox",
-    )
-    total_unread = len(unread_refs)
+    # Get exact counts from Gmail Labels API
+    inbox_counts = get_label_counts(account, "INBOX")
+    important_counts = get_label_counts(account, "IMPORTANT")
     
-    # Get unread important
-    important_refs = list_messages(
-        account,
-        max_results=50,
-        query="is:unread is:important",
-    )
-    unread_important = len(important_refs)
+    total_unread = inbox_counts["messagesUnread"]
+    unread_important = important_counts["messagesUnread"]
     
     # Get recent messages with full details
     recent_refs = list_messages(account, max_results=max_recent, label_ids=["INBOX"])
@@ -353,4 +421,185 @@ def _parse_email_date(date_str: str) -> datetime:
             except ValueError:
                 continue
         return datetime.now(timezone.utc)
+
+
+# =============================================================================
+# Email Actions (Phase 3)
+# =============================================================================
+
+def modify_message_labels(
+    account: GmailAccountConfig,
+    message_id: str,
+    *,
+    add_labels: Optional[List[str]] = None,
+    remove_labels: Optional[List[str]] = None,
+) -> dict:
+    """Modify labels on a message.
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID to modify.
+        add_labels: Labels to add (e.g., ["STARRED", "IMPORTANT"]).
+        remove_labels: Labels to remove (e.g., ["INBOX", "UNREAD"]).
+        
+    Returns:
+        Updated message data.
+    """
+    access_token = _fetch_access_token(account)
+    
+    url = f"{MESSAGES_URL}/{message_id}/modify"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    
+    body = {}
+    if add_labels:
+        body["addLabelIds"] = add_labels
+    if remove_labels:
+        body["removeLabelIds"] = remove_labels
+    
+    req = urlrequest.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    
+    try:
+        with urlrequest.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise GmailError(f"Gmail modify failed ({exc.code}): {detail}") from exc
+    except urlerror.URLError as exc:
+        raise GmailError(f"Gmail network error: {exc}") from exc
+
+
+def archive_message(account: GmailAccountConfig, message_id: str) -> dict:
+    """Archive a message (remove from INBOX, keep in All Mail).
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID to archive.
+        
+    Returns:
+        Updated message data.
+    """
+    return modify_message_labels(
+        account,
+        message_id,
+        remove_labels=["INBOX"],
+    )
+
+
+def delete_message(account: GmailAccountConfig, message_id: str) -> dict:
+    """Move a message to trash.
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID to delete.
+        
+    Returns:
+        Updated message data.
+    """
+    access_token = _fetch_access_token(account)
+    
+    url = f"{MESSAGES_URL}/{message_id}/trash"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    req = urlrequest.Request(url, headers=headers, method="POST")
+    
+    try:
+        with urlrequest.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise GmailError(f"Gmail trash failed ({exc.code}): {detail}") from exc
+    except urlerror.URLError as exc:
+        raise GmailError(f"Gmail network error: {exc}") from exc
+
+
+def star_message(account: GmailAccountConfig, message_id: str, starred: bool = True) -> dict:
+    """Star or unstar a message.
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID to star/unstar.
+        starred: True to star, False to unstar.
+        
+    Returns:
+        Updated message data.
+    """
+    if starred:
+        return modify_message_labels(
+            account,
+            message_id,
+            add_labels=["STARRED"],
+        )
+    else:
+        return modify_message_labels(
+            account,
+            message_id,
+            remove_labels=["STARRED"],
+        )
+
+
+def mark_important(account: GmailAccountConfig, message_id: str, important: bool = True) -> dict:
+    """Mark a message as important or not important.
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID.
+        important: True to mark important, False to remove.
+        
+    Returns:
+        Updated message data.
+    """
+    if important:
+        return modify_message_labels(
+            account,
+            message_id,
+            add_labels=["IMPORTANT"],
+        )
+    else:
+        return modify_message_labels(
+            account,
+            message_id,
+            remove_labels=["IMPORTANT"],
+        )
+
+
+def mark_read(account: GmailAccountConfig, message_id: str) -> dict:
+    """Mark a message as read (remove UNREAD label).
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID.
+        
+    Returns:
+        Updated message data.
+    """
+    return modify_message_labels(
+        account,
+        message_id,
+        remove_labels=["UNREAD"],
+    )
+
+
+def mark_unread(account: GmailAccountConfig, message_id: str) -> dict:
+    """Mark a message as unread (add UNREAD label).
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID.
+        
+    Returns:
+        Updated message data.
+    """
+    return modify_message_labels(
+        account,
+        message_id,
+        add_labels=["UNREAD"],
+    )
 
