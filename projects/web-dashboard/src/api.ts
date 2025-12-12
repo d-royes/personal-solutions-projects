@@ -1919,6 +1919,44 @@ export async function listFirestoreTasks(
   return resp.json()
 }
 
+// Email-Task linkage info
+export interface EmailTaskInfo {
+  taskId: string
+  title: string
+  status: string
+  priority: string
+}
+
+export interface CheckEmailTasksResponse {
+  account: string
+  emailsChecked: number
+  emailsWithTasks: number
+  tasks: Record<string, EmailTaskInfo>  // email_id -> task info
+}
+
+export async function checkEmailsHaveTasks(
+  account: EmailAccount,
+  emailIds: string[],
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<CheckEmailTasksResponse> {
+  const url = new URL(`/email/${account}/check-tasks`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ email_ids: emailIds }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Check tasks failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 
 // --- Email Action Suggestions (Phase A3) ---
 

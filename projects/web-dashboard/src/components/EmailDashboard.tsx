@@ -24,10 +24,12 @@ import {
   applyEmailLabel,
   getTaskPreviewFromEmail,
   createTaskFromEmail,
+  checkEmailsHaveTasks,
   type EmailPendingAction,
   type EmailActionSuggestion,
   type GmailLabel,
   type TaskPreview,
+  type EmailTaskInfo,
 } from '../api'
 
 interface EmailDashboardProps {
@@ -76,6 +78,7 @@ interface AccountCache {
   attentionItems: AttentionItem[]
   actionSuggestions: EmailActionSuggestion[]  // Email action suggestions (Suggestions tab)
   availableLabels: GmailLabel[]
+  emailTaskLinks: Record<string, EmailTaskInfo>  // email_id -> task info
   loaded: boolean
 }
 
@@ -86,6 +89,7 @@ const emptyCache = (): AccountCache => ({
   attentionItems: [],
   actionSuggestions: [],
   availableLabels: [],
+  emailTaskLinks: {},
   loaded: false,
 })
 
@@ -112,6 +116,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   const attentionItems = cache[selectedAccount].attentionItems
   const actionSuggestions = cache[selectedAccount].actionSuggestions  // Email action suggestions
   const availableLabels = cache[selectedAccount].availableLabels
+  const emailTaskLinks = cache[selectedAccount].emailTaskLinks  // Emails that have linked tasks
   
   // Loading states
   const [loadingInbox, setLoadingInbox] = useState(false)
@@ -212,9 +217,23 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     setError(null)
     try {
       const response = await analyzeInbox(selectedAccount, authConfig, apiBase, 50)
+      
+      // Check which attention emails already have tasks
+      let taskLinks: Record<string, EmailTaskInfo> = {}
+      if (response.attentionItems.length > 0) {
+        try {
+          const emailIds = response.attentionItems.map(item => item.emailId)
+          const taskCheck = await checkEmailsHaveTasks(selectedAccount, emailIds, authConfig, apiBase)
+          taskLinks = taskCheck.tasks
+        } catch (err) {
+          console.warn('Failed to check email-task links:', err)
+        }
+      }
+      
       updateCache({ 
         suggestions: response.suggestions,
-        attentionItems: response.attentionItems 
+        attentionItems: response.attentionItems,
+        emailTaskLinks: taskLinks,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed')
@@ -547,7 +566,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     setError(null)
     
     try {
-      await createTaskFromEmail(
+      const response = await createTaskFromEmail(
         selectedAccount,
         {
           emailId: selectedEmailId,
@@ -561,6 +580,19 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         authConfig,
         apiBase
       )
+      
+      // Update cache with new task link so UI shows "Task exists" immediately
+      updateCache({
+        emailTaskLinks: {
+          ...emailTaskLinks,
+          [selectedEmailId]: {
+            taskId: response.task.id,
+            title: response.task.title,
+            status: response.task.status,
+            priority: response.task.priority,
+          }
+        }
+      })
       
       // Success - close form and show confirmation in chat
       setShowTaskForm(false)
@@ -1558,19 +1590,38 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                     )}
                     {item.extractedTask && (
                       <div className="attention-task">
-                        <button 
-                          className="create-task-btn"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleEmailQuickAction({ 
-                              type: 'create_task', 
-                              emailId: item.emailId, 
-                              subject: item.extractedTask || item.subject 
-                            })
-                          }}
-                        >
-                          Create Task: {item.extractedTask}
-                        </button>
+                        {emailTaskLinks[item.emailId] ? (
+                          <button 
+                            className="task-exists-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              // Navigate to task view
+                              onBack()  // Go back to tasks
+                              // Note: Could pass taskId to auto-select, but for now just navigate
+                            }}
+                            title={`View task: ${emailTaskLinks[item.emailId].title}`}
+                          >
+                            <span className="task-exists-icon">📋</span>
+                            <span className="task-exists-label">Task exists</span>
+                            <span className={`task-status-badge ${emailTaskLinks[item.emailId].status}`}>
+                              {emailTaskLinks[item.emailId].status}
+                            </span>
+                          </button>
+                        ) : (
+                          <button 
+                            className="create-task-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEmailQuickAction({ 
+                                type: 'create_task', 
+                                emailId: item.emailId, 
+                                subject: item.extractedTask || item.subject 
+                              })
+                            }}
+                          >
+                            Create Task: {item.extractedTask}
+                          </button>
+                        )}
                       </div>
                     )}
                   </li>

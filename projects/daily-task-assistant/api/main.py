@@ -2928,6 +2928,52 @@ def create_task_from_email_endpoint(
     }
 
 
+class EmailTaskCheckRequest(BaseModel):
+    """Request to check which emails have linked tasks."""
+    email_ids: List[str] = Field(..., description="List of Gmail message IDs to check")
+
+
+@app.post("/email/{account}/check-tasks")
+def check_emails_have_tasks(
+    account: Literal["church", "personal"],
+    request: EmailTaskCheckRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Check which emails already have tasks linked to them.
+    
+    Returns a mapping of email_id -> task info (id, status, title) for emails
+    that have tasks. Emails without tasks are not included in the response.
+    """
+    from daily_task_assistant.task_store import list_tasks
+    
+    # Get all email-sourced tasks for this user
+    all_tasks = list_tasks(user, limit=500)
+    
+    # Build lookup by source email ID
+    email_to_task = {}
+    for task in all_tasks:
+        if task.source_email_id and task.source_email_account == account:
+            email_to_task[task.source_email_id] = {
+                "taskId": task.id,
+                "title": task.title,
+                "status": task.status,
+                "priority": task.priority,
+            }
+    
+    # Filter to only requested email IDs
+    result = {}
+    for email_id in request.email_ids:
+        if email_id in email_to_task:
+            result[email_id] = email_to_task[email_id]
+    
+    return {
+        "account": account,
+        "emailsChecked": len(request.email_ids),
+        "emailsWithTasks": len(result),
+        "tasks": result,
+    }
+
+
 @app.get("/tasks/firestore")
 def list_firestore_tasks(
     domain: Optional[str] = Query(None, description="Filter by domain"),

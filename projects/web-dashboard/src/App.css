@@ -4697,6 +4697,58 @@ button:not(:disabled):hover {
   border-color: rgba(99, 102, 241, 0.5);
 }
 
+/* Task exists button (replaces create-task when task already linked) */
+.task-exists-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.9rem;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.task-exists-btn:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.task-exists-icon {
+  font-size: 0.9rem;
+}
+
+.task-exists-label {
+  font-weight: 500;
+}
+
+.task-status-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.task-status-badge.pending {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.task-status-badge.in_progress {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.task-status-badge.completed {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
 /* Loading and empty states */
 .email-dashboard .loading,
 .email-dashboard .empty-state {
