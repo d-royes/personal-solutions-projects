@@ -10,13 +10,29 @@ import { test, expect } from '@playwright/test';
 test.describe('Task List', () => {
   
   test.beforeEach(async ({ page }) => {
-    // Navigate to the app and wait for tasks to load
-    await page.goto('/');
-    
-    // Set dev auth header for local testing
+    // Set dev auth header for API requests
     await page.setExtraHTTPHeaders({
       'X-User-Email': 'david.a.royes@gmail.com'
     });
+    
+    // Navigate to set up localStorage first
+    await page.goto('/');
+    
+    // Inject dev auth into localStorage (must match AuthState format)
+    await page.evaluate(() => {
+      const authState = {
+        mode: 'dev',
+        userEmail: 'david.a.royes@gmail.com',
+        idToken: null
+      };
+      localStorage.setItem('dta-auth-state', JSON.stringify(authState));
+    });
+    
+    // Reload to pick up the auth state
+    await page.reload();
+    
+    // Wait for tasks to load
+    await page.waitForTimeout(3000);
   });
 
   test('should display the task list on load', async ({ page }) => {
@@ -35,12 +51,13 @@ test.describe('Task List', () => {
   });
 
   test('should have filter buttons', async ({ page }) => {
+    // Use first() since some buttons appear in both filter bar and portfolio
     await expect(page.getByRole('button', { name: 'All' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Needs attention/i })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Blocked' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Personal' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Church' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Work' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Personal' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Church' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Work' }).first()).toBeVisible();
   });
 
   test('should filter tasks by category when clicking Personal', async ({ page }) => {
@@ -99,10 +116,25 @@ test.describe('Task List', () => {
 test.describe('Portfolio View', () => {
   
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    // Set dev auth header for API requests
     await page.setExtraHTTPHeaders({
       'X-User-Email': 'david.a.royes@gmail.com'
     });
+    
+    await page.goto('/');
+    
+    // Inject dev auth into localStorage (must match AuthState format)
+    await page.evaluate(() => {
+      const authState = {
+        mode: 'dev',
+        userEmail: 'david.a.royes@gmail.com',
+        idToken: null
+      };
+      localStorage.setItem('dta-auth-state', JSON.stringify(authState));
+    });
+    
+    await page.reload();
+    await page.waitForTimeout(3000);
   });
 
   test('should display portfolio section', async ({ page }) => {
@@ -110,12 +142,13 @@ test.describe('Portfolio View', () => {
   });
 
   test('should have portfolio category tabs', async ({ page }) => {
-    // Look for portfolio-specific buttons (in the right panel)
-    const portfolioSection = page.locator('section').filter({ hasText: 'Portfolio' });
-    await expect(portfolioSection.getByRole('button', { name: 'Personal' })).toBeVisible();
-    await expect(portfolioSection.getByRole('button', { name: 'Church' })).toBeVisible();
-    await expect(portfolioSection.getByRole('button', { name: 'Work' })).toBeVisible();
-    await expect(portfolioSection.getByRole('button', { name: 'Holistic' })).toBeVisible();
+    // Look for Holistic button (unique to portfolio) and other tabs
+    await expect(page.getByRole('button', { name: 'Holistic' })).toBeVisible();
+    // Personal/Church/Work appear twice - check the perspective-tab versions
+    const portfolioTabs = page.locator('.perspective-tab');
+    await expect(portfolioTabs.filter({ hasText: 'Personal' })).toBeVisible();
+    await expect(portfolioTabs.filter({ hasText: 'Church' })).toBeVisible();
+    await expect(portfolioTabs.filter({ hasText: 'Work' })).toBeVisible();
   });
 
   test('should have Quick Question button', async ({ page }) => {

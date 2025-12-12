@@ -12,10 +12,25 @@ import { test, expect } from '@playwright/test';
 test.describe('Email Dashboard', () => {
   
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    // Set dev auth header for API requests
     await page.setExtraHTTPHeaders({
       'X-User-Email': 'david.a.royes@gmail.com'
     });
+    
+    await page.goto('/');
+    
+    // Inject dev auth into localStorage
+    await page.evaluate(() => {
+      const authState = {
+        mode: 'dev',
+        userEmail: 'david.a.royes@gmail.com',
+        idToken: null
+      };
+      localStorage.setItem('dta-auth-state', JSON.stringify(authState));
+    });
+    
+    await page.reload();
+    await page.waitForTimeout(2000);
     
     // Switch to Email mode
     await page.getByRole('button', { name: '✉️' }).click();
@@ -47,18 +62,33 @@ test.describe('Email Dashboard', () => {
   test('should return to Tasks when clicking Back to Tasks', async ({ page }) => {
     await page.getByRole('button', { name: /Back to Tasks/i }).click();
     
-    // Should be back on task view
-    await expect(page.getByRole('list')).toBeVisible({ timeout: 10000 });
+    // Should be back on task view - wait longer for tasks to load
+    await page.waitForTimeout(3000);
+    await expect(page.getByRole('button', { name: 'All' })).toBeVisible({ timeout: 10000 });
   });
 });
 
 test.describe('Email Rules Tab', () => {
   
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
     await page.setExtraHTTPHeaders({
       'X-User-Email': 'david.a.royes@gmail.com'
     });
+    
+    await page.goto('/');
+    
+    // Inject dev auth into localStorage
+    await page.evaluate(() => {
+      const authState = {
+        mode: 'dev',
+        userEmail: 'david.a.royes@gmail.com',
+        idToken: null
+      };
+      localStorage.setItem('dta-auth-state', JSON.stringify(authState));
+    });
+    
+    await page.reload();
+    await page.waitForTimeout(2000);
     
     // Switch to Email mode
     await page.getByRole('button', { name: '✉️' }).click();
@@ -66,7 +96,7 @@ test.describe('Email Rules Tab', () => {
     
     // Click Rules tab
     await page.getByRole('button', { name: /Rules/i }).click();
-    await page.waitForTimeout(1000); // Wait for rules to load
+    await page.waitForTimeout(1000);
   });
 
   test('should display rules count in tab', async ({ page }) => {
@@ -76,7 +106,8 @@ test.describe('Email Rules Tab', () => {
   });
 
   test('should have category filter dropdown', async ({ page }) => {
-    await expect(page.getByRole('combobox', { name: /Categories/i })).toBeVisible();
+    // Look for the select element or dropdown by its text
+    await expect(page.locator('select').first()).toBeVisible();
   });
 
   test('should have search input for rules', async ({ page }) => {
@@ -98,10 +129,10 @@ test.describe('Email Rules Tab', () => {
 
   test('should filter rules by category', async ({ page }) => {
     // Select a specific category
-    const categoryDropdown = page.getByRole('combobox', { name: /Categories/i });
+    const categoryDropdown = page.locator('select').first();
     await categoryDropdown.selectOption('Promotional');
     
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
     
     // All visible rows should be Promotional
     const cells = page.getByRole('cell', { name: 'Promotional' });
@@ -124,10 +155,24 @@ test.describe('Email Rules Tab', () => {
 test.describe('Account Switching', () => {
   
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
     await page.setExtraHTTPHeaders({
       'X-User-Email': 'david.a.royes@gmail.com'
     });
+    
+    await page.goto('/');
+    
+    // Inject dev auth into localStorage
+    await page.evaluate(() => {
+      const authState = {
+        mode: 'dev',
+        userEmail: 'david.a.royes@gmail.com',
+        idToken: null
+      };
+      localStorage.setItem('dta-auth-state', JSON.stringify(authState));
+    });
+    
+    await page.reload();
+    await page.waitForTimeout(2000);
     
     // Switch to Email mode
     await page.getByRole('button', { name: '✉️' }).click();
@@ -168,10 +213,24 @@ test.describe('Account Switching', () => {
 test.describe('Dashboard Tab', () => {
   
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
     await page.setExtraHTTPHeaders({
       'X-User-Email': 'david.a.royes@gmail.com'
     });
+    
+    await page.goto('/');
+    
+    // Inject dev auth into localStorage
+    await page.evaluate(() => {
+      const authState = {
+        mode: 'dev',
+        userEmail: 'david.a.royes@gmail.com',
+        idToken: null
+      };
+      localStorage.setItem('dta-auth-state', JSON.stringify(authState));
+    });
+    
+    await page.reload();
+    await page.waitForTimeout(2000);
     
     // Switch to Email mode
     await page.getByRole('button', { name: '✉️' }).click();

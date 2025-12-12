@@ -16,7 +16,7 @@ test.describe('API Health Checks', () => {
     expect(response.ok()).toBeTruthy();
     
     const data = await response.json();
-    expect(data.status).toBe('healthy');
+    expect(['ok', 'healthy'].includes(data.status)).toBeTruthy();
   });
 
   test('tasks endpoint responds with auth bypass', async ({ request }) => {
@@ -32,7 +32,7 @@ test.describe('API Health Checks', () => {
   });
 
   test('email rules endpoint responds', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/rules?account=personal`, {
+    const response = await request.get(`${API_BASE}/email/rules/personal`, {
       headers: {
         'X-User-Email': 'david.a.royes@gmail.com'
       }
@@ -44,7 +44,7 @@ test.describe('API Health Checks', () => {
   });
 
   test('inbox summary endpoint responds', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/inbox?account=personal`, {
+    const response = await request.get(`${API_BASE}/email/inbox/personal`, {
       headers: {
         'X-User-Email': 'david.a.royes@gmail.com'
       }

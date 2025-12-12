@@ -1,0 +1,8 @@
+# Test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Dependencies
+node_modules/
+
