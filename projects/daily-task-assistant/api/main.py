@@ -2883,7 +2883,7 @@ def create_task_from_email_endpoint(
     """
     from datetime import date
     from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message
-    from daily_task_assistant.tasks import create_task_from_email, FirestoreTask
+    from daily_task_assistant.task_store import create_task_from_email, FirestoreTask
     
     # Load the email for subject reference
     try:
@@ -2937,7 +2937,7 @@ def list_firestore_tasks(
     This is the native DATA task store, separate from Smartsheet.
     Used primarily for email-created tasks.
     """
-    from daily_task_assistant.tasks import list_tasks, TaskFilters
+    from daily_task_assistant.task_store import list_tasks, TaskFilters
     
     # Build filters
     filters = TaskFilters(
@@ -2976,7 +2976,7 @@ def update_firestore_task(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Update a task in Firestore."""
-    from daily_task_assistant.tasks import update_task
+    from daily_task_assistant.task_store import update_task
     
     task = update_task(user, task_id, updates)
     if not task:
@@ -2991,7 +2991,7 @@ def delete_firestore_task(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Delete a task from Firestore."""
-    from daily_task_assistant.tasks import delete_task
+    from daily_task_assistant.task_store import delete_task
     
     deleted = delete_task(user, task_id)
     if not deleted:
