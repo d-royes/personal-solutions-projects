@@ -106,6 +106,58 @@ class AttentionItem:
         }
 
 
+class EmailActionType(str, Enum):
+    """Types of email actions DATA can suggest."""
+    
+    LABEL = "label"  # Apply a custom label
+    ARCHIVE = "archive"  # Archive the email
+    DELETE = "delete"  # Move to trash
+    STAR = "star"  # Star the email
+    MARK_IMPORTANT = "mark_important"  # Mark as important
+    CREATE_TASK = "create_task"  # Create a task from email
+    REPLY = "reply"  # Suggest replying
+
+
+@dataclass(slots=True)
+class EmailActionSuggestion:
+    """A suggested action for a specific email.
+    
+    This is different from RuleSuggestion - this is about taking action
+    on individual emails, not creating filter rules.
+    """
+    
+    number: int  # Display number (#1, #2, etc.) for chat reference
+    email: EmailMessage  # The email this suggestion is for
+    action: EmailActionType  # What action is suggested
+    rationale: str  # Why DATA suggests this action
+    label_id: Optional[str] = None  # For LABEL action
+    label_name: Optional[str] = None  # For LABEL action
+    task_title: Optional[str] = None  # For CREATE_TASK action
+    confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
+    
+    def to_dict(self) -> dict:
+        """Convert to API-friendly dict (camelCase for JavaScript)."""
+        return {
+            "number": self.number,
+            "emailId": self.email.id,
+            "from": self.email.from_address,
+            "fromName": self.email.from_name,
+            "to": self.email.to_address,
+            "subject": self.email.subject,
+            "snippet": self.email.snippet,
+            "date": self.email.date.isoformat(),
+            "isUnread": self.email.is_unread,
+            "isImportant": self.email.is_important,
+            "isStarred": self.email.is_starred,
+            "action": self.action.value,
+            "rationale": self.rationale,
+            "labelId": self.label_id,
+            "labelName": self.label_name,
+            "taskTitle": self.task_title,
+            "confidence": self.confidence.value,
+        }
+
+
 class EmailAnalyzer:
     """Analyzes email patterns and suggests filter rules.
     
@@ -647,4 +699,113 @@ def detect_attention_items(
     analyzer = EmailAnalyzer(email_account)
     _, attention_items = analyzer.analyze_messages(messages)
     return attention_items
+
+
+def generate_action_suggestions(
+    messages: List[EmailMessage],
+    email_account: str,
+    available_labels: Optional[List[Dict[str, str]]] = None,
+) -> List[EmailActionSuggestion]:
+    """Generate action suggestions for a list of emails.
+    
+    This analyzes recent emails and suggests actions like:
+    - Applying labels
+    - Archiving
+    - Starring
+    - Creating tasks
+    
+    Args:
+        messages: Messages to analyze.
+        email_account: Email account being analyzed.
+        available_labels: List of user's custom labels (id, name, color).
+        
+    Returns:
+        List of numbered EmailActionSuggestion objects.
+    """
+    suggestions = []
+    number = 1
+    
+    # Build a set of available label names for matching
+    label_lookup = {}
+    if available_labels:
+        for label in available_labels:
+            label_lookup[label["name"].lower()] = label
+    
+    analyzer = EmailAnalyzer(email_account)
+    
+    for msg in messages:
+        content = (msg.subject + " " + msg.snippet).lower()
+        
+        # Check for emails that should be archived (old promotional)
+        age_hours = msg.age_hours()
+        if age_hours > 72:  # Over 3 days old
+            if analyzer._matches_patterns(content, analyzer.PROMOTIONAL_PATTERNS):
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.ARCHIVE,
+                    rationale=f"Promotional email over {int(age_hours / 24)} days old",
+                    confidence=ConfidenceLevel.HIGH,
+                ))
+                number += 1
+                continue
+        
+        # Check for transactional emails - suggest labeling
+        if analyzer._matches_patterns(content, analyzer.TRANSACTIONAL_PATTERNS):
+            label_info = label_lookup.get("transactional")
+            if label_info:
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.LABEL,
+                    rationale="Appears to be a receipt/invoice/shipping notification",
+                    label_id=label_info.get("id"),
+                    label_name="Transactional",
+                    confidence=ConfidenceLevel.HIGH,
+                ))
+                number += 1
+                continue
+        
+        # Check for attention-worthy emails - suggest star/important
+        attention = analyzer._check_attention_needed(msg)
+        if attention and attention.urgency == "high":
+            if not msg.is_starred:
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.STAR,
+                    rationale=attention.reason,
+                    confidence=ConfidenceLevel.MEDIUM,
+                ))
+                number += 1
+            
+            # Also suggest task creation if deadline detected
+            if attention.extracted_task:
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.CREATE_TASK,
+                    rationale=attention.reason,
+                    task_title=attention.extracted_task,
+                    confidence=ConfidenceLevel.MEDIUM,
+                ))
+                number += 1
+        
+        # Check for junk patterns - suggest delete
+        if analyzer._matches_patterns(content, analyzer.JUNK_PATTERNS):
+            suggestions.append(EmailActionSuggestion(
+                number=number,
+                email=msg,
+                action=EmailActionType.DELETE,
+                rationale="Appears to be junk/spam email",
+                confidence=ConfidenceLevel.MEDIUM,
+            ))
+            number += 1
+            continue
+        
+        # Limit suggestions to prevent overwhelming the user
+        if number > 20:
+            break
+    
+    return suggestions
 

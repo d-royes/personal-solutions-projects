@@ -1691,3 +1691,96 @@ def _describe_email_action(action: EmailAction) -> str:
         return f"create a task: '{title}'"
     return f"perform action: {action.action}"
 
+
+# =============================================================================
+# Task Extraction from Email (Phase B)
+# =============================================================================
+
+TASK_EXTRACTION_PROMPT = """You are DATA, David's AI assistant. Your task is to analyze an email and suggest task details.
+
+Given the email information, suggest appropriate task details:
+- title: A clear, actionable task title (not just the email subject)
+- dueDate: Extract any mentioned deadline (format: YYYY-MM-DD) or null
+- priority: Critical, Urgent, Important, Standard, or Low based on email urgency
+- domain: "personal", "church", or "work" based on context
+- notes: Brief context from the email (1-2 sentences max)
+
+Be concise and action-oriented. The title should describe what David needs to DO, not just what the email is about.
+
+Respond with a JSON object only, no other text."""
+
+
+def extract_task_from_email(
+    from_address: str,
+    from_name: str,
+    subject: str,
+    snippet: str,
+    email_account: str,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> Dict[str, Any]:
+    """Extract task details from an email using DATA.
+    
+    Args:
+        from_address: Sender's email address
+        from_name: Sender's display name
+        subject: Email subject
+        snippet: Email preview text
+        email_account: "personal" or "church"
+    
+    Returns:
+        Dictionary with title, dueDate, priority, domain, notes
+    """
+    import json
+    
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+    
+    email_context = f"""Email Details:
+- From: {from_name} <{from_address}>
+- Subject: {subject}
+- Preview: {snippet}
+- Account: {email_account}"""
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=500,
+            temperature=0.3,
+            system=TASK_EXTRACTION_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"Please extract task details from this email:\n\n{email_context}"
+            }],
+        )
+    except Exception as exc:
+        raise AnthropicError(f"Task extraction failed: {exc}") from exc
+    
+    # Parse JSON response
+    text = ""
+    for block in getattr(response, "content", []):
+        if getattr(block, "type", None) == "text":
+            text += getattr(block, "text", "")
+    
+    text = text.strip()
+    
+    # Handle markdown code blocks
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+    
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError:
+        # Fallback to simple extraction
+        result = {
+            "title": subject.replace("Re:", "").replace("Fwd:", "").strip(),
+            "dueDate": None,
+            "priority": "Standard",
+            "domain": "church" if email_account == "church" else "personal",
+            "notes": f"From: {from_name or from_address}",
+        }
+    
+    return result
+

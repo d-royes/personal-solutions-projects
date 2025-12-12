@@ -10,6 +10,7 @@ from .gmail import (
 from .inbox import (
     EmailMessage,
     InboxSummary,
+    GmailLabel,
     count_messages,
     get_inbox_summary,
     get_label_counts,
@@ -25,6 +26,13 @@ from .inbox import (
     mark_read,
     mark_unread,
     modify_message_labels,
+    # Custom label operations
+    list_labels,
+    get_label_by_name,
+    apply_label,
+    remove_label,
+    apply_label_by_name,
+    remove_label_by_name,
 )
 
 __all__ = [
@@ -36,6 +44,7 @@ __all__ = [
     # Inbox reading
     "EmailMessage",
     "InboxSummary",
+    "GmailLabel",
     "count_messages",
     "get_inbox_summary",
     "get_label_counts",
@@ -51,5 +60,12 @@ __all__ = [
     "mark_read",
     "mark_unread",
     "modify_message_labels",
+    # Custom label operations
+    "list_labels",
+    "get_label_by_name",
+    "apply_label",
+    "remove_label",
+    "apply_label_by_name",
+    "remove_label_by_name",
 ]
 

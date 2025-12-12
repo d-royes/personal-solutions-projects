@@ -19,7 +19,15 @@ import {
   markEmailImportant,
   chatAboutEmail,
   searchEmails,
+  getEmailActionSuggestions,
+  getEmailLabels,
+  applyEmailLabel,
+  getTaskPreviewFromEmail,
+  createTaskFromEmail,
   type EmailPendingAction,
+  type EmailActionSuggestion,
+  type GmailLabel,
+  type TaskPreview,
 } from '../api'
 
 interface EmailDashboardProps {
@@ -28,7 +36,7 @@ interface EmailDashboardProps {
   onBack: () => void
 }
 
-type TabView = 'dashboard' | 'rules' | 'suggestions' | 'attention'
+type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention'
 
 // Quick action types for email management
 type EmailQuickAction = 
@@ -64,8 +72,10 @@ const OPERATORS = [
 interface AccountCache {
   inbox: InboxSummary | null
   rules: FilterRule[]
-  suggestions: RuleSuggestion[]
+  suggestions: RuleSuggestion[]  // Rule suggestions (New Rules tab)
   attentionItems: AttentionItem[]
+  actionSuggestions: EmailActionSuggestion[]  // Email action suggestions (Suggestions tab)
+  availableLabels: GmailLabel[]
   loaded: boolean
 }
 
@@ -74,6 +84,8 @@ const emptyCache = (): AccountCache => ({
   rules: [],
   suggestions: [],
   attentionItems: [],
+  actionSuggestions: [],
+  availableLabels: [],
   loaded: false,
 })
 
@@ -96,13 +108,16 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   // Derived state from cache for current account
   const inboxSummary = cache[selectedAccount].inbox
   const rules = cache[selectedAccount].rules
-  const suggestions = cache[selectedAccount].suggestions
+  const suggestions = cache[selectedAccount].suggestions  // Rule suggestions (New Rules tab)
   const attentionItems = cache[selectedAccount].attentionItems
+  const actionSuggestions = cache[selectedAccount].actionSuggestions  // Email action suggestions
+  const availableLabels = cache[selectedAccount].availableLabels
   
   // Loading states
   const [loadingInbox, setLoadingInbox] = useState(false)
   const [loadingRules, setLoadingRules] = useState(false)
   const [loadingAnalysis, setLoadingAnalysis] = useState(false)
+  const [loadingActionSuggestions, setLoadingActionSuggestions] = useState(false)
   
   // Error state
   const [error, setError] = useState<string | null>(null)
@@ -191,7 +206,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     }
   }, [selectedAccount, authConfig, apiBase, cache, updateCache])
 
-  // Analyze inbox for suggestions
+  // Analyze inbox for rule suggestions (New Rules tab)
   const runAnalysis = useCallback(async () => {
     setLoadingAnalysis(true)
     setError(null)
@@ -207,6 +222,36 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
       setLoadingAnalysis(false)
     }
   }, [selectedAccount, authConfig, apiBase, updateCache])
+
+  // Load email action suggestions (Suggestions tab)
+  const loadActionSuggestions = useCallback(async () => {
+    setLoadingActionSuggestions(true)
+    setError(null)
+    try {
+      const response = await getEmailActionSuggestions(selectedAccount, authConfig, apiBase, 30)
+      updateCache({ 
+        actionSuggestions: response.suggestions,
+        availableLabels: response.availableLabels,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load suggestions')
+    } finally {
+      setLoadingActionSuggestions(false)
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache])
+
+  // Load available labels (used internally by loadActionSuggestions, exposed for future direct use)
+  const loadLabels = useCallback(async () => {
+    try {
+      const response = await getEmailLabels(selectedAccount, authConfig, apiBase)
+      updateCache({ availableLabels: response.labels })
+    } catch (err) {
+      // Non-critical error, continue without labels
+      console.error('Failed to load labels:', err)
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache])
+  // Suppress unused warning - available for future explicit label loading
+  void loadLabels
 
   // Refresh all data for current account
   const refreshAll = useCallback(() => {
@@ -322,10 +367,259 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     }
   }
   
-  // Handle dismissing a suggestion
+  // Handle dismissing a rule suggestion
   function handleDismissSuggestion(suggestion: RuleSuggestion) {
     const updatedSuggestions = suggestions.filter(s => s !== suggestion)
     updateCache({ suggestions: updatedSuggestions })
+  }
+
+  // Handle approving an email action suggestion
+  async function handleApproveActionSuggestion(suggestion: EmailActionSuggestion) {
+    setActionLoading(suggestion.action)
+    setError(null)
+    
+    try {
+      switch (suggestion.action) {
+        case 'archive':
+          await archiveEmail(selectedAccount, suggestion.emailId, authConfig, apiBase)
+          break
+        case 'delete':
+          await deleteEmail(selectedAccount, suggestion.emailId, authConfig, apiBase)
+          break
+        case 'star':
+          await starEmail(selectedAccount, suggestion.emailId, true, authConfig, apiBase)
+          break
+        case 'mark_important':
+          await markEmailImportant(selectedAccount, suggestion.emailId, true, authConfig, apiBase)
+          break
+        case 'label':
+          if (suggestion.labelId) {
+            await applyEmailLabel(selectedAccount, suggestion.emailId, suggestion.labelId, authConfig, apiBase)
+          }
+          break
+        case 'create_task':
+          // TODO: Implement task creation
+          alert(`Task creation coming soon: ${suggestion.taskTitle}`)
+          break
+      }
+      
+      // Remove from suggestions
+      const updated = actionSuggestions.filter(s => s.number !== suggestion.number)
+      // Re-number remaining suggestions
+      const renumbered = updated.map((s, idx) => ({ ...s, number: idx + 1 }))
+      updateCache({ actionSuggestions: renumbered })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // Handle dismissing an email action suggestion
+  function handleDismissActionSuggestion(suggestion: EmailActionSuggestion) {
+    const updated = actionSuggestions.filter(s => s.number !== suggestion.number)
+    // Re-number remaining suggestions
+    const renumbered = updated.map((s, idx) => ({ ...s, number: idx + 1 }))
+    updateCache({ actionSuggestions: renumbered })
+  }
+
+  // Handle quick action on a suggestion (Archive/Delete/Star without approving the suggested action)
+  async function handleSuggestionQuickAction(suggestion: EmailActionSuggestion, action: 'archive' | 'delete' | 'star' | 'flag') {
+    setActionLoading(action)
+    setError(null)
+    
+    try {
+      switch (action) {
+        case 'archive':
+          await archiveEmail(selectedAccount, suggestion.emailId, authConfig, apiBase)
+          break
+        case 'delete':
+          await deleteEmail(selectedAccount, suggestion.emailId, authConfig, apiBase)
+          break
+        case 'star':
+          await starEmail(selectedAccount, suggestion.emailId, true, authConfig, apiBase)
+          break
+        case 'flag':
+          await markEmailImportant(selectedAccount, suggestion.emailId, true, authConfig, apiBase)
+          break
+      }
+      
+      // Remove from suggestions
+      const updated = actionSuggestions.filter(s => s.number !== suggestion.number)
+      const renumbered = updated.map((s, idx) => ({ ...s, number: idx + 1 }))
+      updateCache({ actionSuggestions: renumbered })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // Handle batch approve all suggestions
+  async function handleBatchApproveAll() {
+    if (actionSuggestions.length === 0) return
+    
+    setActionLoading('batch')
+    setError(null)
+    
+    let successCount = 0
+    const errors: string[] = []
+    
+    for (const suggestion of actionSuggestions) {
+      try {
+        switch (suggestion.action) {
+          case 'archive':
+            await archiveEmail(selectedAccount, suggestion.emailId, authConfig, apiBase)
+            break
+          case 'delete':
+            await deleteEmail(selectedAccount, suggestion.emailId, authConfig, apiBase)
+            break
+          case 'star':
+            await starEmail(selectedAccount, suggestion.emailId, true, authConfig, apiBase)
+            break
+          case 'mark_important':
+            await markEmailImportant(selectedAccount, suggestion.emailId, true, authConfig, apiBase)
+            break
+          case 'label':
+            if (suggestion.labelId) {
+              await applyEmailLabel(selectedAccount, suggestion.emailId, suggestion.labelId, authConfig, apiBase)
+            }
+            break
+          case 'create_task':
+            // Skip task creation in batch - requires user input
+            continue
+        }
+        successCount++
+      } catch (err) {
+        errors.push(`#${suggestion.number}: ${err instanceof Error ? err.message : 'Failed'}`)
+      }
+    }
+    
+    // Clear all approved suggestions
+    updateCache({ actionSuggestions: [] })
+    
+    if (errors.length > 0) {
+      setError(`Approved ${successCount} of ${actionSuggestions.length}. Errors: ${errors.join(', ')}`)
+    }
+    
+    setActionLoading(null)
+  }
+
+  // Open task creation form with DATA's suggested values
+  async function handleOpenTaskForm(emailId: string) {
+    setShowTaskForm(true)
+    setCreatingTask(true)
+    
+    try {
+      const response = await getTaskPreviewFromEmail(selectedAccount, emailId, authConfig, apiBase)
+      setTaskPreview(response.preview)
+      setTaskFormData({
+        title: response.preview.title || '',
+        dueDate: response.preview.dueDate || '',
+        priority: response.preview.priority || 'Standard',
+        domain: response.preview.domain || (selectedAccount === 'church' ? 'church' : 'personal'),
+        notes: response.preview.notes || '',
+      })
+    } catch (err) {
+      // Fallback to email subject
+      const email = selectedEmail
+      setTaskFormData({
+        title: email?.subject.replace(/^(Re:|Fwd:|FW:)\s*/gi, '').trim() || '',
+        dueDate: '',
+        priority: 'Standard',
+        domain: selectedAccount === 'church' ? 'church' : 'personal',
+        notes: `From: ${email?.fromName || email?.fromAddress || ''}`,
+      })
+    } finally {
+      setCreatingTask(false)
+    }
+  }
+
+  // Create task from form data
+  async function handleCreateTask() {
+    if (!selectedEmailId || !taskFormData.title.trim()) return
+    
+    setCreatingTask(true)
+    setError(null)
+    
+    try {
+      await createTaskFromEmail(
+        selectedAccount,
+        {
+          emailId: selectedEmailId,
+          title: taskFormData.title.trim(),
+          dueDate: taskFormData.dueDate || undefined,
+          priority: taskFormData.priority,
+          domain: taskFormData.domain,
+          notes: taskFormData.notes || undefined,
+        },
+        authConfig,
+        apiBase
+      )
+      
+      // Success - close form and show confirmation in chat
+      setShowTaskForm(false)
+      setChatHistory(prev => [...prev, { 
+        role: 'assistant', 
+        content: `✓ Task created: "${taskFormData.title}"` 
+      }])
+      
+      // Reset form
+      setTaskFormData({
+        title: '',
+        dueDate: '',
+        priority: 'Standard',
+        domain: 'personal',
+        notes: '',
+      })
+      setTaskPreview(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create task')
+    } finally {
+      setCreatingTask(false)
+    }
+  }
+
+  // Cancel task creation
+  function handleCancelTaskForm() {
+    setShowTaskForm(false)
+    setTaskPreview(null)
+    setTaskFormData({
+      title: '',
+      dueDate: '',
+      priority: 'Standard',
+      domain: 'personal',
+      notes: '',
+    })
+  }
+
+  // Parse chat commands like "approve #1" or "approve #1 and #3" or "approve all"
+  function parseApprovalCommand(message: string): number[] | 'all' | null {
+    const lowerMsg = message.toLowerCase().trim()
+    
+    // Check for "approve all"
+    if (lowerMsg.includes('approve all') || lowerMsg.includes('approve everything')) {
+      return 'all'
+    }
+    
+    // Check for "approve #X" patterns
+    const approveMatch = lowerMsg.match(/approve\s+([\d#,\s]+(?:and\s+[\d#,\s]+)*)/i)
+    if (approveMatch) {
+      const numberPart = approveMatch[1]
+      // Extract all numbers from the string
+      const numbers = numberPart.match(/\d+/g)
+      if (numbers) {
+        return numbers.map(n => parseInt(n, 10))
+      }
+    }
+    
+    // Check for just "#X" patterns (shorthand)
+    const hashMatch = lowerMsg.match(/^#(\d+)$/i)
+    if (hashMatch) {
+      return [parseInt(hashMatch[1], 10)]
+    }
+    
+    return null
   }
 
   // Handle selecting an email (opens assist panel)
@@ -339,13 +633,64 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
 
   // Handle sending a chat message about the selected email
   async function handleSendChatMessage() {
-    if (!selectedEmailId || !chatInput.trim()) return
+    if (!chatInput.trim()) return
+    
+    const userMessage = chatInput.trim()
+    
+    // Check for approval commands first (works even without selected email)
+    const approvalCommand = parseApprovalCommand(userMessage)
+    if (approvalCommand) {
+      setChatHistory(prev => [...prev, { role: 'user', content: userMessage }])
+      setChatInput('')
+      
+      if (approvalCommand === 'all') {
+        // Approve all suggestions
+        await handleBatchApproveAll()
+        setChatHistory(prev => [...prev, { 
+          role: 'assistant', 
+          content: `✓ Approved all ${actionSuggestions.length} suggestions.` 
+        }])
+      } else {
+        // Approve specific numbers
+        const validNumbers = approvalCommand.filter(n => 
+          actionSuggestions.some(s => s.number === n)
+        )
+        
+        if (validNumbers.length === 0) {
+          setChatHistory(prev => [...prev, { 
+            role: 'assistant', 
+            content: `I couldn't find suggestions with those numbers. Current suggestions are #${actionSuggestions.map(s => s.number).join(', #')}.` 
+          }])
+        } else {
+          // Approve the specified suggestions
+          const toApprove = actionSuggestions.filter(s => validNumbers.includes(s.number))
+          for (const suggestion of toApprove) {
+            await handleApproveActionSuggestion(suggestion)
+          }
+          setChatHistory(prev => [...prev, { 
+            role: 'assistant', 
+            content: `✓ Approved suggestion${validNumbers.length > 1 ? 's' : ''} #${validNumbers.join(', #')}.` 
+          }])
+        }
+      }
+      return
+    }
+    
+    // Regular chat requires a selected email
+    if (!selectedEmailId) {
+      setChatHistory(prev => [...prev, { role: 'user', content: userMessage }])
+      setChatInput('')
+      setChatHistory(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Please select an email to chat about, or use commands like "approve #1" or "approve all" to act on suggestions.' 
+      }])
+      return
+    }
     
     setChatLoading(true)
     setPendingEmailAction(null)
     
     // Add user message to history immediately
-    const userMessage = chatInput.trim()
     setChatHistory(prev => [...prev, { role: 'user', content: userMessage }])
     setChatInput('')
     
@@ -399,11 +744,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
           await handleEmailQuickAction({ type: 'flag', emailId: selectedEmailId })
           break
         case 'create_task':
-          handleEmailQuickAction({ 
-            type: 'create_task', 
-            emailId: selectedEmailId,
-            subject: pendingEmailAction.taskTitle || selectedEmail?.subject || 'Task from email'
-          })
+          await handleOpenTaskForm(selectedEmailId)
           break
       }
       
@@ -426,6 +767,19 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [pendingEmailAction, setPendingEmailAction] = useState<EmailPendingAction | null>(null)
+  
+  // Task creation state (Phase B)
+  const [showTaskForm, setShowTaskForm] = useState(false)
+  const [_taskPreview, setTaskPreview] = useState<TaskPreview | null>(null)
+  void _taskPreview // Reserved for future use
+  const [taskFormData, setTaskFormData] = useState({
+    title: '',
+    dueDate: '',
+    priority: 'Standard',
+    domain: 'personal',
+    notes: '',
+  })
+  const [creatingTask, setCreatingTask] = useState(false)
 
   // Handle quick action on email
   async function handleEmailQuickAction(action: EmailQuickAction) {
@@ -489,8 +843,8 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
           break
           
         case 'create_task':
-          // TODO: Implement task creation - for now show alert
-          alert(`Task creation coming soon: ${action.subject}`)
+          // Open task creation form with DATA's suggestions
+          await handleOpenTaskForm(action.emailId)
           break
       }
     } catch (err) {
@@ -602,13 +956,19 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                 Rules ({rules.length})
               </button>
               <button
-                className={activeTab === 'suggestions' ? 'active' : ''}
+                className={activeTab === 'newRules' ? 'active' : ''}
                 onClick={() => {
-                  setActiveTab('suggestions')
+                  setActiveTab('newRules')
                   if (suggestions.length === 0) runAnalysis()
                 }}
               >
-                Suggestions {suggestions.length > 0 && `(${suggestions.length})`}
+                New Rules {suggestions.length > 0 && `(${suggestions.length})`}
+              </button>
+              <button
+                className={activeTab === 'suggestions' ? 'active' : ''}
+                onClick={() => setActiveTab('suggestions')}
+              >
+                Suggestions
               </button>
               <button
                 className={activeTab === 'attention' ? 'active' : ''}
@@ -878,14 +1238,14 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
           </div>
         )}
 
-        {/* Suggestions Tab */}
-        {activeTab === 'suggestions' && (
+        {/* New Rules Tab (formerly Suggestions - for filter rule suggestions) */}
+        {activeTab === 'newRules' && (
           <div className="suggestions-view">
             {loadingAnalysis ? (
               <div className="loading">Analyzing inbox patterns...</div>
             ) : suggestions.length === 0 ? (
               <div className="empty-state">
-                <p>No new suggestions</p>
+                <p>No new rule suggestions</p>
                 <button className="action-btn" onClick={runAnalysis}>
                   Run Analysis
                 </button>
@@ -965,6 +1325,160 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+        )}
+
+        {/* Suggestions Tab (email action suggestions) */}
+        {activeTab === 'suggestions' && (
+          <div className="email-suggestions-view">
+            <div className="suggestions-header">
+              <h3>Email Action Suggestions</h3>
+              <p className="suggestions-description">
+                DATA analyzes your emails and suggests actions. Reference by number in chat (e.g., "approve #1").
+              </p>
+              <button
+                className="action-btn"
+                onClick={loadActionSuggestions}
+                disabled={loadingActionSuggestions}
+              >
+                {loadingActionSuggestions ? 'Analyzing...' : 'Refresh Suggestions'}
+              </button>
+            </div>
+            
+            {loadingActionSuggestions ? (
+              <div className="loading">Analyzing your emails...</div>
+            ) : actionSuggestions.length === 0 ? (
+              <div className="empty-state">
+                <p>No action suggestions</p>
+                <p className="hint">Click "Refresh Suggestions" to analyze your inbox</p>
+              </div>
+            ) : (
+              <>
+                {/* Batch controls */}
+                <div className="batch-approve-controls">
+                  <span className="batch-count">{actionSuggestions.length} suggestion{actionSuggestions.length !== 1 ? 's' : ''}</span>
+                  <button
+                    className="approve-all-btn"
+                    onClick={handleBatchApproveAll}
+                    disabled={actionLoading !== null}
+                  >
+                    {actionLoading === 'batch' ? 'Processing...' : 'Approve All'}
+                  </button>
+                  <span className="batch-hint">or say "approve #1 and #3" in chat</span>
+                </div>
+                
+                <div className="action-suggestions-list">
+                {actionSuggestions.map(suggestion => (
+                  <div key={suggestion.number} className={`email-action-suggestion ${suggestion.confidence}`}>
+                    <div className="suggestion-header-row">
+                      <span className="suggestion-number">#{suggestion.number}</span>
+                      <span className={`confidence-badge ${suggestion.confidence}`}>
+                        {suggestion.confidence}
+                      </span>
+                    </div>
+                    
+                    <div className="email-preview">
+                      <div className="email-preview-from">
+                        <strong>From:</strong> {suggestion.fromName || suggestion.from}
+                      </div>
+                      <div className="email-preview-to">
+                        <strong>To:</strong> {suggestion.to}
+                      </div>
+                      <div className="email-preview-subject">{suggestion.subject}</div>
+                      <div className="email-preview-snippet">{suggestion.snippet}</div>
+                    </div>
+                    
+                    <div className="suggested-action">
+                      <div className="action-type">
+                        {suggestion.action === 'label' && suggestion.labelName 
+                          ? `Apply label: ${suggestion.labelName}`
+                          : suggestion.action === 'create_task' && suggestion.taskTitle
+                          ? `Create task: ${suggestion.taskTitle}`
+                          : suggestion.action.replace('_', ' ').charAt(0).toUpperCase() + suggestion.action.replace('_', ' ').slice(1)
+                        }
+                      </div>
+                      <div className="action-rationale">{suggestion.rationale}</div>
+                    </div>
+                    
+                    <div className="action-row">
+                      {/* Label dropdown for label actions */}
+                      {suggestion.action === 'label' && availableLabels.length > 0 && (
+                        <select
+                          className="label-select"
+                          value={suggestion.labelId || ''}
+                          onChange={(e) => {
+                            const newLabelId = e.target.value
+                            const newLabel = availableLabels.find(l => l.id === newLabelId)
+                            const updated = actionSuggestions.map(s => 
+                              s.number === suggestion.number 
+                                ? { ...s, labelId: newLabelId, labelName: newLabel?.name || null }
+                                : s
+                            )
+                            updateCache({ actionSuggestions: updated })
+                          }}
+                        >
+                          <option value="">Select label...</option>
+                          {availableLabels.map(label => (
+                            <option key={label.id} value={label.id}>{label.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      
+                      <button
+                        className="approve-action"
+                        onClick={() => handleApproveActionSuggestion(suggestion)}
+                        disabled={actionLoading !== null}
+                        title="Approve this suggestion"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="dismiss-action"
+                        onClick={() => handleDismissActionSuggestion(suggestion)}
+                        title="Dismiss this suggestion"
+                      >
+                        Dismiss
+                      </button>
+                      
+                      {/* Quick actions */}
+                      <button
+                        className="quick-action"
+                        onClick={() => handleSuggestionQuickAction(suggestion, 'star')}
+                        disabled={actionLoading !== null}
+                        title="Star"
+                      >
+                        ⭐
+                      </button>
+                      <button
+                        className="quick-action"
+                        onClick={() => handleSuggestionQuickAction(suggestion, 'flag')}
+                        disabled={actionLoading !== null}
+                        title="Mark Important"
+                      >
+                        🚩
+                      </button>
+                      <button
+                        className="quick-action"
+                        onClick={() => handleSuggestionQuickAction(suggestion, 'archive')}
+                        disabled={actionLoading !== null}
+                        title="Archive"
+                      >
+                        📥
+                      </button>
+                      <button
+                        className="quick-action delete"
+                        onClick={() => handleSuggestionQuickAction(suggestion, 'delete')}
+                        disabled={actionLoading !== null}
+                        title="Delete"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                </div>
+              </>
             )}
           </div>
         )}
@@ -1114,7 +1628,94 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                 </div>
               )}
 
+              {/* Task Creation Form (Phase B) */}
+              {showTaskForm && (
+                <div className="task-creation-form">
+                  <div className="task-form-header">
+                    <h4>Create Task</h4>
+                    <button className="close-btn" onClick={handleCancelTaskForm}>×</button>
+                  </div>
+                  
+                  {creatingTask && !taskFormData.title ? (
+                    <div className="loading">DATA is analyzing the email...</div>
+                  ) : (
+                    <>
+                      <div className="task-form-field">
+                        <label>Title</label>
+                        <input
+                          type="text"
+                          value={taskFormData.title}
+                          onChange={(e) => setTaskFormData(prev => ({ ...prev, title: e.target.value }))}
+                          placeholder="Task title"
+                        />
+                      </div>
+                      
+                      <div className="task-form-row">
+                        <div className="task-form-field">
+                          <label>Due Date</label>
+                          <input
+                            type="date"
+                            value={taskFormData.dueDate}
+                            onChange={(e) => setTaskFormData(prev => ({ ...prev, dueDate: e.target.value }))}
+                          />
+                        </div>
+                        
+                        <div className="task-form-field">
+                          <label>Priority</label>
+                          <select
+                            value={taskFormData.priority}
+                            onChange={(e) => setTaskFormData(prev => ({ ...prev, priority: e.target.value }))}
+                          >
+                            <option value="Critical">Critical</option>
+                            <option value="Urgent">Urgent</option>
+                            <option value="Important">Important</option>
+                            <option value="Standard">Standard</option>
+                            <option value="Low">Low</option>
+                          </select>
+                        </div>
+                      </div>
+                      
+                      <div className="task-form-field">
+                        <label>Domain</label>
+                        <select
+                          value={taskFormData.domain}
+                          onChange={(e) => setTaskFormData(prev => ({ ...prev, domain: e.target.value }))}
+                        >
+                          <option value="personal">Personal</option>
+                          <option value="church">Church</option>
+                          <option value="work">Work</option>
+                        </select>
+                      </div>
+                      
+                      <div className="task-form-field">
+                        <label>Notes</label>
+                        <textarea
+                          value={taskFormData.notes}
+                          onChange={(e) => setTaskFormData(prev => ({ ...prev, notes: e.target.value }))}
+                          placeholder="Optional notes..."
+                          rows={2}
+                        />
+                      </div>
+                      
+                      <div className="task-form-actions">
+                        <button className="cancel-btn" onClick={handleCancelTaskForm}>
+                          Cancel
+                        </button>
+                        <button
+                          className="create-btn"
+                          onClick={handleCreateTask}
+                          disabled={creatingTask || !taskFormData.title.trim()}
+                        >
+                          {creatingTask ? 'Creating...' : 'Create Task'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* DATA Chat Interface */}
+              {!showTaskForm && (
               <div className="email-chat-container">
                 {/* Chat messages */}
                 <div className="email-chat-messages">
@@ -1187,16 +1788,17 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                     placeholder={selectedEmail ? "Ask DATA about this email..." : "Select an email to chat"}
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
-                    disabled={!selectedEmail || chatLoading}
+                    disabled={chatLoading}
                   />
                   <button 
                     type="submit"
-                    disabled={!selectedEmail || !chatInput.trim() || chatLoading}
+                    disabled={!chatInput.trim() || chatLoading}
                   >
                     Send
                   </button>
                 </form>
               </div>
+              )}
             </div>
           </section>
         )}

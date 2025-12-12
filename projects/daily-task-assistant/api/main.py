@@ -2283,7 +2283,7 @@ def analyze_inbox(
         "email": email_address,
         "messagesAnalyzed": len(messages),
         "existingRulesCount": len(existing_rules),
-        "suggestions": [s.to_dict() for s in suggestions],
+        "suggestions": [s.to_dict() for s in suggestions],  # Rule suggestions (New Rules tab)
         "attentionItems": [a.to_dict() for a in attention_items],
     }
 
@@ -2559,6 +2559,175 @@ def mark_email_read(
     }
 
 
+# --- Email Action Suggestions (Phase A3) ---
+
+@app.get("/email/{account}/suggestions")
+def get_email_action_suggestions(
+    account: Literal["church", "personal"],
+    max_messages: int = Query(30, ge=10, le=50),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get DATA's suggested actions for recent emails.
+    
+    Returns numbered suggestions for actions like:
+    - Applying labels
+    - Archiving old promotional emails
+    - Starring urgent emails
+    - Creating tasks from action items
+    
+    Users can reference suggestions by number in chat (e.g., "approve #1").
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        search_messages,
+        list_labels,
+    )
+    from daily_task_assistant.email.analyzer import generate_action_suggestions
+    
+    # Load Gmail config
+    try:
+        gmail_config = load_account_from_env(account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    # Get recent inbox messages
+    try:
+        messages = search_messages(
+            gmail_config,
+            query="in:inbox",
+            max_results=max_messages,
+        )
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    # Get available labels for matching
+    available_labels = []
+    try:
+        labels = list_labels(gmail_config)
+        available_labels = [
+            {"id": l.id, "name": l.name, "color": l.color}
+            for l in labels
+            if l.label_type == "user"  # Only user-created labels
+        ]
+    except GmailError:
+        pass  # Continue without labels
+    
+    # Generate action suggestions
+    suggestions = generate_action_suggestions(
+        messages,
+        gmail_config.from_address,
+        available_labels=available_labels,
+    )
+    
+    return {
+        "account": account,
+        "email": gmail_config.from_address,
+        "messagesAnalyzed": len(messages),
+        "availableLabels": available_labels,
+        "suggestions": [s.to_dict() for s in suggestions],
+    }
+
+
+# --- Custom Label Endpoints (Phase A2) ---
+
+@app.get("/email/{account}/labels")
+def get_email_labels(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List all Gmail labels for the account.
+    
+    Returns both system labels (INBOX, STARRED, etc.) and user-created labels.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        list_labels,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+        labels = list_labels(gmail_config)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "account": account,
+        "labels": [
+            {
+                "id": label.id,
+                "name": label.name,
+                "type": label.label_type,
+                "messagesTotal": label.messages_total,
+                "messagesUnread": label.messages_unread,
+                "color": label.color,
+            }
+            for label in labels
+        ],
+    }
+
+
+class ApplyLabelRequest(BaseModel):
+    """Request body for applying/removing a label."""
+    label_id: Optional[str] = Field(None, description="Gmail label ID")
+    label_name: Optional[str] = Field(None, description="Gmail label name (alternative to ID)")
+    action: Literal["apply", "remove"] = Field("apply", description="Action to perform")
+
+
+@app.post("/email/{account}/label/{message_id}")
+def modify_email_label(
+    account: Literal["church", "personal"],
+    message_id: str,
+    request: ApplyLabelRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Apply or remove a custom label on an email.
+    
+    Can use either label_id (more efficient) or label_name (convenience).
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        apply_label,
+        remove_label,
+        apply_label_by_name,
+        remove_label_by_name,
+    )
+    
+    if not request.label_id and not request.label_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Either label_id or label_name must be provided"
+        )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+        
+        if request.action == "apply":
+            if request.label_id:
+                result = apply_label(gmail_config, message_id, request.label_id)
+            else:
+                result = apply_label_by_name(gmail_config, message_id, request.label_name)
+        else:  # remove
+            if request.label_id:
+                result = remove_label(gmail_config, message_id, request.label_id)
+            else:
+                result = remove_label_by_name(gmail_config, message_id, request.label_name)
+                
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "status": f"label_{request.action}d",
+        "account": account,
+        "messageId": message_id,
+        "labelId": request.label_id,
+        "labelName": request.label_name,
+        "labels": result.get("labelIds", []),
+    }
+
+
 # --- Email Chat Endpoint (Phase 4) ---
 
 class EmailChatRequest(BaseModel):
@@ -2627,6 +2796,382 @@ def chat_about_email(
         }
     
     return response_data
+
+
+# --- Email-to-Task Endpoints (Phase B) ---
+
+class TaskPreviewRequest(BaseModel):
+    """Request to preview task creation from email."""
+    email_id: str = Field(..., description="Gmail message ID")
+
+
+class TaskCreateRequest(BaseModel):
+    """Request to create a task from email."""
+    email_id: str = Field(..., description="Gmail message ID")
+    title: str = Field(..., description="Task title")
+    due_date: Optional[str] = Field(None, description="Due date (YYYY-MM-DD)")
+    priority: str = Field("Standard", description="Task priority")
+    domain: str = Field("personal", description="Task domain")
+    notes: Optional[str] = Field(None, description="Task notes")
+
+
+@app.post("/email/{account}/task-preview")
+def preview_task_from_email(
+    account: Literal["church", "personal"],
+    request: TaskPreviewRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get DATA's suggested task details from an email.
+    
+    DATA analyzes the email and suggests:
+    - Task title
+    - Due date (if mentioned)
+    - Priority
+    - Domain
+    
+    Returns preview data for the Smart mode form.
+    """
+    from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message
+    from daily_task_assistant.llm.anthropic_client import extract_task_from_email, AnthropicError
+    
+    # Load the email
+    try:
+        gmail_config = load_account_from_env(account)
+        email = get_message(gmail_config, request.email_id)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    # Use DATA to extract task details
+    try:
+        task_preview = extract_task_from_email(
+            from_address=email.from_address,
+            from_name=email.from_name,
+            subject=email.subject,
+            snippet=email.snippet,
+            email_account=account,
+        )
+    except AnthropicError as exc:
+        # Fallback to simple extraction
+        task_preview = {
+            "title": email.subject.replace("Re:", "").replace("Fwd:", "").strip(),
+            "dueDate": None,
+            "priority": "Standard",
+            "domain": "church" if account == "church" else "personal",
+            "notes": f"From: {email.from_name or email.from_address}",
+        }
+    
+    return {
+        "account": account,
+        "emailId": request.email_id,
+        "emailSubject": email.subject,
+        "emailFrom": email.from_address,
+        "emailFromName": email.from_name,
+        "preview": task_preview,
+    }
+
+
+@app.post("/email/{account}/task-create")
+def create_task_from_email_endpoint(
+    account: Literal["church", "personal"],
+    request: TaskCreateRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create a task in Firestore from an email.
+    
+    Creates the task with the user-confirmed details and links
+    it back to the source email.
+    """
+    from datetime import date
+    from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message
+    from daily_task_assistant.tasks import create_task_from_email, FirestoreTask
+    
+    # Load the email for subject reference
+    try:
+        gmail_config = load_account_from_env(account)
+        email = get_message(gmail_config, request.email_id)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    # Parse due date if provided
+    due_date = None
+    if request.due_date:
+        try:
+            due_date = date.fromisoformat(request.due_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid due_date format (use YYYY-MM-DD)")
+    
+    # Create the task
+    try:
+        task = create_task_from_email(
+            user_id=user,
+            email_id=request.email_id,
+            email_account=account,
+            email_subject=email.subject,
+            title=request.title,
+            due_date=due_date,
+            priority=request.priority,
+            domain=request.domain,
+            notes=request.notes,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to create task: {exc}")
+    
+    return {
+        "status": "created",
+        "account": account,
+        "emailId": request.email_id,
+        "task": task.to_api_dict(),
+    }
+
+
+@app.get("/tasks/firestore")
+def list_firestore_tasks(
+    domain: Optional[str] = Query(None, description="Filter by domain"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    source: Optional[str] = Query(None, description="Filter by source"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum tasks to return"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List tasks from the Firestore task store.
+    
+    This is the native DATA task store, separate from Smartsheet.
+    Used primarily for email-created tasks.
+    """
+    from daily_task_assistant.tasks import list_tasks, TaskFilters
+    
+    # Build filters
+    filters = TaskFilters(
+        domain=domain,
+        status=[status] if status else None,
+        source=source,
+    )
+    
+    tasks = list_tasks(user, filters=filters, limit=limit)
+    
+    return {
+        "count": len(tasks),
+        "tasks": [t.to_api_dict() for t in tasks],
+    }
+
+
+@app.get("/tasks/firestore/{task_id}")
+def get_firestore_task(
+    task_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get a single task from Firestore."""
+    from daily_task_assistant.tasks import get_task
+    
+    task = get_task(user, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return {"task": task.to_api_dict()}
+
+
+@app.patch("/tasks/firestore/{task_id}")
+def update_firestore_task(
+    task_id: str,
+    updates: Dict[str, Any],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update a task in Firestore."""
+    from daily_task_assistant.tasks import update_task
+    
+    task = update_task(user, task_id, updates)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return {"task": task.to_api_dict()}
+
+
+@app.delete("/tasks/firestore/{task_id}")
+def delete_firestore_task(
+    task_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Delete a task from Firestore."""
+    from daily_task_assistant.tasks import delete_task
+    
+    deleted = delete_task(user, task_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return {"status": "deleted", "taskId": task_id}
+
+
+# --- Email Memory Endpoints (Phase C) ---
+
+@app.get("/email/memory/sender-profiles")
+def get_sender_profiles(
+    vip_only: bool = Query(False, description="Only return VIP senders"),
+    limit: int = Query(50, ge=1, le=200),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List sender profiles from email memory."""
+    from daily_task_assistant.email import list_sender_profiles
+    
+    profiles = list_sender_profiles(user, vip_only=vip_only, limit=limit)
+    
+    return {
+        "count": len(profiles),
+        "profiles": [p.to_dict() for p in profiles],
+    }
+
+
+@app.get("/email/memory/sender/{email}")
+def get_sender_profile_endpoint(
+    email: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get a specific sender profile."""
+    from daily_task_assistant.email import get_sender_profile
+    
+    profile = get_sender_profile(user, email)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Sender profile not found")
+    
+    return {"profile": profile.to_dict()}
+
+
+@app.post("/email/memory/seed")
+def seed_email_memory(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Seed sender profiles from the memory graph.
+    
+    Creates initial profiles for known contacts (family, work colleagues).
+    Safe to call multiple times - will update existing profiles.
+    """
+    from daily_task_assistant.email import seed_sender_profiles_from_memory_graph
+    
+    count = seed_sender_profiles_from_memory_graph(user)
+    
+    return {
+        "status": "seeded",
+        "profilesCreated": count,
+    }
+
+
+@app.get("/email/memory/category-patterns")
+def get_category_patterns_endpoint(
+    limit: int = Query(50, ge=1, le=200),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List learned category patterns."""
+    from daily_task_assistant.email import get_category_patterns
+    
+    patterns = get_category_patterns(user, limit=limit)
+    
+    return {
+        "count": len(patterns),
+        "patterns": [p.to_dict() for p in patterns],
+    }
+
+
+@app.post("/email/memory/category-approval")
+def record_category_approval_endpoint(
+    pattern: str = Query(..., description="Domain or email address pattern"),
+    pattern_type: str = Query(..., description="'domain' or 'sender'"),
+    category: str = Query(..., description="Category/label to associate"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Record that a category suggestion was approved.
+    
+    This reinforces the pattern for future suggestions.
+    """
+    from daily_task_assistant.email import record_category_approval
+    
+    updated = record_category_approval(user, pattern, pattern_type, category)
+    
+    return {
+        "status": "recorded",
+        "pattern": updated.to_dict(),
+    }
+
+
+@app.post("/email/memory/category-dismissal")
+def record_category_dismissal_endpoint(
+    pattern: str = Query(..., description="Domain or email address pattern"),
+    pattern_type: str = Query(..., description="'domain' or 'sender'"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Record that a category suggestion was dismissed.
+    
+    This decreases confidence in the pattern.
+    """
+    from daily_task_assistant.email import record_category_dismissal
+    
+    record_category_dismissal(user, pattern, pattern_type)
+    
+    return {"status": "recorded"}
+
+
+@app.get("/email/memory/timing")
+def get_timing_patterns_endpoint(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get email processing timing patterns."""
+    from daily_task_assistant.email import get_timing_patterns
+    
+    patterns = get_timing_patterns(user)
+    
+    if not patterns:
+        return {
+            "patterns": None,
+            "message": "No timing patterns recorded yet",
+        }
+    
+    return {"patterns": patterns.to_dict()}
+
+
+@app.get("/email/memory/response-warning")
+def check_response_warning(
+    sender_email: str = Query(..., description="Sender's email address"),
+    received_hours_ago: float = Query(..., description="Hours since email was received"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Check if David should be warned about a delayed response.
+    
+    Compares current response time against average for that sender type.
+    """
+    from daily_task_assistant.email import (
+        get_sender_profile,
+        get_average_response_time,
+    )
+    
+    profile = get_sender_profile(user, sender_email)
+    
+    if not profile:
+        return {
+            "warning": False,
+            "message": "Unknown sender - no expectations set",
+        }
+    
+    avg_time = get_average_response_time(user, profile.relationship)
+    
+    if avg_time is None:
+        return {
+            "warning": False,
+            "message": f"No historical data for {profile.relationship} senders",
+        }
+    
+    if received_hours_ago > avg_time * 1.5:  # 50% over average
+        return {
+            "warning": True,
+            "message": f"Email from {profile.name} has been waiting {received_hours_ago:.1f} hours. "
+                      f"You typically respond to {profile.relationship} senders within {avg_time:.1f} hours.",
+            "averageResponseTime": avg_time,
+            "currentWaitTime": received_hours_ago,
+            "senderName": profile.name,
+            "senderRelationship": profile.relationship,
+        }
+    
+    return {
+        "warning": False,
+        "averageResponseTime": avg_time,
+        "currentWaitTime": received_hours_ago,
+    }
 
 
 # --- Workspace endpoints ---

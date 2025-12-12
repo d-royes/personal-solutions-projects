@@ -603,3 +603,176 @@ def mark_unread(account: GmailAccountConfig, message_id: str) -> dict:
         add_labels=["UNREAD"],
     )
 
+
+# =============================================================================
+# Custom Label Operations (Phase A2)
+# =============================================================================
+
+@dataclass(slots=True)
+class GmailLabel:
+    """Represents a Gmail label."""
+    
+    id: str
+    name: str
+    label_type: str  # "system" or "user"
+    messages_total: int = 0
+    messages_unread: int = 0
+    color: Optional[str] = None
+
+
+def list_labels(account: GmailAccountConfig) -> List[GmailLabel]:
+    """List all Gmail labels for the account.
+    
+    Args:
+        account: Gmail account configuration.
+        
+    Returns:
+        List of GmailLabel objects including both system and user labels.
+    """
+    access_token = _fetch_access_token(account)
+    
+    url = "https://gmail.googleapis.com/gmail/v1/users/me/labels"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    req = urlrequest.Request(url, headers=headers, method="GET")
+    
+    try:
+        with urlrequest.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            labels = []
+            for label_data in data.get("labels", []):
+                label_type = label_data.get("type", "user").lower()
+                color = None
+                if "color" in label_data:
+                    color = label_data["color"].get("backgroundColor")
+                
+                labels.append(GmailLabel(
+                    id=label_data["id"],
+                    name=label_data["name"],
+                    label_type=label_type,
+                    messages_total=label_data.get("messagesTotal", 0),
+                    messages_unread=label_data.get("messagesUnread", 0),
+                    color=color,
+                ))
+            return labels
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise GmailError(f"Gmail labels list failed ({exc.code}): {detail}") from exc
+    except urlerror.URLError as exc:
+        raise GmailError(f"Gmail network error: {exc}") from exc
+
+
+def get_label_by_name(
+    account: GmailAccountConfig,
+    label_name: str,
+) -> Optional[GmailLabel]:
+    """Find a label by name (case-insensitive).
+    
+    Args:
+        account: Gmail account configuration.
+        label_name: The label name to find.
+        
+    Returns:
+        GmailLabel if found, None otherwise.
+    """
+    labels = list_labels(account)
+    label_name_lower = label_name.lower()
+    for label in labels:
+        if label.name.lower() == label_name_lower:
+            return label
+    return None
+
+
+def apply_label(
+    account: GmailAccountConfig,
+    message_id: str,
+    label_id: str,
+) -> dict:
+    """Apply a label to a message.
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID.
+        label_id: The label ID to apply (use list_labels to get IDs).
+        
+    Returns:
+        Updated message data.
+    """
+    return modify_message_labels(
+        account,
+        message_id,
+        add_labels=[label_id],
+    )
+
+
+def remove_label(
+    account: GmailAccountConfig,
+    message_id: str,
+    label_id: str,
+) -> dict:
+    """Remove a label from a message.
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID.
+        label_id: The label ID to remove.
+        
+    Returns:
+        Updated message data.
+    """
+    return modify_message_labels(
+        account,
+        message_id,
+        remove_labels=[label_id],
+    )
+
+
+def apply_label_by_name(
+    account: GmailAccountConfig,
+    message_id: str,
+    label_name: str,
+) -> dict:
+    """Apply a label to a message by label name.
+    
+    Convenience wrapper that finds the label ID by name first.
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID.
+        label_name: The label name to apply (case-insensitive).
+        
+    Returns:
+        Updated message data.
+        
+    Raises:
+        GmailError: If label not found.
+    """
+    label = get_label_by_name(account, label_name)
+    if not label:
+        raise GmailError(f"Label not found: {label_name}")
+    return apply_label(account, message_id, label.id)
+
+
+def remove_label_by_name(
+    account: GmailAccountConfig,
+    message_id: str,
+    label_name: str,
+) -> dict:
+    """Remove a label from a message by label name.
+    
+    Args:
+        account: Gmail account configuration.
+        message_id: The message ID.
+        label_name: The label name to remove (case-insensitive).
+        
+    Returns:
+        Updated message data.
+        
+    Raises:
+        GmailError: If label not found.
+    """
+    label = get_label_by_name(account, label_name)
+    if not label:
+        raise GmailError(f"Label not found: {label_name}")
+    return remove_label(account, message_id, label.id)
+

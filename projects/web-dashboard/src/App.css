@@ -4346,6 +4346,229 @@ button:not(:disabled):hover {
   color: rgba(148, 163, 184, 0.8);
 }
 
+/* Email Action Suggestions view (new tab) */
+.email-suggestions-view {
+  padding: 1rem 0;
+}
+
+.email-suggestions-view .suggestions-header h3 {
+  color: rgba(226, 232, 240, 0.95);
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.email-suggestions-view .suggestions-description {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.85rem;
+  margin: 0 0 1rem 0;
+}
+
+.email-suggestions-view .hint {
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+/* Email action suggestion card (numbered) */
+.email-action-suggestion {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  transition: all 0.15s ease;
+}
+
+.email-action-suggestion:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.email-action-suggestion .suggestion-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(165, 180, 252, 0.95);
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+}
+
+.email-action-suggestion .email-preview {
+  margin-bottom: 0.75rem;
+}
+
+.email-action-suggestion .email-preview-from,
+.email-action-suggestion .email-preview-to {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.email-action-suggestion .email-preview-from strong,
+.email-action-suggestion .email-preview-to strong {
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.email-action-suggestion .email-preview-subject {
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.95);
+  font-weight: 500;
+  margin: 0.25rem 0;
+}
+
+.email-action-suggestion .email-preview-snippet {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-action-suggestion .suggested-action {
+  background: rgba(2, 6, 23, 0.4);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.email-action-suggestion .suggested-action .action-type {
+  color: rgba(165, 180, 252, 0.9);
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.email-action-suggestion .suggested-action .action-rationale {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+.email-action-suggestion .action-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.email-action-suggestion .action-row button {
+  padding: 0.3rem 0.6rem;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.email-action-suggestion .action-row .approve-action {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+}
+
+.email-action-suggestion .action-row .approve-action:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.email-action-suggestion .action-row .dismiss-action {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.email-action-suggestion .action-row .quick-action {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 0.9rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.email-action-suggestion .action-row .quick-action:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: rgba(165, 180, 252, 0.8);
+}
+
+.email-action-suggestion .action-row .quick-action.delete:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: rgba(252, 165, 165, 0.9);
+}
+
+/* Batch approve controls */
+.batch-approve-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: rgba(2, 6, 23, 0.4);
+  border-radius: 8px;
+}
+
+.batch-approve-controls .batch-count {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.85rem;
+}
+
+.batch-approve-controls .approve-all-btn {
+  padding: 0.4rem 0.8rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: rgba(134, 239, 172, 0.9);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.batch-approve-controls .approve-all-btn:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.batch-approve-controls .batch-hint {
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+/* Action suggestions list */
+.action-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.email-action-suggestion .suggestion-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.email-action-suggestion .label-select {
+  padding: 0.3rem 0.5rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 5px;
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.email-action-suggestion .label-select:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
 /* Attention view */
 .attention-list {
   list-style: none;
@@ -4792,6 +5015,135 @@ button:not(:disabled):hover {
 
 .attention-card {
   cursor: pointer;
+}
+
+/* =============================================================================
+   Task Creation Form (Phase B)
+   ============================================================================= */
+
+.task-creation-form {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 10px;
+  padding: 1rem;
+  margin: 0.5rem;
+}
+
+.task-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.task-form-header h4 {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 1rem;
+}
+
+.task-form-header .close-btn {
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.6);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+
+.task-form-header .close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: rgba(252, 165, 165, 0.9);
+}
+
+.task-form-field {
+  margin-bottom: 0.75rem;
+}
+
+.task-form-field label {
+  display: block;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.task-form-field input,
+.task-form-field select,
+.task-form-field textarea {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  background: rgba(2, 6, 23, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.task-form-field input:focus,
+.task-form-field select:focus,
+.task-form-field textarea:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.task-form-field textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.task-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.task-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.task-form-actions .cancel-btn {
+  padding: 0.4rem 0.8rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.7);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.task-form-actions .cancel-btn:hover {
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.task-form-actions .create-btn {
+  padding: 0.4rem 0.8rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: rgba(226, 232, 240, 0.95);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.task-form-actions .create-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(139, 92, 246, 0.4));
+}
+
+.task-form-actions .create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* =============================================================================

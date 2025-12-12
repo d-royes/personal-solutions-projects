@@ -1526,53 +1526,6 @@ export async function syncRulesToSheet(
   return resp.json()
 }
 
-// --- Task Creation from Email ---
-
-export interface CreateTaskFromEmailOptions {
-  taskTitle?: string
-  dueDate?: string
-  project?: string
-}
-
-export async function createTaskFromEmail(
-  account: EmailAccount,
-  emailId: string,
-  auth: AuthConfig,
-  baseUrl: string = defaultBase,
-  options: CreateTaskFromEmailOptions = {},
-): Promise<{
-  status: string
-  account: string
-  emailId: string
-  emailSubject: string
-  taskPreview: {
-    title: string
-    dueDate: string
-    project: string
-    source: string
-    notes: string
-    status: string
-    priority: string
-  }
-  message: string
-}> {
-  const url = new URL(`/email/task-from-email/${account}`, baseUrl)
-  url.searchParams.set('email_id', emailId)
-  if (options.taskTitle) url.searchParams.set('task_title', options.taskTitle)
-  if (options.dueDate) url.searchParams.set('due_date', options.dueDate)
-  if (options.project) url.searchParams.set('project', options.project)
-  
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: buildHeaders(auth),
-  })
-  if (!resp.ok) {
-    const detail = await safeJson(resp)
-    throw new Error(detail?.detail ?? `Create task failed: ${resp.statusText}`)
-  }
-  return resp.json()
-}
-
 // --- Email Actions (Phase 3) ---
 
 export interface EmailActionResult {
@@ -1750,6 +1703,267 @@ export async function chatAboutEmail(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Email chat failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// --- Custom Label Operations (Phase A2) ---
+
+export interface GmailLabel {
+  id: string
+  name: string
+  type: 'system' | 'user'
+  messagesTotal: number
+  messagesUnread: number
+  color: string | null
+}
+
+export interface LabelsResponse {
+  account: string
+  labels: GmailLabel[]
+}
+
+export async function getEmailLabels(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<LabelsResponse> {
+  const url = new URL(`/email/${account}/labels`, baseUrl)
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get labels failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface ApplyLabelRequest {
+  labelId?: string
+  labelName?: string
+  action: 'apply' | 'remove'
+}
+
+export async function modifyEmailLabel(
+  account: EmailAccount,
+  messageId: string,
+  request: ApplyLabelRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailActionResult> {
+  const url = new URL(`/email/${account}/label/${messageId}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      label_id: request.labelId,
+      label_name: request.labelName,
+      action: request.action,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Label modification failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function applyEmailLabel(
+  account: EmailAccount,
+  messageId: string,
+  labelId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailActionResult> {
+  return modifyEmailLabel(account, messageId, { labelId, action: 'apply' }, auth, baseUrl)
+}
+
+export async function removeEmailLabel(
+  account: EmailAccount,
+  messageId: string,
+  labelId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailActionResult> {
+  return modifyEmailLabel(account, messageId, { labelId, action: 'remove' }, auth, baseUrl)
+}
+
+
+// --- Email-to-Task (Phase B) ---
+
+export interface TaskPreview {
+  title: string
+  dueDate: string | null
+  priority: string
+  domain: string
+  notes: string | null
+}
+
+export interface TaskPreviewResponse {
+  account: string
+  emailId: string
+  emailSubject: string
+  emailFrom: string
+  emailFromName: string
+  preview: TaskPreview
+}
+
+export async function getTaskPreviewFromEmail(
+  account: EmailAccount,
+  emailId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<TaskPreviewResponse> {
+  const url = new URL(`/email/${account}/task-preview`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ email_id: emailId }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Task preview failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface TaskCreateRequest {
+  emailId: string
+  title: string
+  dueDate?: string
+  priority: string
+  domain: string
+  notes?: string
+}
+
+export interface FirestoreTask {
+  id: string
+  title: string
+  status: string
+  priority: string
+  domain: string
+  createdAt: string
+  updatedAt: string
+  dueDate: string | null
+  project: string | null
+  notes: string | null
+  nextStep: string | null
+  source: string
+  sourceEmailId: string | null
+  sourceEmailAccount: string | null
+  sourceEmailSubject: string | null
+}
+
+export async function createTaskFromEmail(
+  account: EmailAccount,
+  request: TaskCreateRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; emailId: string; task: FirestoreTask }> {
+  const url = new URL(`/email/${account}/task-create`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      email_id: request.emailId,
+      title: request.title,
+      due_date: request.dueDate,
+      priority: request.priority,
+      domain: request.domain,
+      notes: request.notes,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Task creation failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function listFirestoreTasks(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: { domain?: string; status?: string; source?: string; limit?: number } = {},
+): Promise<{ count: number; tasks: FirestoreTask[] }> {
+  const url = new URL('/tasks/firestore', baseUrl)
+  if (options.domain) url.searchParams.set('domain', options.domain)
+  if (options.status) url.searchParams.set('status', options.status)
+  if (options.source) url.searchParams.set('source', options.source)
+  if (options.limit) url.searchParams.set('limit', String(options.limit))
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `List tasks failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// --- Email Action Suggestions (Phase A3) ---
+
+export type EmailActionType = 'label' | 'archive' | 'delete' | 'star' | 'mark_important' | 'create_task' | 'reply'
+
+export interface EmailActionSuggestion {
+  number: number
+  emailId: string
+  from: string
+  fromName: string
+  to: string
+  subject: string
+  snippet: string
+  date: string
+  isUnread: boolean
+  isImportant: boolean
+  isStarred: boolean
+  action: EmailActionType
+  rationale: string
+  labelId: string | null
+  labelName: string | null
+  taskTitle: string | null
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export interface EmailSuggestionsResponse {
+  account: string
+  email: string
+  messagesAnalyzed: number
+  availableLabels: GmailLabel[]
+  suggestions: EmailActionSuggestion[]
+}
+
+export async function getEmailActionSuggestions(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  maxMessages: number = 30,
+): Promise<EmailSuggestionsResponse> {
+  const url = new URL(`/email/${account}/suggestions`, baseUrl)
+  url.searchParams.set('max_messages', String(maxMessages))
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get suggestions failed: ${resp.statusText}`)
   }
   return resp.json()
 }
