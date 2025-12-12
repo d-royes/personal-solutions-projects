@@ -14,17 +14,27 @@ projects/
 │   │   ├── llm/              # Anthropic integration
 │   │   ├── conversations/    # Chat history persistence
 │   │   ├── actions/          # Task planning logic
+│   │   ├── sheets/           # Google Sheets integration (email rules)
+│   │   ├── email/            # Email analysis and suggestions
 │   │   └── services/         # Assist workflow orchestration
 │   ├── config/smartsheet.yml # Smartsheet schema
 │   ├── DATA_PREFERENCES.md   # DATA's behavioral guidelines
-│   └── tests/                # pytest tests
+│   └── tests/                # pytest unit tests
 │
-└── web-dashboard/            # React + Vite frontend
-    └── src/
-        ├── App.tsx           # Main application
-        ├── api.ts            # Backend API client
-        ├── components/       # React components
-        └── auth/             # Google OAuth integration
+├── web-dashboard/            # React + Vite frontend
+│   └── src/
+│       ├── App.tsx           # Main application
+│       ├── api.ts            # Backend API client
+│       ├── components/       # React components
+│       │   └── EmailDashboard.tsx  # Email management UI
+│       └── auth/             # Google OAuth integration
+│
+└── e2e-tests/                # Playwright regression tests
+    ├── playwright.config.ts  # Multi-browser test config
+    └── tests/
+        ├── api-health.spec.ts    # Backend API health checks
+        ├── tasks/                # Task list & portfolio tests
+        └── email/                # Email management tests
 ```
 
 ## Code Style
@@ -86,6 +96,10 @@ export function fetchTasks(auth) {
 | `config/smartsheet.yml` | Column IDs and validation rules |
 | `App.tsx` | Main React component, state management |
 | `AssistPanel.tsx` | Assistant UI, chat interface |
+| `EmailDashboard.tsx` | Email management UI |
+| `sheets/filter_rules.py` | Google Sheets email rules integration |
+| `email/analyzer.py` | Email pattern detection and suggestions |
+| `e2e-tests/playwright.config.ts` | Playwright test configuration |
 
 ## Development Workflow
 
@@ -97,10 +111,19 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-dev.ps1
 - Backend: http://localhost:8000
 - Frontend: http://localhost:5173
 
-### Running Tests
+### Running Unit Tests
 ```powershell
 cd projects/daily-task-assistant
 python -m pytest tests/ -v
+```
+
+### Running E2E Regression Tests
+```powershell
+cd projects/e2e-tests
+npm test              # Run all tests headless
+npm run test:ui       # Interactive UI mode (recommended for debugging)
+npm run test:headed   # Watch browser as tests run
+npm run test:chrome   # Chrome only (faster)
 ```
 
 ### Environment Variables
@@ -143,6 +166,8 @@ The `.env` file in `projects/daily-task-assistant/` contains:
 - Run `npx tsc --noEmit` before committing frontend changes
 - Update `DATA_PREFERENCES.md` when changing DATA's behavior
 - Commit at logical checkpoints with descriptive messages
+- **Run E2E tests after significant UI or API changes** (see Testing Workflow below)
+- Add E2E tests when building new user-facing features
 
 ### ⚠️ Ask First
 - Changes to Smartsheet schema (`config/smartsheet.yml`)
@@ -155,6 +180,7 @@ The `.env` file in `projects/daily-task-assistant/` contains:
 - Change DATA's personality without updating preferences file
 - Deploy to production without user approval
 - **Make assumptions about UI/UX changes** - Always present plans for approval before implementing
+- Skip regression tests before merging to staging/main
 
 ## Common Tasks
 
@@ -185,6 +211,67 @@ The `.env` file in `projects/daily-task-assistant/` contains:
 2. Add to `config/smartsheet.yml`
 3. Update `SmartsheetClient` if needed
 4. Add validation in API endpoint
+
+## E2E Testing Workflow
+
+### When to Run E2E Tests
+
+| Situation | Action |
+|-----------|--------|
+| **Before merging to staging/main** | Run full suite: `npm test` |
+| **After UI component changes** | Run relevant tests: `npm run test:tasks` or `npm run test:email` |
+| **After API endpoint changes** | Run API health: `npm run test:api` |
+| **Debugging a test failure** | Use interactive UI: `npm run test:ui` |
+| **Building a new feature** | Use codegen to record: `npm run codegen` |
+
+### Test Categories
+
+```powershell
+cd projects/e2e-tests
+
+# API Health (4 tests) - Backend connectivity
+npm run test:api
+
+# Task Management (14 tests) - Task list, filters, portfolio
+npm run test:tasks
+
+# Email Management (14 tests) - Dashboard, rules, account switching
+npm run test:email
+
+# All tests across browsers
+npm test
+```
+
+### Writing New E2E Tests
+
+1. Create a `.spec.ts` file in the appropriate `tests/` subdirectory
+2. Use `test.beforeEach` to set up auth headers:
+   ```typescript
+   test.beforeEach(async ({ page }) => {
+     await page.goto('/');
+     await page.setExtraHTTPHeaders({
+       'X-User-Email': 'david.a.royes@gmail.com'
+     });
+   });
+   ```
+3. Use Playwright's locators: `page.getByRole()`, `page.getByText()`, `page.getByPlaceholder()`
+4. Use `expect()` assertions with appropriate timeouts for async operations
+
+### Recording Tests with Codegen
+
+Playwright can record your browser interactions and generate test code:
+
+```powershell
+cd projects/e2e-tests
+npm run codegen   # Opens browser - click around, code appears
+```
+
+### Debugging Failed Tests
+
+1. **View HTML report**: `npm run report`
+2. **Interactive mode**: `npm run test:ui` (lets you step through)
+3. **Debug mode**: `npm run test:debug` (pauses at breakpoints)
+4. **Screenshots**: Auto-captured in `test-results/` on failure
 
 ## Git Workflow
 

@@ -116,6 +116,52 @@ python projects/daily-task-assistant/cli.py assist 1002 --source live --send-ema
 
 Future accounts (e.g., personal Gmail) can use the same pattern with a different prefix, such as `PERSONAL_GMAIL_CLIENT_ID`.
 
+## Email Management (Chief of Staff Model)
+
+DATA includes email management capabilities that work with Google Apps Script to automate email labeling. This follows a "Chief of Staff" model where:
+
+1. **Apps Script** handles clear-cut, rule-based email labeling (runs every 15 minutes)
+2. **DATA** analyzes patterns, suggests new rules, and handles nuanced categorization
+3. **Google Sheets** serves as the shared rules database
+
+### Email Filter Rules
+
+Rules are stored in a Google Sheet (`Gmail_Filter_Index`) with columns:
+- `Email` - Which account the rule applies to
+- `Filter Category` - Target label (Personal, Promotional, Transactional, etc.)
+- `Filter Field` - What to match (Sender Email Address, Email Subject, Sender Name)
+- `Operator` - Match type (Contains, Equals)
+- `Value` - Pattern to match
+- `Action` - What to do (Apply label, Remove, Trash)
+
+### API Endpoints for Email Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/email/inbox` | GET | Get inbox summary for an account |
+| `/email/rules` | GET | List filter rules from Google Sheets |
+| `/email/rules` | POST | Add a new filter rule |
+| `/email/rules/{id}` | DELETE | Remove a filter rule |
+| `/email/analyze` | POST | Analyze inbox for patterns and suggestions |
+| `/email/sync` | POST | Sync rules to Google Sheets |
+
+### Supported Email Accounts
+
+Configure in `.env`:
+```
+# Personal Gmail
+PERSONAL_GMAIL_CLIENT_ID=...
+PERSONAL_GMAIL_CLIENT_SECRET=...
+PERSONAL_GMAIL_REFRESH_TOKEN=...
+PERSONAL_GMAIL_ADDRESS=your@gmail.com
+
+# Church Gmail
+CHURCH_GMAIL_CLIENT_ID=...
+CHURCH_GMAIL_CLIENT_SECRET=...
+CHURCH_GMAIL_REFRESH_TOKEN=...
+CHURCH_GMAIL_ADDRESS=you@church.org
+```
+
 ## FastAPI Service
 
 The `api/main.py` module exposes the same capabilities over HTTP (used by the upcoming React dashboard). Run locally with:
@@ -240,7 +286,9 @@ When using the dev auth bypass, set `DTA_DEV_AUTH_BYPASS=1` on the API server. W
 
 ## Testing
 
-Unit tests cover the prioritizer heuristics and assistant planning logic. Run them from the repo root:
+### Unit Tests (Python)
+
+Unit tests cover the prioritizer heuristics, assistant planning logic, email analyzer, and filter rules. Run them from the repo root:
 
 ```bash
 cd projects/daily-task-assistant
@@ -248,3 +296,53 @@ PYTHONPATH=. pytest
 ```
 
 The suite does not call external APIs and can run with stub data only.
+
+### E2E Regression Tests (Playwright)
+
+End-to-end tests validate the full application stack (frontend + backend) using real browser automation. The test suite lives in `projects/e2e-tests/`.
+
+#### Quick Start
+
+```bash
+cd projects/e2e-tests
+npm install                  # First time only
+npm test                     # Run all tests headless
+npm run test:ui              # Interactive UI mode (recommended)
+npm run test:headed          # Watch browser as tests run
+```
+
+#### Test Coverage
+
+| Area | Tests | Description |
+|------|-------|-------------|
+| API Health | 4 | Backend connectivity, endpoint responses |
+| Task List | 9 | Task loading, filters, search, refresh |
+| Portfolio View | 5 | Category tabs, Quick Question, chat input |
+| Email Dashboard | 5 | Mode switching, navigation tabs |
+| Email Rules | 7 | Rules table, filtering, search, add/delete |
+| Account Switching | 2 | Personal/Church account toggle |
+
+#### When to Run E2E Tests
+
+- **Before merging to staging/main**: Run the full suite to catch regressions
+- **After UI changes**: Run targeted tests (`npm run test:tasks` or `npm run test:email`)
+- **After API changes**: Run API health checks (`npm run test:api`)
+- **Building new features**: Use codegen to record tests (`npm run codegen`)
+
+#### Generating New Tests
+
+Playwright can record your browser interactions:
+
+```bash
+npm run codegen   # Opens browser, generates code as you click
+```
+
+#### Viewing Test Reports
+
+After running tests, view the HTML report:
+
+```bash
+npm run report
+```
+
+Screenshots and videos are captured automatically on test failures.
