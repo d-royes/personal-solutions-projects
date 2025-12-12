@@ -1,4 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Link from '@tiptap/extension-link'
 import type { ContactCard } from '../api'
 
 export interface EmailDraft {
@@ -7,6 +10,67 @@ export interface EmailDraft {
   subject: string
   body: string
   fromAccount: string
+}
+
+// Rich text toolbar component
+function RichTextToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  if (!editor) return null
+
+  return (
+    <div className="rich-text-toolbar">
+      <button
+        type="button"
+        className={`toolbar-btn ${editor.isActive('bold') ? 'active' : ''}`}
+        onClick={() => editor.chain().focus().toggleBold().run()}
+        title="Bold (Ctrl+B)"
+      >
+        <strong>B</strong>
+      </button>
+      <button
+        type="button"
+        className={`toolbar-btn ${editor.isActive('italic') ? 'active' : ''}`}
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+        title="Italic (Ctrl+I)"
+      >
+        <em>I</em>
+      </button>
+      <span className="toolbar-separator" />
+      <button
+        type="button"
+        className={`toolbar-btn ${editor.isActive('bulletList') ? 'active' : ''}`}
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+        title="Bullet List"
+      >
+        • —
+      </button>
+      <button
+        type="button"
+        className={`toolbar-btn ${editor.isActive('orderedList') ? 'active' : ''}`}
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        title="Numbered List"
+      >
+        1. —
+      </button>
+      <span className="toolbar-separator" />
+      <button
+        type="button"
+        className={`toolbar-btn ${editor.isActive('link') ? 'active' : ''}`}
+        onClick={() => {
+          const previousUrl = editor.getAttributes('link').href
+          const url = window.prompt('Enter URL:', previousUrl)
+          if (url === null) return
+          if (url === '') {
+            editor.chain().focus().extendMarkRange('link').unsetLink().run()
+          } else {
+            editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+          }
+        }}
+        title="Insert Link"
+      >
+        🔗
+      </button>
+    </div>
+  )
 }
 
 interface EmailDraftPanelProps {
@@ -62,10 +126,36 @@ export function EmailDraftPanel({
   const [to, setTo] = useState<string[]>([])
   const [cc, setCc] = useState<string[]>([])
   const [subject, setSubject] = useState('')
-  const [body, setBody] = useState('')
   const [fromAccount, setFromAccount] = useState('')
   const [regenerateInput, setRegenerateInput] = useState('')
   const [showContactPicker, setShowContactPicker] = useState<'to' | 'cc' | null>(null)
+
+  // Rich text editor
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        bulletList: { HTMLAttributes: { class: 'email-bullet-list' } },
+        orderedList: { HTMLAttributes: { class: 'email-ordered-list' } },
+      }),
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: { class: 'email-link' },
+      }),
+    ],
+    content: '',
+    editorProps: {
+      attributes: {
+        class: 'email-rich-editor',
+      },
+    },
+  })
+
+  // Get body content from editor
+  const getBodyContent = useCallback(() => {
+    if (!editor) return ''
+    // Return plain text for sending
+    return editor.getText()
+  }, [editor])
 
   // Extract emails from task notes
   const emailsFromNotes = extractEmailsFromText(taskNotes || '')
@@ -80,10 +170,19 @@ export function EmailDraftPanel({
       setTo(initialDraft.to ?? [])
       setCc(initialDraft.cc ?? [])
       setSubject(initialDraft.subject ?? '')
-      setBody(initialDraft.body ?? '')
       setFromAccount(initialDraft.fromAccount ?? '')
+      
+      // Set editor content
+      if (editor && initialDraft.body) {
+        // Convert plain text to HTML for the editor
+        const htmlContent = initialDraft.body
+          .split('\n\n')
+          .map(para => `<p>${para.split('\n').join('<br>')}</p>`)
+          .join('')
+        editor.commands.setContent(htmlContent)
+      }
     }
-  }, [initialDraft?.subject, initialDraft?.body, initialDraft?.to, initialDraft?.cc, initialDraft?.fromAccount])
+  }, [initialDraft?.subject, initialDraft?.body, initialDraft?.to, initialDraft?.cc, initialDraft?.fromAccount, editor])
 
   if (!isOpen) return null
 
@@ -122,6 +221,7 @@ export function EmailDraftPanel({
 
   const handleSend = async () => {
     if (to.length === 0 || !fromAccount) return
+    const body = getBodyContent()
     await onSend({
       to,
       cc,
@@ -137,6 +237,7 @@ export function EmailDraftPanel({
     setRegenerateInput('')
   }
 
+  const body = getBodyContent()
   const canSend = to.length > 0 && fromAccount && subject.trim() && body.trim()
 
   return (
@@ -408,15 +509,13 @@ export function EmailDraftPanel({
           />
         </div>
 
-        {/* Body */}
+        {/* Body - Rich Text Editor */}
         <div className="email-draft-field email-body-field">
           <label>Body:</label>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Email body..."
-            className="email-body-input"
-          />
+          <RichTextToolbar editor={editor} />
+          <div className="email-rich-editor-container">
+            <EditorContent editor={editor} />
+          </div>
         </div>
 
         {/* Regenerate Section */}

@@ -25,12 +25,16 @@ import {
   getTaskPreviewFromEmail,
   createTaskFromEmail,
   checkEmailsHaveTasks,
+  getEmailFull,
+  generateReplyDraft,
+  sendReply,
   type EmailPendingAction,
   type EmailActionSuggestion,
   type GmailLabel,
   type TaskPreview,
   type EmailTaskInfo,
 } from '../api'
+import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 
 interface EmailDashboardProps {
   authConfig: AuthConfig
@@ -158,6 +162,26 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     ageHours: number
   }> | null>(null)
   const [searchingEmails, setSearchingEmails] = useState(false)
+  
+  // Full email body state
+  const [emailBodyExpanded, setEmailBodyExpanded] = useState(false)
+  const [fullEmailBody, setFullEmailBody] = useState<{
+    body: string | null
+    bodyHtml: string | null
+    attachmentCount: number
+  } | null>(null)
+  const [loadingFullBody, setLoadingFullBody] = useState(false)
+  
+  // Reply panel state
+  const [showReplyPanel, setShowReplyPanel] = useState(false)
+  const [replyDraft, setReplyDraft] = useState<EmailDraft | null>(null)
+  const [replyContext, setReplyContext] = useState<{
+    messageId: string
+    replyAll: boolean
+  } | null>(null)
+  const [generatingReply, setGeneratingReply] = useState(false)
+  const [sendingReply, setSendingReply] = useState(false)
+  const [replyError, setReplyError] = useState<string | null>(null)
 
   // Helper to update cache for current account
   const updateCache = useCallback((updates: Partial<AccountCache>) => {
@@ -662,12 +686,162 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   }
 
   // Handle selecting an email (opens assist panel)
-  function handleSelectEmail(emailId: string) {
+  async function handleSelectEmail(emailId: string) {
     setSelectedEmailId(emailId)
     setAssistPanelCollapsed(false)
     // Clear chat history when selecting a new email
     setChatHistory([])
     setPendingEmailAction(null)
+    
+    // Reset email body state
+    setEmailBodyExpanded(false)
+    setFullEmailBody(null)
+    
+    // Fetch full email body in the background
+    fetchFullEmailBody(emailId)
+  }
+  
+  // Fetch full email body when email is selected
+  async function fetchFullEmailBody(emailId: string) {
+    setLoadingFullBody(true)
+    try {
+      const response = await getEmailFull(selectedAccount, emailId, authConfig, apiBase, true)
+      setFullEmailBody({
+        body: response.message.body ?? null,
+        bodyHtml: response.message.bodyHtml ?? null,
+        attachmentCount: response.message.attachmentCount ?? 0,
+      })
+    } catch (err) {
+      console.error('Failed to load full email body:', err)
+      // Don't show error to user - they can still work with snippet
+    } finally {
+      setLoadingFullBody(false)
+    }
+  }
+  
+  // Handle clicking Reply or Reply All button
+  async function handleReply(replyAll: boolean) {
+    if (!selectedEmailId || !selectedEmail) return
+    
+    setGeneratingReply(true)
+    setReplyError(null)
+    setShowReplyPanel(true)
+    
+    try {
+      const response = await generateReplyDraft(
+        selectedAccount,
+        {
+          messageId: selectedEmailId,
+          replyAll,
+        },
+        authConfig,
+        apiBase
+      )
+      
+      setReplyDraft({
+        to: response.draft.to,
+        cc: response.draft.cc,
+        subject: response.draft.subject,
+        body: response.draft.body,
+        fromAccount: selectedAccount,
+      })
+      
+      setReplyContext({
+        messageId: selectedEmailId,
+        replyAll,
+      })
+    } catch (err) {
+      console.error('Failed to generate reply draft:', err)
+      setReplyError(err instanceof Error ? err.message : 'Failed to generate reply')
+    } finally {
+      setGeneratingReply(false)
+    }
+  }
+  
+  // Handle sending the reply
+  async function handleSendReply(draft: EmailDraft) {
+    if (!replyContext) return
+    
+    setSendingReply(true)
+    setReplyError(null)
+    
+    try {
+      await sendReply(
+        draft.fromAccount as EmailAccount,
+        {
+          messageId: replyContext.messageId,
+          replyAll: replyContext.replyAll,
+          subject: draft.subject,
+          body: draft.body,
+          cc: draft.cc.length > 0 ? draft.cc : undefined,
+        },
+        authConfig,
+        apiBase
+      )
+      
+      // Success - close panel and show confirmation
+      setShowReplyPanel(false)
+      setReplyDraft(null)
+      setReplyContext(null)
+      
+      setChatHistory(prev => [...prev, {
+        role: 'assistant',
+        content: `✓ Reply sent successfully to ${draft.to.join(', ')}`
+      }])
+    } catch (err) {
+      console.error('Failed to send reply:', err)
+      setReplyError(err instanceof Error ? err.message : 'Failed to send reply')
+    } finally {
+      setSendingReply(false)
+    }
+  }
+  
+  // Handle regenerating reply with instructions
+  async function handleRegenerateReply(instructions: string) {
+    if (!replyContext) return
+    
+    setGeneratingReply(true)
+    setReplyError(null)
+    
+    try {
+      const response = await generateReplyDraft(
+        selectedAccount,
+        {
+          messageId: replyContext.messageId,
+          replyAll: replyContext.replyAll,
+          userContext: instructions,
+        },
+        authConfig,
+        apiBase
+      )
+      
+      setReplyDraft({
+        to: response.draft.to,
+        cc: response.draft.cc,
+        subject: response.draft.subject,
+        body: response.draft.body,
+        fromAccount: selectedAccount,
+      })
+    } catch (err) {
+      console.error('Failed to regenerate reply:', err)
+      setReplyError(err instanceof Error ? err.message : 'Failed to regenerate reply')
+    } finally {
+      setGeneratingReply(false)
+    }
+  }
+  
+  // Handle closing the reply panel
+  function handleCloseReplyPanel(currentDraft: EmailDraft) {
+    setReplyDraft(currentDraft)
+    setShowReplyPanel(false)
+  }
+  
+  // Handle discarding the reply
+  async function handleDiscardReply() {
+    setShowReplyPanel(false)
+    setReplyDraft(null)
+    setReplyContext(null)
+    setReplyError(null)
   }
 
   // Handle sending a chat message about the selected email
@@ -1674,10 +1848,66 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                     </span>
                   </div>
                   <div className="preview-subject">{selectedEmail.subject}</div>
-                  <div className="preview-snippet">{selectedEmail.snippet}</div>
+                  
+                  {/* Expandable email body section */}
+                  {!emailBodyExpanded ? (
+                    <div className="preview-snippet">{selectedEmail.snippet}</div>
+                  ) : (
+                    <div className="email-body-expanded">
+                      {loadingFullBody ? (
+                        <div className="loading-body">Loading full email...</div>
+                      ) : fullEmailBody?.bodyHtml ? (
+                        <div 
+                          className="email-body-html"
+                          dangerouslySetInnerHTML={{ __html: fullEmailBody.bodyHtml }}
+                        />
+                      ) : fullEmailBody?.body ? (
+                        <div className="email-body-text">
+                          {fullEmailBody.body}
+                        </div>
+                      ) : (
+                        <div className="preview-snippet">{selectedEmail.snippet}</div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Expand/Collapse toggle */}
+                  <button 
+                    className="email-body-toggle"
+                    onClick={() => setEmailBodyExpanded(!emailBodyExpanded)}
+                    disabled={loadingFullBody}
+                  >
+                    <span className={`toggle-arrow ${emailBodyExpanded ? 'expanded' : ''}`}>
+                      {emailBodyExpanded ? '▲' : '▼'}
+                    </span>
+                    <span className="toggle-text">
+                      {emailBodyExpanded ? 'Hide full email' : 'Show full email'}
+                    </span>
+                    {fullEmailBody && fullEmailBody.attachmentCount > 0 && (
+                      <span className="attachment-indicator" title={`${fullEmailBody.attachmentCount} attachment(s)`}>
+                        📎 {fullEmailBody.attachmentCount}
+                      </span>
+                    )}
+                  </button>
                   
                   {/* Quick action buttons */}
                   <div className="email-quick-actions">
+                    <button 
+                      className="quick-action-btn reply"
+                      onClick={() => handleReply(false)}
+                      disabled={actionLoading !== null || generatingReply}
+                      title="Reply"
+                    >
+                      {generatingReply && !replyContext?.replyAll ? '⏳' : '↩️'}
+                    </button>
+                    <button 
+                      className="quick-action-btn reply-all"
+                      onClick={() => handleReply(true)}
+                      disabled={actionLoading !== null || generatingReply}
+                      title="Reply All"
+                    >
+                      {generatingReply && replyContext?.replyAll ? '⏳' : '↩️⃕'}
+                    </button>
                     <button 
                       className="quick-action-btn"
                       onClick={() => handleEmailQuickAction({ type: 'archive', emailId: selectedEmail.id })}
@@ -1916,6 +2146,20 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
           </div>
         )}
       </div>
+      
+      {/* Email Reply Draft Panel */}
+      <EmailDraftPanel
+        isOpen={showReplyPanel}
+        onClose={handleCloseReplyPanel}
+        onSend={handleSendReply}
+        onRegenerate={handleRegenerateReply}
+        onDiscard={handleDiscardReply}
+        initialDraft={replyDraft ?? undefined}
+        gmailAccounts={['personal', 'church']}
+        sending={sendingReply}
+        regenerating={generatingReply}
+        error={replyError}
+      />
     </div>
   )
 }

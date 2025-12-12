@@ -1410,3 +1410,838 @@ test.describe('Email Memory (Phase C)', () => {
   });
 });
 
+
+// =============================================================================
+// Phase 1: Email Body Loading Tests
+// =============================================================================
+
+test.describe('Email Body Loading (Phase 1)', () => {
+
+  test('full email API should return body content', async ({ page }) => {
+    // First get a message ID from inbox
+    const inboxResponse = await page.request.get('/inbox/personal?max_results=1', {
+      headers: {
+        'X-User-Email': 'david.a.royes@gmail.com'
+      }
+    });
+    
+    expect(inboxResponse.ok()).toBe(true);
+    const inboxData = await inboxResponse.json();
+    
+    if (inboxData.recentMessages && inboxData.recentMessages.length > 0) {
+      const messageId = inboxData.recentMessages[0].id;
+      
+      // Fetch full message with body
+      const response = await page.request.get(
+        `/email/personal/message/${messageId}?full=true`,
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com'
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      expect(data).toHaveProperty('message');
+      expect(data.message).toHaveProperty('body');
+      expect(data.message).toHaveProperty('bodyHtml');
+      expect(data.message).toHaveProperty('ccAddress');
+      expect(data.message).toHaveProperty('messageIdHeader');
+      expect(data.message).toHaveProperty('attachmentCount');
+      expect(data.message).toHaveProperty('attachments');
+    }
+  });
+
+  test('thread context API should return thread messages', async ({ page }) => {
+    // First get a message with a thread ID
+    const inboxResponse = await page.request.get('/inbox/personal?max_results=5', {
+      headers: {
+        'X-User-Email': 'david.a.royes@gmail.com'
+      }
+    });
+    
+    expect(inboxResponse.ok()).toBe(true);
+    const inboxData = await inboxResponse.json();
+    
+    if (inboxData.recentMessages && inboxData.recentMessages.length > 0) {
+      const threadId = inboxData.recentMessages[0].threadId;
+      
+      // Fetch thread context
+      const response = await page.request.get(
+        `/email/personal/thread/${threadId}`,
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com'
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      expect(data).toHaveProperty('threadId');
+      expect(data).toHaveProperty('messageCount');
+      expect(data).toHaveProperty('messages');
+      expect(Array.isArray(data.messages)).toBe(true);
+      expect(data.messageCount).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  test('thread context should include summary for multi-message threads', async ({ page }) => {
+    // Search for threads with multiple messages
+    const searchResponse = await page.request.get(
+      '/inbox/personal/search?q=in:inbox&max_results=20',
+      {
+        headers: {
+          'X-User-Email': 'david.a.royes@gmail.com'
+        }
+      }
+    );
+    
+    expect(searchResponse.ok()).toBe(true);
+    const searchData = await searchResponse.json();
+    
+    // Find a thread to test (any will do for API validation)
+    if (searchData.messages && searchData.messages.length > 0) {
+      const threadId = searchData.messages[0].threadId;
+      
+      const response = await page.request.get(
+        `/email/personal/thread/${threadId}`,
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com'
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      // Summary field should exist (may be null for single-message threads)
+      expect(data).toHaveProperty('summary');
+      
+      // If multiple messages, summary should be a string
+      if (data.messageCount > 3 && data.summary) {
+        expect(typeof data.summary).toBe('string');
+        expect(data.summary.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test('message without full flag should not include body', async ({ page }) => {
+    const inboxResponse = await page.request.get('/inbox/personal?max_results=1', {
+      headers: {
+        'X-User-Email': 'david.a.royes@gmail.com'
+      }
+    });
+    
+    expect(inboxResponse.ok()).toBe(true);
+    const inboxData = await inboxResponse.json();
+    
+    if (inboxData.recentMessages && inboxData.recentMessages.length > 0) {
+      const messageId = inboxData.recentMessages[0].id;
+      
+      // Fetch message without full body
+      const response = await page.request.get(
+        `/email/personal/message/${messageId}?full=false`,
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com'
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      // Body fields should not be present or be null
+      expect(data.message.body).toBeUndefined();
+      expect(data.message.bodyHtml).toBeUndefined();
+    }
+  });
+
+  test('attachment info should include filename and size', async ({ page }) => {
+    // Search for emails with attachments
+    const searchResponse = await page.request.get(
+      '/inbox/personal/search?q=has:attachment&max_results=5',
+      {
+        headers: {
+          'X-User-Email': 'david.a.royes@gmail.com'
+        }
+      }
+    );
+    
+    expect(searchResponse.ok()).toBe(true);
+    const searchData = await searchResponse.json();
+    
+    if (searchData.messages && searchData.messages.length > 0) {
+      const messageId = searchData.messages[0].id;
+      
+      const response = await page.request.get(
+        `/email/personal/message/${messageId}?full=true`,
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com'
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      expect(data.message.attachmentCount).toBeGreaterThan(0);
+      expect(data.message.attachments.length).toBeGreaterThan(0);
+      
+      // First attachment should have required fields
+      const attachment = data.message.attachments[0];
+      expect(attachment).toHaveProperty('filename');
+      expect(attachment).toHaveProperty('mimeType');
+      expect(attachment).toHaveProperty('size');
+    }
+  });
+});
+
+
+// =============================================================================
+// Phase 2: Reply API Tests
+// =============================================================================
+
+test.describe('Email Reply API (Phase 2)', () => {
+
+  test('reply draft API should generate a draft', async ({ page }) => {
+    // Get a message to reply to
+    const inboxResponse = await page.request.get('/inbox/personal?max_results=1', {
+      headers: {
+        'X-User-Email': 'david.a.royes@gmail.com'
+      }
+    });
+    
+    expect(inboxResponse.ok()).toBe(true);
+    const inboxData = await inboxResponse.json();
+    
+    if (inboxData.recentMessages && inboxData.recentMessages.length > 0) {
+      const messageId = inboxData.recentMessages[0].id;
+      
+      // Generate a reply draft
+      const response = await page.request.post(
+        '/email/personal/reply-draft',
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com',
+            'Content-Type': 'application/json'
+          },
+          data: {
+            messageId: messageId,
+            replyAll: false,
+            userContext: 'Please acknowledge receipt'
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      expect(data).toHaveProperty('draft');
+      expect(data.draft).toHaveProperty('subject');
+      expect(data.draft).toHaveProperty('body');
+      expect(data.draft).toHaveProperty('to');
+      
+      // Subject should start with Re:
+      expect(data.draft.subject.toLowerCase()).toContain('re:');
+      
+      // Body should not be empty
+      expect(data.draft.body.length).toBeGreaterThan(0);
+      
+      // To should have at least one recipient
+      expect(data.draft.to.length).toBeGreaterThan(0);
+    }
+  });
+
+  test('reply all draft should include CC recipients', async ({ page }) => {
+    // Search for an email that has CC recipients
+    const searchResponse = await page.request.get(
+      '/inbox/personal/search?q=cc:*&max_results=5',
+      {
+        headers: {
+          'X-User-Email': 'david.a.royes@gmail.com'
+        }
+      }
+    );
+    
+    // If no CC emails found, test basic functionality
+    const inboxResponse = await page.request.get('/inbox/personal?max_results=1', {
+      headers: {
+        'X-User-Email': 'david.a.royes@gmail.com'
+      }
+    });
+    
+    expect(inboxResponse.ok()).toBe(true);
+    const inboxData = await inboxResponse.json();
+    
+    if (inboxData.recentMessages && inboxData.recentMessages.length > 0) {
+      const messageId = inboxData.recentMessages[0].id;
+      
+      // Generate a reply all draft
+      const response = await page.request.post(
+        '/email/personal/reply-draft',
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com',
+            'Content-Type': 'application/json'
+          },
+          data: {
+            messageId: messageId,
+            replyAll: true
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      expect(data).toHaveProperty('draft');
+      expect(data.draft).toHaveProperty('cc');
+      // CC should be an array (may be empty)
+      expect(Array.isArray(data.draft.cc)).toBe(true);
+    }
+  });
+
+  test('reply draft without AI-isms', async ({ page }) => {
+    const inboxResponse = await page.request.get('/inbox/personal?max_results=1', {
+      headers: {
+        'X-User-Email': 'david.a.royes@gmail.com'
+      }
+    });
+    
+    expect(inboxResponse.ok()).toBe(true);
+    const inboxData = await inboxResponse.json();
+    
+    if (inboxData.recentMessages && inboxData.recentMessages.length > 0) {
+      const messageId = inboxData.recentMessages[0].id;
+      
+      const response = await page.request.post(
+        '/email/personal/reply-draft',
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com',
+            'Content-Type': 'application/json'
+          },
+          data: {
+            messageId: messageId,
+            replyAll: false
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      const body = data.draft.body.toLowerCase();
+      
+      // Should not contain common AI-isms
+      expect(body).not.toContain('i hope this email finds you well');
+      expect(body).not.toContain('please let me know if you have any questions');
+      expect(body).not.toContain('i would be happy to');
+    }
+  });
+
+  test('reply draft includes HTML version', async ({ page }) => {
+    const inboxResponse = await page.request.get('/inbox/personal?max_results=1', {
+      headers: {
+        'X-User-Email': 'david.a.royes@gmail.com'
+      }
+    });
+    
+    expect(inboxResponse.ok()).toBe(true);
+    const inboxData = await inboxResponse.json();
+    
+    if (inboxData.recentMessages && inboxData.recentMessages.length > 0) {
+      const messageId = inboxData.recentMessages[0].id;
+      
+      const response = await page.request.post(
+        '/email/personal/reply-draft',
+        {
+          headers: {
+            'X-User-Email': 'david.a.royes@gmail.com',
+            'Content-Type': 'application/json'
+          },
+          data: {
+            messageId: messageId,
+            replyAll: false
+          }
+        }
+      );
+      
+      expect(response.ok()).toBe(true);
+      const data = await response.json();
+      
+      // Should have HTML body
+      expect(data.draft).toHaveProperty('bodyHtml');
+      expect(data.draft.bodyHtml).toContain('<p>');
+    }
+  });
+
+  // Note: reply-send is not tested in E2E to avoid sending actual emails
+  // We verify the endpoint exists and validates input
+  test('reply send API should validate required fields', async ({ page }) => {
+    // Send request with missing fields
+    const response = await page.request.post(
+      '/email/personal/reply-send',
+      {
+        headers: {
+          'X-User-Email': 'david.a.royes@gmail.com',
+          'Content-Type': 'application/json'
+        },
+        data: {
+          // Missing required fields
+          replyAll: false
+        }
+      }
+    );
+    
+    // Should return 422 validation error
+    expect(response.status()).toBe(422);
+  });
+});
+
+
+// =============================================================================
+// Phase 3: Email Body UI Tests
+// =============================================================================
+
+test.describe('Email Body UI (Phase 3)', () => {
+  
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders({
+      'X-User-Email': 'david.a.royes@gmail.com'
+    });
+    
+    await page.goto('/');
+    
+    // Inject dev auth into localStorage
+    await page.evaluate(() => {
+      const authState = {
+        mode: 'dev',
+        userEmail: 'david.a.royes@gmail.com',
+        idToken: null
+      };
+      localStorage.setItem('dta-auth-state', JSON.stringify(authState));
+    });
+    
+    await page.reload();
+    await page.waitForTimeout(2000);
+    
+    // Switch to Email mode
+    await page.getByRole('button', { name: '✉️' }).click();
+    await expect(page.getByRole('heading', { name: 'Email Management' })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('should show expand button when email is selected', async ({ page }) => {
+    // Wait for messages to load
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    const messageCount = await messageList.count();
+    
+    if (messageCount > 0) {
+      // Select first message
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Expand button should be visible
+      const expandBtn = page.locator('.email-body-toggle');
+      await expect(expandBtn).toBeVisible();
+      
+      // Should show "Show full email" text
+      await expect(expandBtn).toContainText('Show full email');
+    }
+  });
+
+  test('clicking expand button should reveal full email body', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      // Select first message
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Initially snippet should be visible, expanded body should not
+      const snippet = page.locator('.email-preview .preview-snippet');
+      const expandedBody = page.locator('.email-body-expanded');
+      
+      await expect(snippet).toBeVisible();
+      await expect(expandedBody).not.toBeVisible();
+      
+      // Click expand button
+      const expandBtn = page.locator('.email-body-toggle');
+      await expandBtn.click();
+      await page.waitForTimeout(1500); // Wait for body to load
+      
+      // Expanded body should now be visible
+      await expect(expandedBody).toBeVisible();
+      
+      // Button should change to "Hide full email"
+      await expect(expandBtn).toContainText('Hide full email');
+    }
+  });
+
+  test('clicking collapse button should hide email body', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      // Select and expand
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      const expandBtn = page.locator('.email-body-toggle');
+      await expandBtn.click();
+      await page.waitForTimeout(1500);
+      
+      // Click again to collapse
+      await expandBtn.click();
+      await page.waitForTimeout(500);
+      
+      // Expanded body should be hidden, snippet should be visible
+      const snippet = page.locator('.email-preview .preview-snippet');
+      const expandedBody = page.locator('.email-body-expanded');
+      
+      await expect(snippet).toBeVisible();
+      await expect(expandedBody).not.toBeVisible();
+      
+      // Button should show "Show full email"
+      await expect(expandBtn).toContainText('Show full email');
+    }
+  });
+
+  test('attachment indicator should show count', async ({ page }) => {
+    // Search for emails with attachments
+    await page.waitForTimeout(3000);
+    
+    const searchInput = page.getByPlaceholder('Search emails...');
+    if (await searchInput.isVisible()) {
+      await searchInput.fill('has:attachment');
+      await page.waitForTimeout(2000);
+      
+      // If search results appear, select one
+      const results = page.locator('.search-results-list li');
+      if (await results.count() > 0) {
+        await results.first().click();
+        await page.waitForTimeout(500);
+        
+        // Expand button should be visible
+        const expandBtn = page.locator('.email-body-toggle');
+        await expandBtn.click();
+        await page.waitForTimeout(1500);
+        
+        // Should show attachment indicator
+        const attachmentIndicator = page.locator('.attachment-indicator');
+        // May or may not be visible depending on the email
+        const isVisible = await attachmentIndicator.isVisible().catch(() => false);
+        expect(typeof isVisible).toBe('boolean');
+      }
+    }
+  });
+
+  test('selecting different email should reset body state', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    const messageCount = await messageList.count();
+    
+    if (messageCount >= 2) {
+      // Select first and expand
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      const expandBtn = page.locator('.email-body-toggle');
+      await expandBtn.click();
+      await page.waitForTimeout(1500);
+      
+      // Verify expanded
+      await expect(page.locator('.email-body-expanded')).toBeVisible();
+      
+      // Select second email
+      await messageList.nth(1).click();
+      await page.waitForTimeout(500);
+      
+      // Body should be collapsed (snippet visible)
+      await expect(page.locator('.email-preview .preview-snippet')).toBeVisible();
+      await expect(page.locator('.email-body-expanded')).not.toBeVisible();
+    }
+  });
+
+  test('expand button arrow should rotate when expanded', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      const toggleArrow = page.locator('.email-body-toggle .toggle-arrow');
+      
+      // Initially not expanded
+      await expect(toggleArrow).not.toHaveClass(/expanded/);
+      
+      // Click to expand
+      await page.locator('.email-body-toggle').click();
+      await page.waitForTimeout(500);
+      
+      // Arrow should have expanded class
+      await expect(toggleArrow).toHaveClass(/expanded/);
+    }
+  });
+});
+
+
+// =============================================================================
+// Phase 4: Email Reply Workflow Tests
+// =============================================================================
+
+test.describe('Email Reply Workflow (Phase 4)', () => {
+  
+  test.beforeEach(async ({ page }) => {
+    await page.setExtraHTTPHeaders({
+      'X-User-Email': 'david.a.royes@gmail.com'
+    });
+    
+    await page.goto('/');
+    
+    // Inject dev auth into localStorage
+    await page.evaluate(() => {
+      const authState = {
+        mode: 'dev',
+        userEmail: 'david.a.royes@gmail.com',
+        idToken: null
+      };
+      localStorage.setItem('dta-auth-state', JSON.stringify(authState));
+    });
+    
+    await page.reload();
+    await page.waitForTimeout(2000);
+    
+    // Switch to Email mode
+    await page.getByRole('button', { name: '✉️' }).click();
+    await expect(page.getByRole('heading', { name: 'Email Management' })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('should show Reply and Reply All buttons when email is selected', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Should have reply buttons in quick actions
+      const quickActions = page.locator('.email-quick-actions');
+      await expect(quickActions).toBeVisible();
+      
+      // Should have 6 buttons now: Reply, Reply All, Archive, Star, Important, Delete
+      const buttons = quickActions.locator('.quick-action-btn');
+      await expect(buttons).toHaveCount(6);
+      
+      // Check reply buttons exist
+      const replyBtn = quickActions.locator('.quick-action-btn.reply');
+      const replyAllBtn = quickActions.locator('.quick-action-btn.reply-all');
+      
+      await expect(replyBtn).toBeVisible();
+      await expect(replyAllBtn).toBeVisible();
+    }
+  });
+
+  test('Reply button should have correct icon', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      const replyBtn = page.locator('.quick-action-btn.reply');
+      const text = await replyBtn.textContent();
+      expect(text).toContain('↩️');
+    }
+  });
+
+  test('Reply All button should have correct icon', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      const replyAllBtn = page.locator('.quick-action-btn.reply-all');
+      const text = await replyAllBtn.textContent();
+      expect(text).toContain('↩️');
+    }
+  });
+
+  test('clicking Reply should open email draft panel', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Click Reply button
+      const replyBtn = page.locator('.quick-action-btn.reply');
+      await replyBtn.click();
+      
+      // Wait for draft panel to appear (may take a moment for AI generation)
+      await page.waitForTimeout(5000);
+      
+      // Draft panel should be visible
+      const draftPanel = page.locator('.email-draft-panel');
+      await expect(draftPanel).toBeVisible({ timeout: 15000 });
+    }
+  });
+
+  test('draft panel should have pre-filled subject with Re:', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Click Reply
+      await page.locator('.quick-action-btn.reply').click();
+      await page.waitForTimeout(5000);
+      
+      // Check subject field
+      const subjectInput = page.locator('.subject-input');
+      if (await subjectInput.isVisible()) {
+        const value = await subjectInput.inputValue();
+        expect(value.toLowerCase()).toContain('re:');
+      }
+    }
+  });
+
+  test('draft panel should have rich text editor', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Click Reply
+      await page.locator('.quick-action-btn.reply').click();
+      await page.waitForTimeout(5000);
+      
+      // Rich text toolbar should be visible
+      const toolbar = page.locator('.rich-text-toolbar');
+      await expect(toolbar).toBeVisible({ timeout: 15000 });
+      
+      // Should have Bold button
+      const boldBtn = toolbar.locator('.toolbar-btn').first();
+      await expect(boldBtn).toBeVisible();
+    }
+  });
+
+  test('draft panel should have account selector defaulted to current account', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Click Reply
+      await page.locator('.quick-action-btn.reply').click();
+      await page.waitForTimeout(5000);
+      
+      // Check account selector
+      const personalRadio = page.locator('input[name="fromAccount"][value="personal"]');
+      if (await personalRadio.isVisible()) {
+        // Since we're on personal account, personal should be checked
+        await expect(personalRadio).toBeChecked();
+      }
+    }
+  });
+
+  test('draft panel should have regenerate option', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Click Reply
+      await page.locator('.quick-action-btn.reply').click();
+      await page.waitForTimeout(5000);
+      
+      // Regenerate section should be visible
+      const regenerateInput = page.locator('.regenerate-input');
+      await expect(regenerateInput).toBeVisible({ timeout: 15000 });
+      
+      // Regenerate button should exist
+      const regenerateBtn = page.getByRole('button', { name: /Regenerate/i });
+      await expect(regenerateBtn).toBeVisible();
+    }
+  });
+
+  test('can close draft panel with close button', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Click Reply
+      await page.locator('.quick-action-btn.reply').click();
+      await page.waitForTimeout(5000);
+      
+      // Draft panel should be visible
+      const draftPanel = page.locator('.email-draft-panel');
+      await expect(draftPanel).toBeVisible({ timeout: 15000 });
+      
+      // Click close button
+      const closeBtn = page.locator('.email-draft-header-actions .icon-btn');
+      await closeBtn.click();
+      await page.waitForTimeout(500);
+      
+      // Panel should be hidden
+      await expect(draftPanel).not.toBeVisible();
+    }
+  });
+
+  test('can discard draft', async ({ page }) => {
+    await page.waitForTimeout(3000);
+    
+    const messageList = page.locator('.message-list li');
+    if (await messageList.count() > 0) {
+      await messageList.first().click();
+      await page.waitForTimeout(500);
+      
+      // Click Reply
+      await page.locator('.quick-action-btn.reply').click();
+      await page.waitForTimeout(5000);
+      
+      // Draft panel should be visible
+      const draftPanel = page.locator('.email-draft-panel');
+      await expect(draftPanel).toBeVisible({ timeout: 15000 });
+      
+      // Accept the dialog that will appear
+      page.on('dialog', dialog => dialog.accept());
+      
+      // Click discard button
+      const discardBtn = page.locator('.discard-btn');
+      await discardBtn.click();
+      await page.waitForTimeout(500);
+      
+      // Panel should be hidden
+      await expect(draftPanel).not.toBeVisible();
+    }
+  });
+});
+

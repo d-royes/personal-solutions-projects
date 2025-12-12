@@ -19,6 +19,16 @@ MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 
 
 @dataclass(slots=True)
+class AttachmentInfo:
+    """Represents an email attachment metadata."""
+    
+    filename: str
+    mime_type: str
+    size: int  # Size in bytes
+    attachment_id: Optional[str] = None
+
+
+@dataclass(slots=True)
 class EmailMessage:
     """Represents an email message from the inbox."""
     
@@ -32,6 +42,15 @@ class EmailMessage:
     date: datetime
     is_unread: bool
     labels: List[str] = field(default_factory=list)
+    # Full body fields (populated when format="full")
+    body: Optional[str] = None  # Plain text body
+    body_html: Optional[str] = None  # HTML body for display
+    attachment_count: int = 0
+    attachments: List[AttachmentInfo] = field(default_factory=list)
+    # Additional headers for replies
+    cc_address: str = ""
+    message_id_header: str = ""  # For In-Reply-To
+    references: str = ""  # For References header
     
     @property
     def is_important(self) -> bool:
@@ -197,17 +216,22 @@ def get_message(
         account: Gmail account configuration.
         message_id: The message ID to fetch.
         format: Response format - 'minimal', 'metadata', or 'full'.
+                Use 'full' to get body content and attachments.
         
     Returns:
         EmailMessage with parsed headers and metadata.
+        When format='full', includes body, body_html, and attachments.
     """
     access_token = _fetch_access_token(account)
     
-    # Request specific headers we need
+    # Request specific headers we need (for metadata format)
+    # For full format, all headers are included automatically
     url = (
         f"{MESSAGES_URL}/{message_id}?format={format}"
         f"&metadataHeaders=Subject&metadataHeaders=From"
         f"&metadataHeaders=To&metadataHeaders=Date"
+        f"&metadataHeaders=Cc&metadataHeaders=Message-ID"
+        f"&metadataHeaders=References"
     )
     headers = {"Authorization": f"Bearer {access_token}"}
     
@@ -216,7 +240,7 @@ def get_message(
     try:
         with urlrequest.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            return _parse_message(data)
+            return _parse_message(data, include_body=(format == "full"))
     except urlerror.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
         raise GmailError(f"Gmail get failed ({exc.code}): {detail}") from exc
@@ -356,8 +380,16 @@ def search_messages(
     return messages
 
 
-def _parse_message(data: dict) -> EmailMessage:
-    """Parse Gmail API response into EmailMessage."""
+def _parse_message(data: dict, include_body: bool = False) -> EmailMessage:
+    """Parse Gmail API response into EmailMessage.
+    
+    Args:
+        data: Gmail API message response.
+        include_body: If True, extract body and attachments from payload.
+        
+    Returns:
+        EmailMessage with parsed data.
+    """
     headers = data.get("payload", {}).get("headers", [])
     
     def get_header(name: str) -> str:
@@ -381,6 +413,14 @@ def _parse_message(data: dict) -> EmailMessage:
     labels = data.get("labelIds", [])
     is_unread = "UNREAD" in labels
     
+    # Extract body and attachments if requested
+    body = None
+    body_html = None
+    attachments: List[AttachmentInfo] = []
+    
+    if include_body:
+        body, body_html, attachments = _extract_body_and_attachments(data.get("payload", {}))
+    
     return EmailMessage(
         id=data["id"],
         thread_id=data.get("threadId", data["id"]),
@@ -392,6 +432,13 @@ def _parse_message(data: dict) -> EmailMessage:
         date=date,
         is_unread=is_unread,
         labels=labels,
+        body=body,
+        body_html=body_html,
+        attachment_count=len(attachments),
+        attachments=attachments,
+        cc_address=get_header("Cc"),
+        message_id_header=get_header("Message-ID"),
+        references=get_header("References"),
     )
 
 
@@ -421,6 +468,75 @@ def _parse_email_date(date_str: str) -> datetime:
             except ValueError:
                 continue
         return datetime.now(timezone.utc)
+
+
+def _extract_body_and_attachments(
+    payload: dict,
+) -> tuple[Optional[str], Optional[str], List[AttachmentInfo]]:
+    """Extract body content and attachments from Gmail message payload.
+    
+    Handles multipart MIME structures recursively.
+    
+    Args:
+        payload: The 'payload' field from Gmail API message response.
+        
+    Returns:
+        Tuple of (plain_text_body, html_body, attachments_list).
+    """
+    import base64
+    
+    body_plain: Optional[str] = None
+    body_html: Optional[str] = None
+    attachments: List[AttachmentInfo] = []
+    
+    def decode_body(data: str) -> str:
+        """Decode base64url encoded body data."""
+        # Gmail uses URL-safe base64 encoding
+        try:
+            decoded = base64.urlsafe_b64decode(data)
+            return decoded.decode("utf-8", errors="replace")
+        except Exception:
+            return ""
+    
+    def process_part(part: dict) -> None:
+        """Process a single MIME part recursively."""
+        nonlocal body_plain, body_html
+        
+        mime_type = part.get("mimeType", "")
+        filename = part.get("filename", "")
+        
+        # Check if this is an attachment
+        if filename:
+            # This is an attachment
+            body_data = part.get("body", {})
+            attachments.append(AttachmentInfo(
+                filename=filename,
+                mime_type=mime_type,
+                size=body_data.get("size", 0),
+                attachment_id=body_data.get("attachmentId"),
+            ))
+            return
+        
+        # Check for nested parts (multipart)
+        if "parts" in part:
+            for sub_part in part["parts"]:
+                process_part(sub_part)
+            return
+        
+        # Extract body content
+        body_data = part.get("body", {}).get("data", "")
+        if not body_data:
+            return
+        
+        if mime_type == "text/plain" and body_plain is None:
+            body_plain = decode_body(body_data)
+        elif mime_type == "text/html" and body_html is None:
+            body_html = decode_body(body_data)
+    
+    # Start processing from the root payload
+    process_part(payload)
+    
+    return body_plain, body_html, attachments
 
 
 # =============================================================================

@@ -8,6 +8,7 @@ from .gmail import (
 )
 
 from .inbox import (
+    AttachmentInfo,
     EmailMessage,
     InboxSummary,
     GmailLabel,
@@ -42,6 +43,7 @@ __all__ = [
     "load_account_from_env",
     "send_email",
     # Inbox reading
+    "AttachmentInfo",
     "EmailMessage",
     "InboxSummary",
     "GmailLabel",

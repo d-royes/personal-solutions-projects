@@ -1906,9 +1906,17 @@ class InboxSummaryModel(BaseModel):
     vip_messages: List[EmailMessageModel] = Field(alias="vipMessages")
 
 
-def _email_to_model(msg) -> dict:
-    """Convert EmailMessage to dict for API response."""
-    return {
+def _email_to_model(msg, include_body: bool = False) -> dict:
+    """Convert EmailMessage to dict for API response.
+    
+    Args:
+        msg: EmailMessage object.
+        include_body: If True, include body content and attachments.
+        
+    Returns:
+        Dict representation for JSON response.
+    """
+    result = {
         "id": msg.id,
         "threadId": msg.thread_id,
         "fromAddress": msg.from_address,
@@ -1921,7 +1929,27 @@ def _email_to_model(msg) -> dict:
         "isImportant": msg.is_important,
         "isStarred": msg.is_starred,
         "ageHours": round(msg.age_hours(), 2),
+        "labels": msg.labels,
     }
+    
+    if include_body:
+        result["body"] = msg.body
+        result["bodyHtml"] = msg.body_html
+        result["ccAddress"] = msg.cc_address
+        result["messageIdHeader"] = msg.message_id_header
+        result["references"] = msg.references
+        result["attachmentCount"] = msg.attachment_count
+        result["attachments"] = [
+            {
+                "filename": a.filename,
+                "mimeType": a.mime_type,
+                "size": a.size,
+                "attachmentId": a.attachment_id,
+            }
+            for a in (msg.attachments or [])
+        ]
+    
+    return result
 
 
 @app.get("/inbox/{account}")
@@ -2039,6 +2067,168 @@ def search_inbox(
         "count": len(messages),
         "messages": [_email_to_model(m) for m in messages],
     }
+
+
+@app.get("/email/{account}/message/{message_id}")
+def get_email_full(
+    account: Literal["church", "personal"],
+    message_id: str,
+    full: bool = Query(True, description="Include full body content"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get a single email message with optional full body content.
+    
+    When full=True, includes:
+    - Plain text and HTML body
+    - CC recipients
+    - Message-ID and References headers (for replying)
+    - Attachment metadata
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        get_message,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    try:
+        # Use "full" format to get body content
+        format_type = "full" if full else "metadata"
+        msg = get_message(gmail_config, message_id, format=format_type)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    return {
+        "account": account,
+        "message": _email_to_model(msg, include_body=full),
+    }
+
+
+@app.get("/email/{account}/thread/{thread_id}")
+def get_thread_context(
+    account: Literal["church", "personal"],
+    thread_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get thread context for composing a reply.
+    
+    Returns all messages in the thread with:
+    - An AI-summarized thread context (for long threads)
+    - The full content of the most recent message
+    - A condensed view of earlier messages
+    
+    This helps DATA understand the conversation context without
+    loading excessive data.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        get_message,
+    )
+    
+    try:
+        gmail_config = load_account_from_env(account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    # Get thread messages via Gmail API
+    access_token = None
+    try:
+        from daily_task_assistant.mailer.gmail import _fetch_access_token
+        import json
+        from urllib import request as urlrequest
+        from urllib import error as urlerror
+        
+        access_token = _fetch_access_token(gmail_config)
+        
+        # Fetch the thread
+        thread_url = f"https://gmail.googleapis.com/gmail/v1/users/me/threads/{thread_id}?format=full"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        
+        req = urlrequest.Request(thread_url, headers=headers, method="GET")
+        with urlrequest.urlopen(req, timeout=30) as resp:
+            thread_data = json.loads(resp.read().decode("utf-8"))
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise HTTPException(status_code=502, detail=f"Gmail API error ({exc.code}): {detail}")
+    except urlerror.URLError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail network error: {exc}")
+    
+    # Parse messages from thread
+    from daily_task_assistant.mailer.inbox import _parse_message
+    
+    thread_messages = []
+    for msg_data in thread_data.get("messages", []):
+        msg = _parse_message(msg_data, include_body=True)
+        thread_messages.append(msg)
+    
+    # Sort by date (oldest first for reading context)
+    thread_messages.sort(key=lambda m: m.date)
+    
+    # Build condensed context for older messages, full body for most recent
+    messages_for_response = []
+    for i, msg in enumerate(thread_messages):
+        is_latest = (i == len(thread_messages) - 1)
+        messages_for_response.append(_email_to_model(msg, include_body=is_latest))
+    
+    # Generate AI summary for long threads (>3 messages)
+    thread_summary = None
+    if len(thread_messages) > 3:
+        thread_summary = _summarize_thread(thread_messages)
+    
+    return {
+        "account": account,
+        "threadId": thread_id,
+        "messageCount": len(thread_messages),
+        "summary": thread_summary,
+        "messages": messages_for_response,
+    }
+
+
+def _summarize_thread(messages: list) -> str:
+    """Generate a brief summary of an email thread.
+    
+    Uses a lightweight summarization to provide context without
+    overwhelming the reply generation prompt.
+    """
+    # Build a simple text representation of the thread
+    thread_text_parts = []
+    for msg in messages[:-1]:  # Exclude the last message (which will be shown in full)
+        sender = msg.from_name or msg.from_address
+        date_str = msg.date.strftime("%b %d")
+        body_preview = (msg.body or msg.snippet or "")[:200]
+        if len(msg.body or msg.snippet or "") > 200:
+            body_preview += "..."
+        thread_text_parts.append(f"[{date_str}] {sender}: {body_preview}")
+    
+    thread_text = "\n\n".join(thread_text_parts)
+    
+    # For now, return a structured summary without AI
+    # This can be upgraded to use Gemini Flash for longer threads
+    if len(thread_text_parts) <= 5:
+        return f"Thread with {len(messages)} messages. Earlier exchanges:\n" + thread_text
+    
+    # For very long threads, try AI summarization
+    try:
+        from daily_task_assistant.llm.anthropic_client import get_client
+        
+        client = get_client()
+        response = client.messages.create(
+            model="claude-3-haiku-20240307",  # Fast, cheap model for summarization
+            max_tokens=300,
+            system="You are summarizing an email thread to help someone write a reply. Be concise and focus on: (1) Main topic, (2) Key points discussed, (3) Any action items or questions raised. Keep it under 100 words.",
+            messages=[
+                {"role": "user", "content": f"Summarize this email thread:\n\n{thread_text}"}
+            ],
+        )
+        return response.content[0].text
+    except Exception:
+        # Fall back to simple summary if AI fails
+        return f"Thread with {len(messages)} messages discussing: {messages[0].subject}"
 
 
 # --- Email Management endpoints ---
@@ -2556,6 +2746,205 @@ def mark_email_read(
         "account": account,
         "messageId": message_id,
         "labels": result.get("labelIds", []),
+    }
+
+
+# --- Email Reply Endpoints ---
+
+class ReplyDraftRequest(BaseModel):
+    """Request body for generating a reply draft."""
+    model_config = {"populate_by_name": True}
+    
+    message_id: str = Field(..., alias="messageId")
+    reply_all: bool = Field(False, alias="replyAll")
+    user_context: Optional[str] = Field(None, alias="userContext", description="Optional notes about what to include in the reply")
+
+
+class ReplySendRequest(BaseModel):
+    """Request body for sending a reply."""
+    model_config = {"populate_by_name": True}
+    
+    message_id: str = Field(..., alias="messageId")
+    reply_all: bool = Field(False, alias="replyAll")
+    subject: str
+    body: str
+    cc: Optional[List[str]] = None
+
+
+@app.post("/email/{account}/reply-draft")
+def generate_reply_draft(
+    account: Literal["church", "personal"],
+    request: ReplyDraftRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Generate a human-like reply draft using DATA.
+    
+    Fetches the original email, optional thread context, and generates
+    a natural reply that matches David's communication style.
+    
+    Returns:
+        Draft with subject, body (plain and HTML), and recipient lists.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        get_message,
+    )
+    from daily_task_assistant.llm.anthropic_client import (
+        generate_email_reply_draft,
+        AnthropicError,
+    )
+    
+    # Load Gmail config
+    try:
+        gmail_config = load_account_from_env(account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    # Fetch the original email with full body
+    try:
+        original_msg = get_message(gmail_config, request.message_id, format="full")
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    # Build email context dict
+    email_context = {
+        "fromAddress": original_msg.from_address,
+        "fromName": original_msg.from_name,
+        "toAddress": original_msg.to_address,
+        "ccAddress": original_msg.cc_address,
+        "subject": original_msg.subject,
+        "body": original_msg.body or original_msg.snippet,
+        "date": original_msg.date.isoformat(),
+    }
+    
+    # Get thread context for multi-message threads
+    thread_summary = None
+    if original_msg.thread_id:
+        # Fetch thread to check if there are multiple messages
+        try:
+            import json
+            from urllib import request as urlrequest
+            from urllib import error as urlerror
+            from daily_task_assistant.mailer.gmail import _fetch_access_token
+            
+            access_token = _fetch_access_token(gmail_config)
+            thread_url = f"https://gmail.googleapis.com/gmail/v1/users/me/threads/{original_msg.thread_id}?format=metadata"
+            headers = {"Authorization": f"Bearer {access_token}"}
+            
+            req = urlrequest.Request(thread_url, headers=headers, method="GET")
+            with urlrequest.urlopen(req, timeout=15) as resp:
+                thread_data = json.loads(resp.read().decode("utf-8"))
+                
+            message_count = len(thread_data.get("messages", []))
+            if message_count > 1:
+                # Fetch full thread context
+                thread_response = get_thread_context(account, original_msg.thread_id, user)
+                thread_summary = thread_response.get("summary")
+        except Exception:
+            pass  # Continue without thread context
+    
+    # Generate reply draft
+    try:
+        draft = generate_email_reply_draft(
+            original_email=email_context,
+            thread_context=thread_summary,
+            user_instructions=request.user_context,
+            reply_all=request.reply_all,
+        )
+    except AnthropicError as exc:
+        raise HTTPException(status_code=502, detail=f"AI generation error: {exc}")
+    
+    return {
+        "account": account,
+        "originalMessageId": request.message_id,
+        "draft": {
+            "subject": draft.subject,
+            "body": draft.body,
+            "bodyHtml": draft.body_html,
+            "to": draft.to_addresses,
+            "cc": draft.cc_addresses,
+        },
+    }
+
+
+@app.post("/email/{account}/reply-send")
+def send_reply(
+    account: Literal["church", "personal"],
+    request: ReplySendRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Send a reply to an email with proper threading headers.
+    
+    Uses the original message's Message-ID and References headers
+    to maintain proper email thread structure in Gmail.
+    """
+    from daily_task_assistant.mailer import (
+        GmailError,
+        load_account_from_env,
+        get_message,
+        send_email,
+    )
+    
+    # Load Gmail config
+    try:
+        gmail_config = load_account_from_env(account)
+    except GmailError as exc:
+        raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
+    
+    # Fetch original message to get threading headers
+    try:
+        original_msg = get_message(gmail_config, request.message_id, format="full")
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+    
+    # Build recipient list
+    to_address = original_msg.from_address
+    cc_address = None
+    
+    if request.reply_all:
+        # Include original CC recipients
+        cc_parts = []
+        if original_msg.cc_address:
+            cc_parts.append(original_msg.cc_address)
+        if request.cc:
+            cc_parts.extend(request.cc)
+        if cc_parts:
+            cc_address = ", ".join(cc_parts)
+    elif request.cc:
+        cc_address = ", ".join(request.cc)
+    
+    # Build References header (existing references + original Message-ID)
+    references = original_msg.references
+    if original_msg.message_id_header:
+        if references:
+            references = f"{references} {original_msg.message_id_header}"
+        else:
+            references = original_msg.message_id_header
+    
+    # Send the reply
+    try:
+        sent_id = send_email(
+            gmail_config,
+            to_address=to_address,
+            subject=request.subject,
+            body=request.body,
+            cc_address=cc_address,
+            in_reply_to=original_msg.message_id_header,
+            references=references,
+            thread_id=original_msg.thread_id,
+        )
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail send error: {exc}")
+    
+    return {
+        "status": "sent",
+        "account": account,
+        "sentMessageId": sent_id,
+        "originalMessageId": request.message_id,
+        "threadId": original_msg.thread_id,
+        "to": to_address,
+        "cc": cc_address,
     }
 
 

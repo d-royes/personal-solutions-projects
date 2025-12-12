@@ -2008,3 +2008,173 @@ export async function getEmailActionSuggestions(
   }
   return resp.json()
 }
+
+
+// =============================================================================
+// Email Full Message and Reply API Functions
+// =============================================================================
+
+import type { EmailReplyDraft } from './types'
+
+export interface FullMessageResponse {
+  account: EmailAccount
+  message: EmailMessage
+}
+
+/**
+ * Fetch a single email message with optional full body content.
+ */
+export async function getEmailFull(
+  account: EmailAccount,
+  messageId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  full: boolean = true,
+): Promise<FullMessageResponse> {
+  const url = new URL(`/email/${account}/message/${messageId}`, baseUrl)
+  url.searchParams.set('full', String(full))
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get email failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+export interface ThreadContextResponse {
+  account: EmailAccount
+  threadId: string
+  messageCount: number
+  summary: string | null
+  messages: Array<{
+    id: string
+    threadId: string
+    fromAddress: string
+    fromName: string
+    subject: string
+    snippet: string
+    date: string
+    body?: string
+    bodyHtml?: string
+  }>
+}
+
+/**
+ * Fetch thread context for composing a reply.
+ * Returns all messages in the thread with an optional AI summary.
+ */
+export async function getThreadContext(
+  account: EmailAccount,
+  threadId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<ThreadContextResponse> {
+  const url = new URL(`/email/${account}/thread/${threadId}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get thread context failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+export interface ReplyDraftRequest {
+  messageId: string
+  replyAll: boolean
+  userContext?: string
+}
+
+export interface ReplyDraftResponse {
+  account: EmailAccount
+  originalMessageId: string
+  draft: EmailReplyDraft
+}
+
+/**
+ * Generate a human-like reply draft using DATA.
+ */
+export async function generateReplyDraft(
+  account: EmailAccount,
+  request: ReplyDraftRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<ReplyDraftResponse> {
+  const url = new URL(`/email/${account}/reply-draft`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      messageId: request.messageId,
+      replyAll: request.replyAll,
+      userContext: request.userContext,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Generate reply draft failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+export interface ReplySendRequest {
+  messageId: string
+  replyAll: boolean
+  subject: string
+  body: string
+  cc?: string[]
+}
+
+export interface ReplySendResponse {
+  status: 'sent'
+  account: EmailAccount
+  sentMessageId: string
+  originalMessageId: string
+  threadId: string
+  to: string
+  cc: string | null
+}
+
+/**
+ * Send a reply to an email with proper threading headers.
+ */
+export async function sendReply(
+  account: EmailAccount,
+  request: ReplySendRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<ReplySendResponse> {
+  const url = new URL(`/email/${account}/reply-send`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      messageId: request.messageId,
+      replyAll: request.replyAll,
+      subject: request.subject,
+      body: request.body,
+      cc: request.cc,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Send reply failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}

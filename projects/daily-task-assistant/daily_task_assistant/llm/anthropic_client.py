@@ -1789,3 +1789,193 @@ def extract_task_from_email(
     
     return result
 
+
+# =============================================================================
+# Email Reply Draft Generation
+# =============================================================================
+
+EMAIL_REPLY_SYSTEM_PROMPT = """You are helping David compose an email reply. Your goal is to draft a natural, human-like response.
+
+CRITICAL RULES:
+1. NEVER use AI-isms like "I hope this email finds you well", "Please let me know if you have any questions", "I would be happy to assist"
+2. Write in David's voice - professional but warm, direct but respectful
+3. Match the tone and formality of the original email
+4. Keep it concise - get to the point quickly
+5. Use bullet points when they help organize information (David prefers them for clarity)
+6. End naturally without clichéd sign-offs
+
+FORMATTING:
+- Use appropriate greeting based on relationship (context will indicate formality level)
+- For close contacts: "Hi [Name]," or just "[Name],"
+- For formal: "Hello [Name]," or "Good morning/afternoon,"
+- Include relevant signature: "David" for personal, or appropriate title for work/church
+
+STRUCTURE YOUR RESPONSE:
+1. Brief acknowledgment (if replying to question/request)
+2. Main content - address each point from the original email
+3. Any questions or next steps needed
+4. Natural closing
+
+Remember: This should read like a human wrote it, not an AI assistant. Be conversational but efficient."""
+
+
+@dataclass(slots=True)
+class EmailReplyDraft:
+    """Generated email reply draft."""
+    subject: str
+    body: str
+    body_html: Optional[str] = None
+    to_addresses: List[str] = None  # type: ignore
+    cc_addresses: List[str] = None  # type: ignore
+    
+    def __post_init__(self):
+        if self.to_addresses is None:
+            self.to_addresses = []
+        if self.cc_addresses is None:
+            self.cc_addresses = []
+
+
+def generate_email_reply_draft(
+    original_email: Dict[str, Any],
+    thread_context: Optional[str] = None,
+    user_instructions: Optional[str] = None,
+    reply_all: bool = False,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> EmailReplyDraft:
+    """Generate a human-like email reply draft.
+    
+    Args:
+        original_email: Dict with keys: fromAddress, fromName, toAddress, ccAddress, 
+                       subject, body (or snippet), date
+        thread_context: Optional AI-summarized thread context for multi-message threads
+        user_instructions: Optional instructions from David about what to include
+        reply_all: If True, include CC recipients in the reply
+        client: Optional pre-built Anthropic client
+        config: Optional configuration override
+    
+    Returns:
+        EmailReplyDraft with generated subject, body, and recipient lists
+    """
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+    
+    # Build context for the AI
+    sender_name = original_email.get("fromName") or original_email.get("fromAddress", "")
+    sender_email = original_email.get("fromAddress", "")
+    original_subject = original_email.get("subject", "")
+    original_body = original_email.get("body") or original_email.get("snippet", "")
+    original_cc = original_email.get("ccAddress", "")
+    
+    context_parts = [
+        f"ORIGINAL EMAIL:",
+        f"From: {sender_name} <{sender_email}>",
+        f"Subject: {original_subject}",
+        f"Date: {original_email.get('date', 'Unknown')}",
+    ]
+    
+    if original_cc:
+        context_parts.append(f"CC: {original_cc}")
+    
+    context_parts.append(f"\nBody:\n{original_body}")
+    
+    if thread_context:
+        context_parts.insert(0, f"THREAD CONTEXT:\n{thread_context}\n\n---\n")
+    
+    email_context = "\n".join(context_parts)
+    
+    # Build the prompt
+    user_prompt_parts = [
+        f"Please draft a reply to this email:\n\n{email_context}"
+    ]
+    
+    if user_instructions:
+        user_prompt_parts.append(f"\nDAVID'S INSTRUCTIONS:\n{user_instructions}")
+    else:
+        user_prompt_parts.append("\nProvide a thoughtful, human-like response addressing the email content.")
+    
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=1500,
+            temperature=0.7,  # Slightly higher for more natural variation
+            system=EMAIL_REPLY_SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": "\n".join(user_prompt_parts)
+            }],
+        )
+    except Exception as exc:
+        raise AnthropicError(f"Email reply generation failed: {exc}") from exc
+    
+    # Extract the generated reply
+    body_text = ""
+    for block in getattr(response, "content", []):
+        if getattr(block, "type", None) == "text":
+            body_text += getattr(block, "text", "")
+    
+    body_text = body_text.strip()
+    
+    # Build recipient lists
+    to_addresses = [sender_email] if sender_email else []
+    cc_addresses = []
+    
+    if reply_all and original_cc:
+        # Parse CC addresses (can be comma-separated)
+        cc_parts = [addr.strip() for addr in original_cc.split(",")]
+        cc_addresses = [addr for addr in cc_parts if addr]
+    
+    # Build subject (add Re: if not already present)
+    subject = original_subject
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+    
+    return EmailReplyDraft(
+        subject=subject,
+        body=body_text,
+        body_html=_convert_to_simple_html(body_text),
+        to_addresses=to_addresses,
+        cc_addresses=cc_addresses,
+    )
+
+
+def _convert_to_simple_html(text: str) -> str:
+    """Convert plain text to simple HTML for email.
+    
+    Handles:
+    - Paragraphs (double newlines)
+    - Line breaks
+    - Bullet points (lines starting with - or *)
+    """
+    import html
+    
+    # Escape HTML entities
+    text = html.escape(text)
+    
+    # Split into paragraphs
+    paragraphs = text.split("\n\n")
+    html_parts = []
+    
+    for para in paragraphs:
+        lines = para.split("\n")
+        
+        # Check if this is a bullet list
+        is_list = all(line.strip().startswith(("-", "*", "•")) for line in lines if line.strip())
+        
+        if is_list and lines:
+            list_items = []
+            for line in lines:
+                # Remove bullet character and whitespace
+                item_text = line.strip().lstrip("-*•").strip()
+                if item_text:
+                    list_items.append(f"<li>{item_text}</li>")
+            if list_items:
+                html_parts.append(f"<ul>{''.join(list_items)}</ul>")
+        else:
+            # Regular paragraph with line breaks
+            para_html = "<br>".join(lines)
+            html_parts.append(f"<p>{para_html}</p>")
+    
+    return "".join(html_parts)
+

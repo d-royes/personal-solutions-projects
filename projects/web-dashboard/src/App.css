@@ -2623,6 +2623,107 @@ button:not(:disabled):hover {
   min-height: 120px;
 }
 
+/* Rich Text Editor Toolbar */
+.rich-text-toolbar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  background: rgba(30, 27, 75, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  flex-wrap: wrap;
+}
+
+.toolbar-btn {
+  padding: 0.35rem 0.6rem;
+  min-width: 32px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  color: rgba(226, 232, 240, 0.8);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toolbar-btn:hover {
+  background: rgba(99, 102, 241, 0.3);
+}
+
+.toolbar-btn.active {
+  background: rgba(99, 102, 241, 0.4);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.toolbar-separator {
+  width: 1px;
+  background: rgba(99, 102, 241, 0.2);
+  margin: 0 0.25rem;
+}
+
+/* Rich Text Editor Container */
+.email-rich-editor-container {
+  flex: 1;
+  min-height: 150px;
+  background: rgba(30, 27, 75, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 0 0 8px 8px;
+  overflow: auto;
+}
+
+.email-rich-editor {
+  padding: 0.75rem;
+  min-height: 140px;
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.9);
+  line-height: 1.5;
+}
+
+.email-rich-editor:focus {
+  outline: none;
+}
+
+.email-rich-editor p {
+  margin: 0 0 0.5em 0;
+}
+
+.email-rich-editor p:last-child {
+  margin-bottom: 0;
+}
+
+.email-rich-editor ul,
+.email-rich-editor ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.email-rich-editor li {
+  margin: 0.25em 0;
+}
+
+.email-rich-editor a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+.email-rich-editor strong {
+  font-weight: 600;
+}
+
+.email-rich-editor em {
+  font-style: italic;
+}
+
+/* Placeholder text */
+.email-rich-editor p.is-editor-empty:first-child::before {
+  content: 'Compose your email...';
+  color: rgba(148, 163, 184, 0.5);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
 .email-draft-regenerate {
   display: flex;
   gap: 0.5rem;
@@ -4992,6 +5093,105 @@ button:not(:disabled):hover {
   overflow: hidden;
 }
 
+/* Expandable email body */
+.email-body-expanded {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.email-body-expanded .loading-body {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+.email-body-expanded .email-body-html {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.85);
+  line-height: 1.5;
+}
+
+.email-body-expanded .email-body-html p {
+  margin: 0.5rem 0;
+}
+
+.email-body-expanded .email-body-html ul,
+.email-body-expanded .email-body-html ol {
+  margin: 0.5rem 0 0.5rem 1.5rem;
+  padding: 0;
+}
+
+.email-body-expanded .email-body-html a {
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.email-body-expanded .email-body-html a:hover {
+  text-decoration: underline;
+}
+
+.email-body-expanded .email-body-text {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.85);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Email body expand/collapse toggle */
+.email-body-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+  background: transparent;
+  border: 1px dashed rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.email-body-toggle:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.email-body-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.email-body-toggle .toggle-arrow {
+  font-size: 0.7rem;
+  transition: transform 0.2s ease;
+}
+
+.email-body-toggle .toggle-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+.email-body-toggle .toggle-text {
+  flex: 1;
+  text-align: left;
+}
+
+.email-body-toggle .attachment-indicator {
+  background: rgba(99, 102, 241, 0.2);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
+
 /* Quick action buttons */
 .email-quick-actions {
   display: flex;
@@ -5020,6 +5220,18 @@ button:not(:disabled):hover {
 .quick-action-btn.delete:hover {
   background: rgba(239, 68, 68, 0.3);
   border-color: rgba(239, 68, 68, 0.4);
+}
+
+.quick-action-btn.reply,
+.quick-action-btn.reply-all {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.quick-action-btn.reply:hover,
+.quick-action-btn.reply-all:hover {
+  background: rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.5);
 }
 
 /* Placeholder for Phase 4 */

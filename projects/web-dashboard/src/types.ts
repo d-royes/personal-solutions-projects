@@ -120,6 +120,13 @@ export interface AttentionItem {
   extractedTask?: string
 }
 
+export interface AttachmentInfo {
+  filename: string
+  mimeType: string
+  size: number
+  attachmentId?: string
+}
+
 export interface EmailMessage {
   id: string
   threadId: string
@@ -133,6 +140,15 @@ export interface EmailMessage {
   isImportant: boolean
   isStarred: boolean
   ageHours: number
+  labels: string[]
+  // Full body fields (populated when requesting full message)
+  body?: string
+  bodyHtml?: string
+  ccAddress?: string
+  messageIdHeader?: string
+  references?: string
+  attachmentCount?: number
+  attachments?: AttachmentInfo[]
 }
 
 export interface InboxSummary {
@@ -181,5 +197,47 @@ export interface FirestoreTask {
   sourceEmailId: string | null
   sourceEmailAccount: string | null
   sourceEmailSubject: string | null
+}
+
+// Email Reply Types
+export interface EmailReplyDraft {
+  subject: string
+  body: string
+  bodyHtml?: string
+  to: string[]
+  cc: string[]
+}
+
+export interface ReplyDraftRequest {
+  messageId: string
+  replyAll: boolean
+  userContext?: string
+}
+
+export interface ReplySendRequest {
+  messageId: string
+  replyAll: boolean
+  subject: string
+  body: string
+  cc?: string[]
+}
+
+export interface ThreadContextMessage {
+  id: string
+  threadId: string
+  fromAddress: string
+  fromName: string
+  subject: string
+  snippet: string
+  date: string
+  body?: string
+  bodyHtml?: string
+}
+
+export interface ThreadContext {
+  threadId: string
+  messageCount: number
+  summary?: string
+  messages: ThreadContextMessage[]
 }
 
