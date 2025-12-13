@@ -91,6 +91,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
+| **Dismissed Attention Cache** | Track dismissed attention items (email IDs) so they don't resurface in subsequent scans. 7-day TTL to keep storage bounded. Could use Firestore or local cache. Prevents nagging about emails user has already reviewed and decided don't need action. | - |
 | Bulk Task Prioritization | Allow DATA to analyze all open tasks and propose realistic due date distribution over 1-2 weeks based on priority and estimated hours. Batch update capability. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
 
 ### Low Priority

@@ -197,9 +197,12 @@ class EmailAnalyzer:
     ]
     
     # Patterns that indicate attention needed
+    # Note: Soft exclusions (prayer requests, newsletters, etc.) are handled by
+    # NOT including them as triggers - they can still appear if other patterns match.
     ATTENTION_PATTERNS = [
         (r"\?$", "Question asked"),
-        (r"\bplease\s+\w+", "Request detected"),
+        # Specific action requests (not generic "please add" which catches prayer requests)
+        (r"\bplease\s+(review|approve|confirm|check|update|submit)\b", "Action requested"),
         (r"\basap\b", "Urgent - ASAP mentioned"),
         (r"\burgent\b", "Urgent flag"),
         (r"\bdeadline\b", "Deadline mentioned"),
@@ -215,11 +218,16 @@ class EmailAnalyzer:
         (r"\boverdue\b", "Overdue item"),
         (r"\bneed(s)?\s+attention\b", "Needs attention"),
         (r"\baction\s+(required|needed)\b", "Action required"),
-        (r"\bpending\s+(request|approval|action|review)\b", "Pending item needs action"),
-        (r"\brequires?\s+(your\s+)?(attention|action|review|approval)\b", "Requires your attention"),
+        (r"\bpending\s+(request|purchase|approval|action|review|delivery)\b", "Pending item"),
+        (r"\brequires?\s+(your\s+)?(attention|action|review|approval)\b", "Requires attention"),
         (r"\breminder\b", "Reminder"),
         (r"\bimportant:\b", "Flagged as important"),
         (r"\bfyi\b", "FYI - for your information"),
+        # Patterns from inbox analysis (David approved 2024-12-12)
+        (r"\bawaiting\s+(delivery|approval|response|review)\b", "Awaiting action"),
+        (r"\bapproval\s+status\b", "Approval status - needs review"),
+        (r"^fwd?:", "Forwarded - may need action"),
+        (r"\binvoice\b", "Invoice - track for payment"),
     ]
     
     # Known junk patterns
