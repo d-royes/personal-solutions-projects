@@ -10,6 +10,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.1] - 2025-12-12
+
+### 🔍 Smarter Email Attention Detection
+
+This release significantly improves the email attention detection system with broader scanning and more accurate pattern matching.
+
+### Added
+
+#### Broader Email Scanning
+- **Account-specific label scanning**: Attention scan now looks beyond inbox
+  - **Church**: Scans Admin, Ministry Comms, Personal, Unknown labels
+  - **Personal**: Scans 1 Week Hold, Admin, Transactional, Personal labels
+  - Excludes Junk, Promotional, Trash from scanning
+  - Uses 7-day lookback window
+
+#### New Attention Patterns
+Based on analysis of real inbox data:
+- `pending purchase request` - Procurement reminders
+- `awaiting delivery/approval/response/review` - Items waiting on action
+- `approval status` - Purchase orders needing review
+- `fwd:` prefix - Forwarded emails (potential delegations)
+- `invoice` - Proactive payment tracking (catch before past due)
+
+#### Enhanced UI
+- **Labels on Attention cards**: Email labels now displayed as badges on attention items
+- **Task status in Dashboard**: Email cards show `📋 PENDING` / `IN_PROGRESS` / `COMPLETED` badge when task exists
+  - Consistent styling between Dashboard and Attention tabs
+  - Prevents duplicate task creation
+
+### Changed
+- **Refined "please" pattern**: Now only triggers on action verbs (review, approve, confirm, check, update, submit)
+  - Avoids false positives from "please add" in prayer requests
+- **Soft exclusions**: Prayer requests, newsletters, elder assignments, weekly notifications don't trigger attention on their own
+
+### Fixed
+- **Email detail panel**: Selecting an email from Attention tab now correctly displays in DATA panel
+  - Added `fetchedEmail` state to store full email details for non-inbox emails
+
+### Backlog
+- Added "Dismissed Attention Cache" feature (Medium Priority)
+  - Track dismissed email IDs with 7-day TTL
+  - Prevents nagging about already-reviewed emails
+
+---
+
 ## [0.3.0] - 2025-12-12
 
 ### 🚀 Email Reply Feature & Enhanced Email-Task Integration
@@ -169,7 +214,8 @@ This release marks the first successful automated deployment to staging using ou
 
 | Version | Date | Milestone |
 |---------|------|-----------|
-| 0.3.0 | 2025-12-12 | **Email Reply Feature & Email-Task Integration** |
+| 0.3.1 | 2025-12-12 | **Smarter Email Attention Detection** |
+| 0.3.0 | 2025-12-12 | Email Reply Feature & Email-Task Integration |
 | 0.2.1 | 2025-12-03 | First production deployment |
 | 0.2.0 | 2025-12-02 | First CI/CD staging deployment |
 | 0.1.0 | 2025-11-XX | Initial development release |
