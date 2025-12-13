@@ -49,6 +49,19 @@ ALLOWED_ORIGINS = [
     "https://dailytaskassistant.ai",
     "https://www.dailytaskassistant.ai",
 ]
+
+# Account-specific labels to include in attention scanning
+# These labels may contain action items that automations have filed away
+ATTENTION_SCAN_CONFIG = {
+    "church": {
+        "include": ["Admin", "Ministry Comms", "Personal", "Unknown"],
+        "exclude": ["Junk", "Promotional", "Trash"],
+    },
+    "personal": {
+        "include": ["1 Week Hold", "Admin", "Transactional", "Personal"],
+        "exclude": ["Junk", "Promotional", "Trash"],
+    },
+}
 origins = [origin for origin in ALLOWED_ORIGINS if origin]
 
 if origins:
@@ -2445,11 +2458,36 @@ def analyze_inbox(
     except GmailError as exc:
         raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
     
+    # Build account-specific query to scan beyond just inbox
+    # This catches action items that automations have filed to labels
+    config = ATTENTION_SCAN_CONFIG.get(account, {"include": [], "exclude": []})
+    
+    # Build label inclusion part (inbox + action-oriented labels)
+    label_parts = ["in:inbox"]
+    for label in config["include"]:
+        # Handle labels with spaces
+        if " " in label:
+            label_parts.append(f'label:"{label}"')
+        else:
+            label_parts.append(f"label:{label}")
+    
+    # Build exclusion part (skip junk/promotional)
+    exclude_parts = ["-in:spam"]
+    for label in config["exclude"]:
+        exclude_parts.append(f"-label:{label}")
+    
+    # Combine into query: recent emails in action-oriented locations
+    action_labels_query = (
+        f"newer_than:7d {' '.join(exclude_parts)} ({' OR '.join(label_parts)})"
+    )
+    
+    logger.info(f"[analyze_inbox] Query for {account}: {action_labels_query}")
+    
     # Get recent messages for analysis
     try:
         messages = search_messages(
             gmail_config,
-            query="in:inbox",
+            query=action_labels_query,
             max_results=max_messages,
         )
     except GmailError as exc:
