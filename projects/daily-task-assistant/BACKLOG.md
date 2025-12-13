@@ -97,6 +97,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
+| **Email Management Settings Page** | Admin settings to configure: time window for attention scanning (7d, 14d, 30d), labels to include/exclude from attention scan per account, notification preferences. Currently hardcoded in ATTENTION_SCAN_CONFIG. | - |
 | Feedback Summary View | Admin menu view to see aggregated feedback statistics and patterns. | - |
 | Save Contact Feature | Save frequently used contacts for quick access in email drafting. Contact management in admin menu. | - |
 | Custom AI-Generated Actions | After Plan generation, DATA suggests context-specific action buttons (e.g., "Draft Template"). Hover tooltips, visual distinction from standard actions. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
