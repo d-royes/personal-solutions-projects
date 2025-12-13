@@ -103,6 +103,7 @@ class AttentionItem:
                 if self.extracted_deadline else None
             ),
             "extractedTask": self.extracted_task,
+            "labels": self.email.labels,
         }
 
 
@@ -209,6 +210,16 @@ class EmailAnalyzer:
         (r"\bneed\s+(your|you to)\b", "Action needed from you"),
         (r"\bwaiting\s+(for|on)\s+your\b", "Waiting for response"),
         (r"\bfollow\s*up\b", "Follow-up required"),
+        # Additional patterns for action items
+        (r"\bpast\s*due\b", "Past due - requires action"),
+        (r"\boverdue\b", "Overdue item"),
+        (r"\bneed(s)?\s+attention\b", "Needs attention"),
+        (r"\baction\s+(required|needed)\b", "Action required"),
+        (r"\bpending\s+(request|approval|action|review)\b", "Pending item needs action"),
+        (r"\brequires?\s+(your\s+)?(attention|action|review|approval)\b", "Requires your attention"),
+        (r"\breminder\b", "Reminder"),
+        (r"\bimportant:\b", "Flagged as important"),
+        (r"\bfyi\b", "FYI - for your information"),
     ]
     
     # Known junk patterns

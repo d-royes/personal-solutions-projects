@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { AuthConfig } from '../auth/types'
 import type {
   EmailAccount,
+  EmailMessage,
   FilterRule,
   RuleSuggestion,
   AttentionItem,
@@ -171,6 +172,8 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     bodyHtml: string | null
     attachmentCount: number
   } | null>(null)
+  // Store the fetched full email message (for when email isn't in recentMessages/searchResults)
+  const [fetchedEmail, setFetchedEmail] = useState<EmailMessage | null>(null)
   const [loadingFullBody, setLoadingFullBody] = useState(false)
   
   // Reply panel state
@@ -697,6 +700,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     // Reset email body state
     setEmailBodyExpanded(false)
     setFullEmailBody(null)
+    setFetchedEmail(null)
     
     // Fetch full email body in the background
     fetchFullEmailBody(emailId)
@@ -707,6 +711,8 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     setLoadingFullBody(true)
     try {
       const response = await getEmailFull(selectedAccount, emailId, authConfig, apiBase, true)
+      // Store the full email message (for emails not in recentMessages/searchResults, like from Attention tab)
+      setFetchedEmail(response.message)
       setFullEmailBody({
         body: response.message.body ?? null,
         bodyHtml: response.message.bodyHtml ?? null,
@@ -1183,10 +1189,11 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     return CATEGORIES.find(c => c.value === category)?.color || '#6b7280'
   }
 
-  // Get selected email details (check both search results and recent messages)
+  // Get selected email details (check search results, recent messages, and fetched email)
   const selectedEmail = selectedEmailId 
     ? (emailSearchResults?.find(m => m.id === selectedEmailId) 
-       ?? inboxSummary?.recentMessages?.find(m => m.id === selectedEmailId))
+       ?? inboxSummary?.recentMessages?.find(m => m.id === selectedEmailId)
+       ?? (fetchedEmail?.id === selectedEmailId ? fetchedEmail : null))
     : null
 
   return (
@@ -1823,6 +1830,14 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                       <span className={`urgency-badge ${item.urgency}`}>
                         {item.urgency}
                       </span>
+                      {/* Show custom labels (filter out system labels) */}
+                      {item.labels?.filter(l => 
+                        !['INBOX', 'UNREAD', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'].includes(l)
+                      ).map(label => (
+                        <span key={label} className="email-label-badge" title={label}>
+                          {label}
+                        </span>
+                      ))}
                       <span className="attention-date">
                         {new Date(item.date).toLocaleDateString()}
                       </span>

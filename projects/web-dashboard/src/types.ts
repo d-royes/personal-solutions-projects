@@ -118,6 +118,7 @@ export interface AttentionItem {
   suggestedAction?: string
   extractedDeadline?: string
   extractedTask?: string
+  labels?: string[]
 }
 
 export interface AttachmentInfo {

@@ -4779,6 +4779,20 @@ button:not(:disabled):hover {
   color: rgba(165, 180, 252, 0.9);
 }
 
+/* Email label badges in attention items */
+.email-label-badge {
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  background: rgba(59, 130, 246, 0.2);
+  color: rgba(147, 197, 253, 0.95);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .attention-date {
   margin-left: auto;
   font-size: 0.75rem;
