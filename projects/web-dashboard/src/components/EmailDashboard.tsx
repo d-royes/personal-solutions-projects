@@ -1372,17 +1372,33 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                         className={`${msg.isUnread ? 'unread' : ''} ${selectedEmailId === msg.id ? 'selected' : ''}`}
                         onClick={() => handleSelectEmail(msg.id)}
                       >
-                        <button
-                          className="msg-task-btn"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleSelectEmail(msg.id)
-                            handleOpenTaskForm(msg.id)
-                          }}
-                          title="Create task from this email"
-                        >
-                          📋
-                        </button>
+                      {emailTaskLinks[msg.id] ? (
+                          <button
+                            className="msg-task-btn task-exists"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              // Could navigate to task in future
+                            }}
+                            title={`Task: ${emailTaskLinks[msg.id].title}`}
+                          >
+                            <span className="task-exists-icon">📋</span>
+                            <span className={`task-status-badge mini ${emailTaskLinks[msg.id].status}`}>
+                              {emailTaskLinks[msg.id].status}
+                            </span>
+                          </button>
+                        ) : (
+                          <button
+                            className="msg-task-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleSelectEmail(msg.id)
+                              handleOpenTaskForm(msg.id)
+                            }}
+                            title="Create task from this email"
+                          >
+                            📋
+                          </button>
+                        )}
                         <div className="msg-from">{msg.fromName || msg.fromAddress}</div>
                         <div className="msg-subject">{msg.subject}</div>
                         <div className="msg-snippet">{msg.snippet}</div>
@@ -1401,18 +1417,34 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                       className={`${msg.isUnread ? 'unread' : ''} ${selectedEmailId === msg.id ? 'selected' : ''}`}
                       onClick={() => handleSelectEmail(msg.id)}
                     >
-                      <button
-                        className="msg-task-btn"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleSelectEmail(msg.id)
-                          handleOpenTaskForm(msg.id)
-                        }}
-                        title="Create task from this email"
-                      >
-                        📋
-                      </button>
-                      <div className="msg-from">{msg.fromName || msg.fromAddress}</div>
+                      {emailTaskLinks[msg.id] ? (
+                        <button
+                          className="msg-task-btn task-exists"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // Could navigate to task in future
+                          }}
+                          title={`Task: ${emailTaskLinks[msg.id].title}`}
+                        >
+                          <span className="task-exists-icon">📋</span>
+                          <span className={`task-status-badge mini ${emailTaskLinks[msg.id].status}`}>
+                            {emailTaskLinks[msg.id].status}
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          className="msg-task-btn"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleSelectEmail(msg.id)
+                            handleOpenTaskForm(msg.id)
+                          }}
+                          title="Create task from this email"
+                        >
+                          📋
+                        </button>
+                      )}
+                        <div className="msg-from">{msg.fromName || msg.fromAddress}</div>
                       <div className="msg-subject">{msg.subject}</div>
                       <div className="msg-snippet">{msg.snippet}</div>
                     </li>
