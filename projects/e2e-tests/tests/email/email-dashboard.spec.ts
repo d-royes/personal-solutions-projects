@@ -50,8 +50,8 @@ test.describe('Email Dashboard', () => {
 
   test('should have navigation tabs including New Rules', async ({ page }) => {
     await expect(page.getByRole('button', { name: 'Dashboard' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Rules/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /New Rules/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Rules \(/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^New Rules/i })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Suggestions' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Attention' })).toBeVisible();
   });
@@ -95,14 +95,14 @@ test.describe('Email Rules Tab', () => {
     await page.getByRole('button', { name: '✉️' }).click();
     await expect(page.getByRole('heading', { name: 'Email Management' })).toBeVisible({ timeout: 10000 });
     
-    // Click Rules tab
-    await page.getByRole('button', { name: /Rules/i }).click();
+    // Click Rules tab (use specific pattern to avoid matching "New Rules")
+    await page.getByRole('button', { name: /^Rules \(/i }).click();
     await page.waitForTimeout(1000);
   });
 
   test('should display rules count in tab', async ({ page }) => {
     // The Rules tab should show a count like "Rules (325)"
-    const rulesTab = page.getByRole('button', { name: /Rules.*\d+/i });
+    const rulesTab = page.getByRole('button', { name: /^Rules \(\d+\)/i });
     await expect(rulesTab).toBeVisible();
   });
 
@@ -132,12 +132,12 @@ test.describe('Email Rules Tab', () => {
     // Select a specific category
     const categoryDropdown = page.locator('select').first();
     await categoryDropdown.selectOption('Promotional');
-    
+
     await page.waitForTimeout(1000);
-    
-    // All visible rows should be Promotional
-    const cells = page.getByRole('cell', { name: 'Promotional' });
-    const count = await cells.count();
+
+    // All visible category badges should be Promotional
+    const badges = page.locator('table .category-badge', { hasText: 'Promotional' });
+    const count = await badges.count();
     expect(count).toBeGreaterThan(0);
   });
 
@@ -187,12 +187,12 @@ test.describe('Account Switching', () => {
     // Wait for data to refresh
     await page.waitForTimeout(2000);
     
-    // Click Rules tab to see the count
-    await page.getByRole('button', { name: /Rules/i }).click();
-    
+    // Click Rules tab to see the count (use specific pattern to avoid matching "New Rules")
+    await page.getByRole('button', { name: /^Rules \(/i }).click();
+
     // Church should have fewer rules than Personal
     // The exact count will depend on your data
-    const rulesTab = page.getByRole('button', { name: /Rules/i });
+    const rulesTab = page.getByRole('button', { name: /^Rules \(/i });
     await expect(rulesTab).toBeVisible();
   });
 
@@ -351,28 +351,29 @@ test.describe('Email Styling Consistency', () => {
 
   test('all navigation tabs remain functional after styling', async ({ page }) => {
     // Test each tab can be clicked and activates
+    // Use .email-tabs selector to target only nav tabs (avoids matching buttons inside tab content)
     const tabs = ['Dashboard', 'Rules', 'New Rules', 'Suggestions', 'Attention'];
-    
+
     for (const tabName of tabs) {
-      // Handle "Rules" being a substring of "New Rules"
       let tab;
       if (tabName === 'Rules') {
-        // Match "Rules" but not "New Rules"
-        tab = page.locator('.email-tabs button').filter({ hasText: /^Rules/ }).first();
+        // Match "Rules (X)" but not "New Rules"
+        tab = page.locator('.email-tabs button').filter({ hasText: /^Rules \(/ });
       } else {
-        tab = page.getByRole('button', { name: new RegExp(tabName, 'i') });
+        // Use .email-tabs to scope to nav tabs only
+        tab = page.locator('.email-tabs button').filter({ hasText: tabName });
       }
       await tab.click();
       await page.waitForTimeout(500);
-      
+
       // Tab should now be active
       await expect(tab).toHaveClass(/active/);
     }
   });
 
   test('scrolling works within email dashboard content', async ({ page }) => {
-    // Click on Rules tab which has scrollable content
-    await page.getByRole('button', { name: /Rules/i }).click();
+    // Click on Rules tab which has scrollable content (use specific pattern to avoid matching "New Rules")
+    await page.getByRole('button', { name: /^Rules \(/i }).click();
     await page.waitForTimeout(2000);
     
     // Content area should be scrollable
@@ -778,14 +779,16 @@ test.describe('DATA Email Chat (Phase 4)', () => {
     await expect(chatInput.locator('button')).toBeVisible();
   });
 
-  test('chat input should be disabled when no email selected', async ({ page }) => {
+  test('chat input should show guidance when no email selected', async ({ page }) => {
     // Expand DATA panel
     await page.locator('.collapsed-panel-indicator.right').click();
     await page.waitForTimeout(500);
-    
-    // Input should be disabled without email selected
+
+    // Input should be ENABLED (needed for Suggestions/Attention commands)
+    // but show placeholder text guiding user to select an email
     const input = page.locator('.email-chat-input input');
-    await expect(input).toBeDisabled();
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveAttribute('placeholder', /select an email/i);
   });
 
   test('chat input should be enabled when email is selected', async ({ page }) => {
@@ -939,20 +942,16 @@ test.describe('Email Action Suggestions Tab (Phase A)', () => {
   test('should load suggestions when clicking Refresh', async ({ page }) => {
     // Click refresh button
     await page.getByRole('button', { name: /Refresh Suggestions/i }).click();
-    
-    // Should show loading state
+
+    // Should show loading state initially
     const loading = page.locator('.loading');
-    await expect(loading).toBeVisible();
-    
-    // Wait for loading to complete
-    await page.waitForTimeout(5000);
-    
-    // Either suggestions or empty state should be visible
-    const suggestionsList = page.locator('.action-suggestions-list');
-    const emptyState = page.locator('.email-suggestions-view .empty-state');
-    
-    const hasContent = await suggestionsList.isVisible() || await emptyState.isVisible();
-    expect(hasContent).toBe(true);
+    await expect(loading).toBeVisible({ timeout: 5000 });
+
+    // Wait for loading to complete - either suggestions list or empty state appears
+    // Use longer timeout as email analysis can take time
+    await expect(
+      page.locator('.action-suggestions-list, .email-suggestions-view .empty-state')
+    ).toBeVisible({ timeout: 30000 });
   });
 
   test('suggestions should have numbered format', async ({ page }) => {
