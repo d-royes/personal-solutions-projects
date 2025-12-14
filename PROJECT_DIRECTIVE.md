@@ -1,6 +1,6 @@
 # Project Directive — Daily Task Assistant (DATA)
 
-Version: 2025-12-11  
+Version: 2025-12-14  
 Owner: David Royes  
 AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 
@@ -75,7 +75,7 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 | **Interfaces** | ✅ | CLI + FastAPI backend + React web dashboard + Email Dashboard (all operational). |
 | **Storage/Logs** | ✅ | Firestore for activity log + conversation history (with local file fallback). |
 | **CI/CD** | ✅ | GitHub Actions: automated testing, staging deploy, production deploy with approval. |
-| **E2E Testing** | ✅ | Playwright regression tests: 32 tests across API, Tasks, Email, multi-browser. |
+| **E2E Testing** | ✅ | Playwright regression tests: 48 tests across API, Tasks, Email, Assistant Panel, multi-browser. |
 | **Hosting** | ✅ | Cloud Run (backend) + Firebase Hosting (frontend) for staging and production. |
 
 ---
@@ -232,6 +232,28 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 ---
 
 ## 10. Recent Session Log
+
+### 2025-12-14: Workspace Context & Developer Tools
+
+**Workspace Context in Chat**
+- ✅ Workspace card checkbox selections now passed to DATA in chat messages
+- ✅ Fixed Pydantic model config (`populate_by_name=True`) for alias mapping
+- ✅ DATA can now reference and analyze selected workspace content
+
+**Assistant Panel Enhancements**
+- ✅ Added workspace "+" button to manually add context cards
+- ✅ Added clear plan button (×) for visual confirmation before regenerating
+- ✅ Fixed conversation button spacing (gap: 6px instead of space-between)
+- ✅ Fixed workspace controls positioning (right: 20px to avoid scrollbar)
+
+**Developer Scripts**
+- ✅ Created `reset-backend.ps1` - kills hung processes + restarts with env vars
+- ✅ Created `reset-frontend.ps1` - kills hung processes + restarts frontend
+- ✅ Both scripts handle zombie Python/Node processes holding ports
+
+**E2E Testing**
+- ✅ Added 16 new Assistant Panel tests (total now 48 tests)
+- ✅ Tests cover workspace management, plan management, context in chat, button styling
 
 ### 2025-12-11: Email Management & E2E Testing
 

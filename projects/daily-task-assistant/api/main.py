@@ -1093,6 +1093,9 @@ class PlanRequest(BaseModel):
     anthropic_model: Optional[str] = Field(
         None, alias="anthropicModel", description="Override Anthropic model name."
     )
+    context_items: Optional[List[str]] = Field(
+        None, alias="contextItems", description="User-provided context items from workspace."
+    )
 
 
 @app.post("/assist/{task_id}/plan")
@@ -1119,6 +1122,11 @@ def generate_plan(
         {"role": msg.role, "content": msg.content} for msg in history
     ]
 
+    # Build workspace context from context items if provided
+    workspace_context = None
+    if request.context_items:
+        workspace_context = "\n\n---\n\n".join(request.context_items)
+
     result = execute_assist(
         task=target,
         settings=settings,
@@ -1127,6 +1135,7 @@ def generate_plan(
         send_email_account=None,
         live_tasks=live_tasks,
         conversation_history=llm_history if llm_history else None,
+        workspace_context=workspace_context,
     )
 
     # Log the plan to conversation history for persistence
@@ -1206,8 +1215,15 @@ def unstrike_conversation_message(
 
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
+    model_config = {"populate_by_name": True}
+
     message: str = Field(..., description="The user's message")
     source: Literal["auto", "live", "stub"] = "auto"
+    workspace_context: Optional[str] = Field(
+        None,
+        alias="workspaceContext",
+        description="Selected workspace content to include in context"
+    )
 
 
 @app.post("/assist/{task_id}/chat")
@@ -1253,6 +1269,7 @@ def chat_with_task(
             task=target,
             user_message=request.message,
             history=llm_history,
+            workspace_context=request.workspace_context,
         )
     except AnthropicError as exc:
         raise HTTPException(status_code=502, detail=f"AI service error: {exc}")

@@ -1258,10 +1258,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
               </button>
               <button
                 className={activeTab === 'newRules' ? 'active' : ''}
-                onClick={() => {
-                  setActiveTab('newRules')
-                  if (suggestions.length === 0) runAnalysis()
-                }}
+                onClick={() => setActiveTab('newRules')}
               >
                 New Rules {suggestions.length > 0 && `(${suggestions.length})`}
               </button>

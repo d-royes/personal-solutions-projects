@@ -173,8 +173,14 @@ PYTHONPATH=. uvicorn api.main:app --reload
 
 Scripts for convenience:
 
-- `scripts/start-dev.ps1` – launches uvicorn (with `DTA_DEV_AUTH_BYPASS=1`) and the React dev server in separate windows.
-- `scripts/stop-dev.ps1` – stops anything bound to ports 8000/5173 to avoid port conflicts.
+| Script | Purpose |
+|--------|---------|
+| `scripts/start-dev.ps1` | Launch both backend and frontend in separate windows |
+| `scripts/stop-dev.ps1` | Stop all processes on ports 8000/5173 |
+| `scripts/reset-backend.ps1` | Kill hung Python processes + restart backend |
+| `scripts/reset-frontend.ps1` | Kill hung Node processes + restart frontend |
+
+The reset scripts are useful when hot-reload gets stuck or zombie processes hold onto ports.
 
 ### Auth
 

@@ -239,7 +239,8 @@ interface AssistPanelProps {
   gmailAccount: string
   onGmailChange: (account: string) => void
   onRunAssist: (options?: { sendEmailAccount?: string }) => void
-  onGeneratePlan: () => void
+  onGeneratePlan: (contextItems?: string[]) => void
+  onClearPlan?: () => void
   onRunResearch: () => void
   onRunSummarize: () => void
   onRunContact: (confirmSearch?: boolean) => void
@@ -247,7 +248,7 @@ interface AssistPanelProps {
   error?: string | null
   conversation: ConversationMessage[]
   conversationLoading: boolean
-  onSendMessage: (message: string) => Promise<void> | void
+  onSendMessage: (message: string, workspaceContext?: string) => Promise<void> | void
   sendingMessage: boolean
   taskPanelCollapsed: boolean
   onExpandTasks: () => void
@@ -403,6 +404,7 @@ export function AssistPanel({
   contactConfirmation,
   onRunAssist,
   onGeneratePlan,
+  onClearPlan,
   onRunResearch,
   onRunSummarize,
   onRunContact,
@@ -505,6 +507,8 @@ export function AssistPanel({
     setActiveAction(null)
     // Reset modified flag when task changes
     workspaceModifiedRef.current = false
+    // Clear workspace selections when task changes
+    setSelectedWorkspaceIds(new Set())
   }, [selectedTask?.rowId])
   
   // Notify parent when workspace changes (for persistence) - only if modified by user
@@ -555,10 +559,14 @@ export function AssistPanel({
     
     // No saved draft - generate a new one
     if (!onDraftEmail) return
-    
-    // Get source content - either selected workspace item or task context
+
+    // Get source content - prioritize checkbox-selected items, then single selection, then plan
     let sourceContent = ''
-    if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
+    const selectedContent = getSelectedWorkspaceContent()
+    if (selectedContent.length > 0) {
+      // Use checkbox-selected workspace items
+      sourceContent = selectedContent.join('\n\n---\n\n')
+    } else if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
       sourceContent = workspaceItems[selectedWorkspaceIndex].content
     } else if (latestPlan) {
       // Use plan summary as source
@@ -595,10 +603,13 @@ export function AssistPanel({
   // Handle regenerating email draft
   const handleRegenerateEmail = async (instructions: string) => {
     if (!onDraftEmail || !emailDraft) return
-    
-    // Get source content again
+
+    // Get source content - prioritize checkbox-selected items, then single selection, then plan
     let sourceContent = ''
-    if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
+    const selectedContent = getSelectedWorkspaceContent()
+    if (selectedContent.length > 0) {
+      sourceContent = selectedContent.join('\n\n---\n\n')
+    } else if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
       sourceContent = workspaceItems[selectedWorkspaceIndex].content
     } else if (latestPlan) {
       sourceContent = [
@@ -755,6 +766,7 @@ export function AssistPanel({
   const clearWorkspace = () => {
     workspaceModifiedRef.current = true
     setWorkspaceItems([])
+    setSelectedWorkspaceIds(new Set())
   }
   
   // Update workspace item content (for editing)
@@ -769,6 +781,29 @@ export function AssistPanel({
   const removeWorkspaceItem = (id: string) => {
     workspaceModifiedRef.current = true
     setWorkspaceItems(prev => prev.filter(item => item.id !== id))
+  }
+
+  // State for selected workspace items (for including in plan/email)
+  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<Set<string>>(new Set())
+
+  // Toggle workspace item selection
+  const toggleWorkspaceSelection = (id: string) => {
+    setSelectedWorkspaceIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  // Get content of selected workspace items
+  const getSelectedWorkspaceContent = (): string[] => {
+    return workspaceItems
+      .filter(item => selectedWorkspaceIds.has(item.id))
+      .map(item => item.content)
   }
 
   // State for selected messages in global chat (for bulk strike)
@@ -1162,7 +1197,7 @@ export function AssistPanel({
             <button
               key={action}
               className={`action-btn ${activeAction === action ? 'active' : ''} ${action === 'plan' ? 'plan-btn' : ''}`}
-              onClick={() => action === 'plan' ? onGeneratePlan() : handleActionClick(action)}
+              onClick={() => action === 'plan' ? onGeneratePlan(getSelectedWorkspaceContent()) : handleActionClick(action)}
               disabled={action === 'plan' && planGenerating}
             >
               {action === 'plan' && planGenerating ? 'Planning…' : formatActionLabel(action)}
@@ -1231,13 +1266,22 @@ export function AssistPanel({
                       )}
                     </h5>
                     <p className="plan-summary-text">{latestPlan.summary}</p>
-                    <button 
+                    <button
                       className="push-btn"
                       onClick={pushFullPlanToWorkspace}
                       title="Push full plan to Workspace"
                     >
                       ➡️
                     </button>
+                    {onClearPlan && (
+                      <button
+                        className="clear-plan-btn"
+                        onClick={onClearPlan}
+                        title="Clear plan"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
 
                   {latestPlan.nextSteps.length > 0 && (
@@ -1291,27 +1335,43 @@ export function AssistPanel({
           >
             <div className="zone-header">
               <h4>Workspace</h4>
-              {workspaceItems.length > 0 && (
-                <div className="workspace-controls">
-                  <button
-                    className="copy-btn"
-                    onClick={() => {
-                      const allContent = workspaceItems.map(item => item.content).join('\n\n---\n\n')
-                      navigator.clipboard.writeText(allContent)
-                    }}
-                    title="Copy all"
-                  >
-                    📋
-                  </button>
-                  <button
-                    className="clear-btn"
-                    onClick={clearWorkspace}
-                    title="Clear workspace"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              )}
+              <div className="workspace-controls">
+                <button
+                  className="add-btn"
+                  onClick={() => {
+                    workspaceModifiedRef.current = true
+                    const newItem: WorkspaceItem = {
+                      id: `ws-${Date.now()}`,
+                      content: '',
+                    }
+                    setWorkspaceItems(prev => [...prev, newItem])
+                  }}
+                  title="Add new card"
+                >
+                  +
+                </button>
+                {workspaceItems.length > 0 && (
+                  <>
+                    <button
+                      className="copy-btn"
+                      onClick={() => {
+                        const allContent = workspaceItems.map(item => item.content).join('\n\n---\n\n')
+                        navigator.clipboard.writeText(allContent)
+                      }}
+                      title="Copy all"
+                    >
+                      📋
+                    </button>
+                    <button
+                      className="clear-btn"
+                      onClick={clearWorkspace}
+                      title="Clear workspace"
+                    >
+                      🗑️
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             <div className="zone-content workspace-content">
               {/* Action status banner - shows ONLY while action is running */}
@@ -1377,8 +1437,13 @@ export function AssistPanel({
               {/* Workspace items */}
               {workspaceItems.length > 0 ? (
                 <div className="workspace-items-container">
+                  {selectedWorkspaceIds.size > 0 && (
+                    <div className="workspace-selection-hint">
+                      {selectedWorkspaceIds.size} item{selectedWorkspaceIds.size > 1 ? 's' : ''} selected for context
+                    </div>
+                  )}
                   {workspaceItems.map((item, index) => (
-                    <div key={item.id} className="workspace-item-simple">
+                    <div key={item.id} className={`workspace-item-simple ${selectedWorkspaceIds.has(item.id) ? 'selected' : ''}`}>
                       {index > 0 && <hr className="workspace-separator" />}
                       <div className="workspace-item-wrapper">
                         <textarea
@@ -1387,13 +1452,22 @@ export function AssistPanel({
                           onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
                           placeholder="Edit content here..."
                         />
-                        <button
-                          className="workspace-item-delete"
-                          onClick={() => removeWorkspaceItem(item.id)}
-                          title="Remove this section"
-                        >
-                          ×
-                        </button>
+                        <div className="workspace-item-controls">
+                          <input
+                            type="checkbox"
+                            className="workspace-item-checkbox"
+                            checked={selectedWorkspaceIds.has(item.id)}
+                            onChange={() => toggleWorkspaceSelection(item.id)}
+                            title="Include in planning context"
+                          />
+                          <button
+                            className="workspace-item-delete"
+                            onClick={() => removeWorkspaceItem(item.id)}
+                            title="Remove this section"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1554,7 +1628,12 @@ export function AssistPanel({
           if (!message.trim()) return
           const payload = message.trim()
           setMessage('')
-          await onSendMessage(payload)
+          // Include selected workspace items as context if any are checked
+          const selectedContent = getSelectedWorkspaceContent()
+          const workspaceContext = selectedContent.length > 0
+            ? selectedContent.join('\n\n---\n\n')
+            : undefined
+          await onSendMessage(payload, workspaceContext)
         }}
       >
         <textarea
