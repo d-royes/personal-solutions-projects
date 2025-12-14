@@ -110,7 +110,7 @@ def _load_data_preferences() -> str:
     preferences_path = Path(__file__).parent.parent.parent / "DATA_PREFERENCES.md"
     if not preferences_path.exists():
         return ""
-    
+
     try:
         content = preferences_path.read_text(encoding="utf-8")
         # Extract content after the YAML frontmatter
@@ -123,8 +123,37 @@ def _load_data_preferences() -> str:
         return ""
 
 
+def _extract_planning_preferences(full_preferences: str) -> str:
+    """Extract planning-specific guidance from DATA_PREFERENCES.md.
+
+    Looks for sections about Plan Generation to include in planning prompts.
+    This keeps planning guidance maintainable in one place (the preferences file).
+    """
+    import re
+
+    if not full_preferences:
+        return ""
+
+    # Find the Plan Generation sections (Next Steps and Efficiency Tips)
+    planning_sections = []
+
+    # Pattern to match ### Plan Generation sections and their content
+    # This captures from the header to the next ### or ## header
+    pattern = r'(### Plan Generation[^\n]*\n.*?)(?=\n###|\n##|$)'
+    matches = re.findall(pattern, full_preferences, re.DOTALL)
+
+    for match in matches:
+        planning_sections.append(match.strip())
+
+    if not planning_sections:
+        return ""
+
+    return "\n\n".join(planning_sections)
+
+
 # Cache the preferences at module load
 _DATA_PREFERENCES = _load_data_preferences()
+_PLANNING_PREFERENCES = _extract_planning_preferences(_DATA_PREFERENCES)
 
 DEFAULT_MODEL = "claude-opus-4-20250514"
 SYSTEM_PROMPT = """You are the Daily Task Assistant, a diligent chief of staff.
@@ -147,9 +176,17 @@ Automation Hints: {automation_hint}
 
 Outputs:
 1. summary: single sentence describing urgency + outcome.
-2. next_steps: array of 2-4 imperative bullet strings tailored to the task.
-3. efficiency_tips: array of 1-3 tips for accelerating execution.
+2. next_steps: array of 2-4 SPECIFIC, ACTIONABLE steps to complete THIS task. Think about what David actually needs to DO.
+3. efficiency_tips: array of 1-3 tips SPECIFIC to this task (not generic productivity advice).
 4. suggested_actions: array of 1-3 action types relevant to THIS task (e.g., "research", "draft_email", "schedule", "follow_up", "delegate"). Only suggest "draft_email" if there's a clear external recipient mentioned in the task or notes.
+
+CRITICAL - Be a Problem Solver:
+- READ the task title and notes carefully. What is David trying to accomplish?
+- THINK about the concrete steps needed. Where does he need to go? Who does he need to contact? What tools/resources does he need?
+- AVOID generic steps like "Confirm blockers/status" or "Capture updates in Smartsheet" - these apply to ANY task and aren't helpful.
+- Each next_step should be something David can actually DO to move this specific task forward.
+
+{planning_guidance}
 
 Rules:
 - RESPOND WITH JSON ONLY. No markdown. No explanations. Just the JSON object.
@@ -256,6 +293,12 @@ def generate_assist_suggestion(
 
     client = client or build_anthropic_client()
     config = config or resolve_config(model_override)
+
+    # Build planning guidance from preferences (examples of good vs bad plans)
+    planning_guidance = ""
+    if _PLANNING_PREFERENCES:
+        planning_guidance = f"EXAMPLES FROM PREFERENCES:\n{_PLANNING_PREFERENCES}"
+
     prompt = USER_PROMPT_TEMPLATE.format(
         title=task.title,
         priority=task.priority,
@@ -267,6 +310,7 @@ def generate_assist_suggestion(
         next_step=task.next_step,
         notes=task.notes or "No additional notes",
         automation_hint=task.automation_hint,
+        planning_guidance=planning_guidance,
     )
 
     # Append workspace context if provided (user-selected workspace items)
@@ -864,22 +908,24 @@ def chat_with_tools(
     history: Optional[List[Dict[str, str]]] = None,
     *,
     attachments: Optional[List[AttachmentDetail]] = None,
+    workspace_context: Optional[str] = None,
     client: Optional[Anthropic] = None,
     config: Optional[AnthropicConfig] = None,
 ) -> ChatResponse:
     """Chat with task update tool support.
-    
+
     This function enables DATA to recognize task update intents and return
     structured actions that can be confirmed and executed.
-    
+
     Args:
         task: The current task being discussed
         user_message: The user's latest message
         history: Previous conversation messages
         attachments: Optional list of task attachments (images will be included)
+        workspace_context: Optional user-selected workspace content to include
         client: Optional pre-built Anthropic client
         config: Optional configuration override
-    
+
     Returns:
         ChatResponse with message and optional pending_action
     """
@@ -896,6 +942,17 @@ def chat_with_tools(
 - Project: {task.project}
 - Source: {task.source} (use {priority_format} priorities)
 - Notes: {task.notes or "None"}"""
+
+    # Append workspace context if provided (user-selected workspace items)
+    if workspace_context:
+        task_context += f"""
+
+---
+ADDITIONAL CONTEXT (selected by user from workspace):
+
+{workspace_context}
+
+Reference this context in your response when relevant."""
 
     # Build messages
     messages: List[Dict[str, Any]] = []

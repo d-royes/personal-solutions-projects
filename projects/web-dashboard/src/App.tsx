@@ -346,7 +346,7 @@ function App() {
     }
   }
 
-  async function handleGeneratePlan() {
+  async function handleGeneratePlan(contextItems?: string[]) {
     // Explicitly generate/update the plan based on task + conversation
     if (!selectedTask) return
     if (!authConfig) {
@@ -359,6 +359,7 @@ function App() {
       const response = await generatePlan(selectedTask.rowId, authConfig, apiBase, {
         source: dataSource,
         anthropicModel: import.meta.env.VITE_ANTHROPIC_MODEL,
+        contextItems: contextItems && contextItems.length > 0 ? contextItems : undefined,
       })
       setAssistPlan(response.plan)
       void refreshActivity()
@@ -367,6 +368,11 @@ function App() {
     } finally {
       setPlanGenerating(false)
     }
+  }
+
+  function handleClearPlan() {
+    // Clear the current plan so user can visually confirm a new one is generated
+    setAssistPlan(null)
   }
 
   async function handleRunResearch() {
@@ -670,19 +676,19 @@ function App() {
     }
   }, [selectedTaskId, authConfig, apiBase, workspaceSaveTimeout])
 
-  async function handleSendMessage(message: string) {
+  async function handleSendMessage(message: string, workspaceContext?: string) {
     if (!selectedTaskId || !authConfig) return
-    
+
     setSendingMessage(true)
     setAssistError(null)
-    
+
     try {
       const result = await sendChatMessage(
         selectedTaskId,
         message,
         authConfig,
         apiBase,
-        { source: dataSource },
+        { source: dataSource, workspaceContext },
       )
       // Update conversation with the response
       setConversation(result.history)
@@ -1154,6 +1160,7 @@ function App() {
               onGmailChange={setGmailAccount}
               onRunAssist={handleAssist}
               onGeneratePlan={handleGeneratePlan}
+              onClearPlan={handleClearPlan}
               onRunResearch={handleRunResearch}
               onRunSummarize={handleRunSummarize}
               onRunContact={handleRunContact}
