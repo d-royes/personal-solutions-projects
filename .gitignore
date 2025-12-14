@@ -39,3 +39,6 @@ conversation_log/
 # Temporary files
 *.tmp
 *.temp
+
+# Test conversation data (contains PII - never commit)
+projects/daily-task-assistant/test_conversations/
