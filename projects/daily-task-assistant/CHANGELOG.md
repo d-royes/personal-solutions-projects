@@ -6,7 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-*No unreleased changes*
+### Security
+- **Removed PII from test_conversations/**: Real conversation data with names, emails, and phone numbers removed from git tracking and added to .gitignore
 
 ---
 

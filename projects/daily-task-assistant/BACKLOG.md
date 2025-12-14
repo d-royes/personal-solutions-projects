@@ -61,7 +61,6 @@ Earned autonomy through demonstrated understanding and tracked success.
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
 | **Phase A: Smartsheet Decoupling** | Create native Firestore task storage, abstract integrations into provider interfaces, user-scope all data. | [DATA_CLOUD_VISION.md](docs/DATA_CLOUD_VISION.md) |
-| **Sanitize Test Conversations Data** | Remove or anonymize real PII (names, emails, phone numbers) from test_conversations/ folder. Replace with synthetic test data. Consider adding to .gitignore. Use BFG or git filter-branch to scrub from history if already pushed. | Code Review 2025-12-14 |
 | **Move Email Allowlist to Backend-Only** | Remove hardcoded ALLOWED_EMAILS from AuthContext.tsx:9-12. Frontend check is redundant since backend validates. Exposing authorized users in client code is unnecessary info disclosure. | Code Review 2025-12-14 |
 | **Externalize Google Sheet ID** | Move hardcoded FILTER_SHEET_ID in filter_rules.py:29 to environment variable (GMAIL_FILTER_SHEET_ID). Improves configurability and follows 12-factor app principles. | Code Review 2025-12-14 |
 
@@ -86,6 +85,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| **Sanitize Test Conversations** | 2025-12-14 | Removed PII files from tracking, added to .gitignore |
 | **Email Reply Feature** | 2025-12-12 | Full email body loading, thread context, AI reply drafts, Tiptap editor |
 | **Email-Task Integration** | 2025-12-12 | Task creation from emails, Email Tasks filter |
 | Email Management (Chief of Staff) | 2025-12-11 | Gmail inbox reader, Google Sheets rules integration |
