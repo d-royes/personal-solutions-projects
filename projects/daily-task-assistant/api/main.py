@@ -1215,6 +1215,8 @@ def unstrike_conversation_message(
 
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
+    model_config = {"populate_by_name": True}
+
     message: str = Field(..., description="The user's message")
     source: Literal["auto", "live", "stub"] = "auto"
     workspace_context: Optional[str] = Field(
