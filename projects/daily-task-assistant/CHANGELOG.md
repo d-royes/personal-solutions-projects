@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+#### Workspace Context in Chat
+- **Selected workspace items now visible to DATA**: Check workspace cards to include their content in chat messages
+- DATA can reference and analyze workspace content directly in responses
+- Fixed Pydantic model config for proper alias mapping (`workspaceContext` → `workspace_context`)
+
+#### Assistant Panel Features
+- **Workspace "+" button**: Manually add empty cards to workspace for custom context
+- **Clear plan button**: Remove current plan before regenerating (visual confirmation)
+- **Improved button styling**: Consistent styling between plan and workspace controls
+
+#### Developer Scripts
+- **`reset-backend.ps1`**: Kill hung Python processes + restart backend with env vars
+- **`reset-frontend.ps1`**: Kill hung Node processes + restart frontend
+- Both scripts clean up zombie processes that can hold ports
+
+#### E2E Tests
+- **Assistant Panel test suite**: 16 new Playwright tests covering:
+  - Workspace management (add, clear, checkbox selection)
+  - Plan management (generate, clear, push to workspace)
+  - Workspace context in chat integration
+  - Conversation button styling verification
+
+### Fixed
+- **Conversation button spacing**: Changed from `space-between` to `gap: 6px` for proper button proximity
+- **Workspace controls positioning**: Moved controls away from scrollbar (`right: 20px`)
+
 ### Security
 - **Removed PII from test_conversations/**: Real conversation data with names, emails, and phone numbers removed from git tracking and added to .gitignore
 
