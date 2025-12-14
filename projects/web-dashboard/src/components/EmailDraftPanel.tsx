@@ -9,6 +9,7 @@ export interface EmailDraft {
   cc: string[]
   subject: string
   body: string
+  bodyHtml?: string  // Rich text HTML version of body
   fromAccount: string
 }
 
@@ -171,18 +172,23 @@ export function EmailDraftPanel({
       setCc(initialDraft.cc ?? [])
       setSubject(initialDraft.subject ?? '')
       setFromAccount(initialDraft.fromAccount ?? '')
-      
-      // Set editor content
-      if (editor && initialDraft.body) {
-        // Convert plain text to HTML for the editor
-        const htmlContent = initialDraft.body
-          .split('\n\n')
-          .map(para => `<p>${para.split('\n').join('<br>')}</p>`)
-          .join('')
-        editor.commands.setContent(htmlContent)
+
+      // Set editor content - prefer HTML if available
+      if (editor && (initialDraft.bodyHtml || initialDraft.body)) {
+        if (initialDraft.bodyHtml) {
+          // Use pre-converted HTML content (rich text with proper formatting)
+          editor.commands.setContent(initialDraft.bodyHtml)
+        } else if (initialDraft.body) {
+          // Fallback: Convert plain text to HTML for the editor
+          const htmlContent = initialDraft.body
+            .split('\n\n')
+            .map(para => `<p>${para.split('\n').join('<br>')}</p>`)
+            .join('')
+          editor.commands.setContent(htmlContent)
+        }
       }
     }
-  }, [initialDraft?.subject, initialDraft?.body, initialDraft?.to, initialDraft?.cc, initialDraft?.fromAccount, editor])
+  }, [initialDraft?.subject, initialDraft?.body, initialDraft?.bodyHtml, initialDraft?.to, initialDraft?.cc, initialDraft?.fromAccount, editor])
 
   if (!isOpen) return null
 

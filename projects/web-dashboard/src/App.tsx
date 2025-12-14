@@ -530,10 +530,10 @@ function App() {
     sourceContent: string,
     recipient?: string,
     regenerateInput?: string
-  ): Promise<{ subject: string; body: string }> {
+  ): Promise<{ subject: string; body: string; bodyHtml?: string }> {
     if (!selectedTask) throw new Error('No task selected')
     if (!authConfig) throw new Error('Please sign in first')
-    
+
     setEmailDraftLoading(true)
     setEmailError(null)
     try {
@@ -546,6 +546,7 @@ function App() {
       return {
         subject: response.subject,
         body: response.body,
+        bodyHtml: response.bodyHtml,
       }
     } catch (error) {
       const message = (error as Error).message

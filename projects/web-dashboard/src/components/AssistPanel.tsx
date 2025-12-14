@@ -268,7 +268,7 @@ interface AssistPanelProps {
   selectedWorkspaceIndex?: number | null
   onSelectWorkspaceItem?: (index: number | null) => void
   // Email draft props
-  onDraftEmail?: (sourceContent: string, recipient?: string, regenerateInput?: string) => Promise<{ subject: string; body: string }>
+  onDraftEmail?: (sourceContent: string, recipient?: string, regenerateInput?: string) => Promise<{ subject: string; body: string; bodyHtml?: string }>
   onSendEmail?: (draft: EmailDraft) => Promise<void>
   onSaveDraft?: (draft: EmailDraft) => Promise<void>
   onDeleteDraft?: () => Promise<void>
@@ -581,6 +581,7 @@ export function AssistPanel({
       setEmailDraft({
         subject: result.subject,
         body: result.body,
+        bodyHtml: result.bodyHtml,
         to: [],
         cc: [],
         fromAccount: '',
@@ -624,6 +625,7 @@ export function AssistPanel({
         ...prev,
         subject: result.subject,
         body: result.body,
+        bodyHtml: result.bodyHtml,
       }))
     } catch (err) {
       console.error('Failed to regenerate email draft:', err)

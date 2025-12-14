@@ -250,6 +250,7 @@ class AnthropicSuggestion:
 class EmailDraftResult:
     subject: str
     body: str
+    body_html: str
     needs_recipient: bool
     raw: str
 
@@ -544,9 +545,12 @@ def generate_email_draft(
     text = _extract_text(response)
     data = _parse_json(text)
 
+    body_text = _coerce_string(data.get("body"))
+
     return EmailDraftResult(
         subject=_coerce_string(data.get("subject")),
-        body=_coerce_string(data.get("body")),
+        body=body_text,
+        body_html=_convert_to_simple_html(body_text),
         needs_recipient=bool(data.get("needs_recipient", not recipient)),
         raw=text,
     )
@@ -2030,30 +2034,72 @@ def generate_email_reply_draft(
     )
 
 
+def _convert_markdown_formatting(text: str) -> str:
+    """Convert markdown bold/italic to HTML.
+
+    Handles:
+    - **bold** -> <strong>bold</strong>
+    - *italic* -> <em>italic</em>
+    - `code` -> <code>code</code>
+
+    Note: This runs AFTER html.escape() so we need to handle escaped text.
+    """
+    import re
+
+    # Bold: **text** (must escape the asterisks for the regex)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+
+    # Italic: *text* (single asterisk, but not inside a word)
+    # Use word boundaries to avoid matching *s in the middle of text
+    text = re.sub(r'(?<!\w)\*([^*]+)\*(?!\w)', r'<em>\1</em>', text)
+
+    # Inline code: `text`
+    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+
+    return text
+
+
 def _convert_to_simple_html(text: str) -> str:
-    """Convert plain text to simple HTML for email.
-    
+    """Convert plain text (potentially with markdown) to simple HTML for email.
+
     Handles:
     - Paragraphs (double newlines)
     - Line breaks
     - Bullet points (lines starting with - or *)
+    - Numbered lists (lines starting with 1. 2. etc)
+    - Markdown bold (**text**)
+    - Markdown italic (*text*)
+    - Inline code (`text`)
     """
     import html
-    
-    # Escape HTML entities
+    import re
+
+    # Escape HTML entities first
     text = html.escape(text)
-    
+
+    # Convert markdown formatting (bold, italic, code)
+    text = _convert_markdown_formatting(text)
+
     # Split into paragraphs
     paragraphs = text.split("\n\n")
     html_parts = []
-    
+
     for para in paragraphs:
         lines = para.split("\n")
-        
+
         # Check if this is a bullet list
-        is_list = all(line.strip().startswith(("-", "*", "•")) for line in lines if line.strip())
-        
-        if is_list and lines:
+        is_bullet_list = all(
+            line.strip().startswith(("-", "*", "•"))
+            for line in lines if line.strip()
+        )
+
+        # Check if this is a numbered list
+        is_numbered_list = all(
+            re.match(r'^\d+[\.\)]\s', line.strip())
+            for line in lines if line.strip()
+        )
+
+        if is_bullet_list and lines:
             list_items = []
             for line in lines:
                 # Remove bullet character and whitespace
@@ -2062,10 +2108,19 @@ def _convert_to_simple_html(text: str) -> str:
                     list_items.append(f"<li>{item_text}</li>")
             if list_items:
                 html_parts.append(f"<ul>{''.join(list_items)}</ul>")
+        elif is_numbered_list and lines:
+            list_items = []
+            for line in lines:
+                # Remove number and period/paren
+                item_text = re.sub(r'^\d+[\.\)]\s*', '', line.strip())
+                if item_text:
+                    list_items.append(f"<li>{item_text}</li>")
+            if list_items:
+                html_parts.append(f"<ol>{''.join(list_items)}</ol>")
         else:
             # Regular paragraph with line breaks
             para_html = "<br>".join(lines)
             html_parts.append(f"<p>{para_html}</p>")
-    
+
     return "".join(html_parts)
 
