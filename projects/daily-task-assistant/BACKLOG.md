@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-12  
+> **Last Updated**: 2025-12-14
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -29,37 +29,13 @@ DATA's evolution follows three phases, each building on the last:
 ### Phase 1: Better Tool (Current)
 Task management, email drafting, research, planning. All human-initiated, human-reviewed.
 
-- ✅ Task ingestion & scoring
-- ✅ AI-powered planning & research
-- ✅ Email drafting & sending
-- ✅ Conversation history
-- ✅ Feedback collection
-
 ### Phase 2: Daily Companion (Next)
 DATA learns David specifically through persistent memory and weekly reflection cycles.
-
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **David Profile (Firestore)** | Work patterns, communication preferences, priorities, quirks | Planned |
-| **Session Observation Logging** | Automatic capture of learnings from each interaction | Planned |
-| **Weekly Digest Generation** | Summarize patterns, confirm/challenge preferences | Planned |
-| **Quarterly Interview Process** | Structured Q&A about David's world AND DATA's performance | Planned |
-| **Knowledge Graph (Entities/Relations)** | People, orgs, tools, projects - built organically over time | Planned |
-
-**Key Design Decision**: DATA builds its own memory from scratch in Firestore. No external file dependencies. Entities/relations emerge naturally from task conversations.
 
 ### Phase 3: Strategic Partner (Future)
 Earned autonomy through demonstrated understanding and tracked success.
 
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Suggestion/Voting System** | DATA surfaces proactive suggestions, David votes approve/reject | Planned |
-| **Success Threshold Tracking** | Measure suggestion accuracy over time | Planned |
-| **Graduated Trust Levels** | Level 0 (suggest) → Level 1 (vote) → Level 2 (act + report) → Level 3 (periodic review) | Planned |
-| **Proactive Task Reprioritization** | "You haven't touched X in 2 weeks" | Planned |
-| **Autonomous Small Actions** | Mark tasks complete, reorder due dates (after earning trust) | Planned |
-
-**Trust Gradient**: Autonomy is earned, not granted. Size/scope of autonomous tasks increases as success thresholds are met.
+**Trust Gradient**: Autonomy is earned, not granted.
 
 ---
 
@@ -67,9 +43,8 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Issue | Description | Status | Date Logged |
 |-------|-------------|--------|-------------|
-| Smartsheet Comment on Email Send | When an email is sent, the system should post a comment to the Smartsheet task (e.g., "Email sent: [subject] to [recipient] via [account]"). Currently, comments may not be posting reliably. Requires investigation of `live_tasks` flag and `SmartsheetClient.post_comment()` execution path. | Open | 2025-12-01 |
-| Google OAuth blocks personal Gmail | `david.a.royes@gmail.com` gets "user not in org" error. OAuth consent screen in GCP is likely set to "Internal" (Workspace only) instead of "External", or email isn't added as test user. | **Resolved** - Changed to External | 2025-12-05 |
-| E2E Flaky Tests (3) | Three Playwright tests fail intermittently due to timing: (1) `should display the task list on load`, (2) `should filter tasks by category when clicking Personal`, (3) `should filter rules by category`. Fix with longer timeouts, retry logic, or waitFor conditions. 31/34 tests currently pass. | Open | 2025-12-11 |
+| Smartsheet Comment on Email Send | Comments may not be posting reliably. | Open | 2025-12-01 |
+| E2E Flaky Tests (3) | Three Playwright tests fail intermittently. 31/34 tests pass. | Open | 2025-12-11 |
 
 ---
 
@@ -79,63 +54,51 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
-| **Email Task Assistant Integration** | Complete integration of Email Tasks (Firestore) into the Assistant workflow. When selecting an email-created task, DATA should have full context of the source email, be able to suggest next actions, draft replies, and update task status. Connect the Email Tasks filter to the full assist experience. | - |
+| **Email Task Assistant Integration** | Complete integration of Email Tasks (Firestore) into the Assistant workflow. | - |
 
 ### High Priority
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
-| **Phase A: Smartsheet Decoupling** | Create native Firestore task storage, abstract integrations into provider interfaces, user-scope all data. Foundation for DATA Cloud. | [DATA_CLOUD_VISION.md](docs/DATA_CLOUD_VISION.md) |
+| **Phase A: Smartsheet Decoupling** | Create native Firestore task storage, abstract integrations into provider interfaces, user-scope all data. | [DATA_CLOUD_VISION.md](docs/DATA_CLOUD_VISION.md) |
+| **Sanitize Test Conversations Data** | Remove or anonymize real PII (names, emails, phone numbers) from test_conversations/ folder. Replace with synthetic test data. Consider adding to .gitignore. Use BFG or git filter-branch to scrub from history if already pushed. | Code Review 2025-12-14 |
+| **Move Email Allowlist to Backend-Only** | Remove hardcoded ALLOWED_EMAILS from AuthContext.tsx:9-12. Frontend check is redundant since backend validates. Exposing authorized users in client code is unnecessary info disclosure. | Code Review 2025-12-14 |
+| **Externalize Google Sheet ID** | Move hardcoded FILTER_SHEET_ID in filter_rules.py:29 to environment variable (GMAIL_FILTER_SHEET_ID). Improves configurability and follows 12-factor app principles. | Code Review 2025-12-14 |
 
 ### Medium Priority
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
-| **Dismissed Attention Cache** | Track dismissed attention items (email IDs) so they don't resurface in subsequent scans. 7-day TTL to keep storage bounded. Could use Firestore or local cache. Prevents nagging about emails user has already reviewed and decided don't need action. | - |
-| Bulk Task Prioritization | Allow DATA to analyze all open tasks and propose realistic due date distribution over 1-2 weeks based on priority and estimated hours. Batch update capability. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
+| **Dismissed Attention Cache** | Track dismissed attention items (email IDs) so they don't resurface. 7-day TTL. | - |
+| Bulk Task Prioritization | Analyze all open tasks and propose realistic due date distribution. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
 
 ### Low Priority
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
-| **Email Management Settings Page** | Admin settings to configure: time window for attention scanning (7d, 14d, 30d), labels to include/exclude from attention scan per account, notification preferences. Currently hardcoded in ATTENTION_SCAN_CONFIG. | - |
-| Feedback Summary View | Admin menu view to see aggregated feedback statistics and patterns. | - |
-| Save Contact Feature | Save frequently used contacts for quick access in email drafting. Contact management in admin menu. | - |
-| Custom AI-Generated Actions | After Plan generation, DATA suggests context-specific action buttons (e.g., "Draft Template"). Hover tooltips, visual distinction from standard actions. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
-| Activity Feed Enhancement | Richer detail when clicking activity items - show conversation snippets, action results, full context. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
-| Header Cleanup / Environment Menu | Move API Base URL and Data Source to admin menu "Environment" view. Clean up header to just logo + menu button. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
+| **Email Management Settings Page** | Admin settings for attention scanning time window, labels, notifications. | - |
+| Feedback Summary View | Admin menu view for aggregated feedback statistics. | - |
+| Save Contact Feature | Save frequently used contacts for quick email drafting access. | - |
 
 ---
 
 ## Completed Features
 
-Features that have been implemented and can be removed from backlog:
-
 | Feature | Completed | Notes |
 |---------|-----------|-------|
-| **Email Reply Feature** | 2025-12-12 | Full email body loading, thread context summarization, AI reply drafts, Tiptap rich text editor, Reply/Reply All, conversational triggers |
-| **Email-Task Integration** | 2025-12-12 | Task creation icon on all Dashboard emails, task exists indicator, Email Tasks filter in Task panel, Project field in task form |
-| Email Management (Chief of Staff) | 2025-12-11 | Gmail inbox reader, Google Sheets rules integration, Apps Script automation for Personal + Church accounts |
-| E2E Regression Testing | 2025-12-11 | Playwright framework with 34 tests (31 passing) covering API, Tasks, Email features |
-| Smartsheet Attachments + Claude Vision | 2025-12-07 | Task attachments displayed, image selection checkboxes, AI vision analysis |
-| Chat Rearchitecture (Token Efficiency) | 2025-12-07 | Intent classification, modular prompts, 73-86% token reduction |
-| Multi-LLM Support (Gemini) | 2025-12-07 | Gemini Flash for classification & conversational, Claude for tools/vision |
-| Workspace Context in Chat | 2025-12-07 | Checked workspace items included in chat context, unchecked excluded |
-| Email Draft To/CC Parsing | 2025-12-07 | DATA can populate recipient fields from chat |
-| Conversation Strike/Reject | 2025-12-05 | Users can strike poor DATA responses, collapsing to single line with audit trail |
-| Dev → Staging → Prod Environments | 2025-12-03 | Full CI/CD pipeline with GitHub Actions, Cloud Run, Firebase Hosting |
-| Auth Persistence | 2025-12-02 | Login survives page refresh via localStorage |
-| Email Allowlist Security | 2025-12-02 | Only authorized emails can access the app |
-| AI-Powered Contact Search | 2025-12-02 | Named Entity Recognition for finding contacts |
-| Research Improvements | 2025-12-02 | Deeper insights, pros/cons, best practices |
+| **Email Reply Feature** | 2025-12-12 | Full email body loading, thread context, AI reply drafts, Tiptap editor |
+| **Email-Task Integration** | 2025-12-12 | Task creation from emails, Email Tasks filter |
+| Email Management (Chief of Staff) | 2025-12-11 | Gmail inbox reader, Google Sheets rules integration |
+| E2E Regression Testing | 2025-12-11 | Playwright framework with 34 tests |
+| Dev to Staging to Prod Environments | 2025-12-03 | Full CI/CD pipeline |
+| Auth Persistence | 2025-12-02 | Login survives page refresh |
+| Email Allowlist Security | 2025-12-02 | Only authorized emails can access |
 
 ---
 
 ## How to Use This Document
 
-1. **Adding new items**: Add to appropriate priority section with description and any relevant documentation links
-2. **Completing items**: Move to "Completed Features" section with date and notes
+1. **Adding new items**: Add to appropriate priority section
+2. **Completing items**: Move to "Completed Features" section with date
 3. **Bugs**: Add to Known Issues table with status tracking
-4. **Review**: Check this document during planning sessions to prioritize work
-
-
+4. **Review**: Check during planning sessions to prioritize work
