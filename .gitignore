@@ -42,3 +42,9 @@ conversation_log/
 
 # Test conversation data (contains PII - never commit)
 projects/daily-task-assistant/test_conversations/
+
+# User data stores (runtime data - never commit)
+projects/daily-task-assistant/profile_store/
+projects/daily-task-assistant/attention_store/
+projects/daily-task-assistant/suggestion_store/
+projects/daily-task-assistant/feedback_log/
