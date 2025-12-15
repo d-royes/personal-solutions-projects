@@ -10,6 +10,11 @@ from .analyzer import (
     suggest_label_rules,
     detect_attention_items,
     generate_action_suggestions,
+    # Profile-aware analysis
+    is_vip_sender,
+    matches_not_actionable,
+    analyze_with_profile,
+    detect_attention_with_profile,
 )
 
 from .attention_store import (
@@ -75,6 +80,11 @@ __all__ = [
     "suggest_label_rules",
     "detect_attention_items",
     "generate_action_suggestions",
+    # Profile-aware analysis
+    "is_vip_sender",
+    "matches_not_actionable",
+    "analyze_with_profile",
+    "detect_attention_with_profile",
     # Attention Store
     "AttentionRecord",
     "save_attention",

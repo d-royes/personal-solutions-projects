@@ -2480,7 +2480,9 @@ def analyze_inbox(
         list_active_attention,
         get_dismissed_email_ids,
         purge_expired_records,
+        detect_attention_with_profile,
     )
+    from daily_task_assistant.memory.profile import get_or_create_profile
 
     # Load Gmail config
     try:
@@ -2559,9 +2561,30 @@ def analyze_inbox(
         # Continue without existing rules
         pass
 
-    # Analyze patterns on new messages only
+    # Load user profile for role-aware analysis
+    profile = get_or_create_profile(user)
+    logger.info(
+        f"[analyze_inbox] Loaded profile with {len(profile.church_roles)} church roles, "
+        f"{len(profile.personal_contexts)} personal contexts"
+    )
+
+    # Analyze patterns on new messages
+    # Use EmailAnalyzer for rule suggestions
     analyzer = EmailAnalyzer(email_address, existing_rules)
-    suggestions, new_attention_items = analyzer.analyze_messages(messages_to_analyze)
+    suggestions, _ = analyzer.analyze_messages(messages_to_analyze)
+
+    # Use profile-aware analysis for attention detection
+    new_attention_items = detect_attention_with_profile(
+        messages=messages_to_analyze,
+        email_account=account,
+        church_roles=profile.church_roles,
+        personal_contexts=profile.personal_contexts,
+        vip_senders=profile.vip_senders,
+        church_attention_patterns=profile.church_attention_patterns,
+        personal_attention_patterns=profile.personal_attention_patterns,
+        not_actionable_patterns=profile.not_actionable_patterns,
+        fallback_to_regex=True,
+    )
 
     # Save new attention items to persistence
     for item in new_attention_items:
@@ -2576,10 +2599,11 @@ def analyze_inbox(
             snippet=item.email.snippet,
             reason=item.reason,
             urgency=item.urgency,
-            confidence=0.7,  # Default confidence for regex analysis
+            confidence=item.confidence,
             suggested_action=item.suggested_action,
             extracted_task=item.extracted_task,
-            analysis_method="regex",
+            matched_role=item.matched_role,
+            analysis_method=item.analysis_method,
         )
         try:
             save_attention(user, record)

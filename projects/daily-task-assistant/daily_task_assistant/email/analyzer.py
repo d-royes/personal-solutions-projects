@@ -79,14 +79,17 @@ class RuleSuggestion:
 @dataclass(slots=True)
 class AttentionItem:
     """An email requiring David's attention."""
-    
+
     email: EmailMessage
     reason: str  # Why attention is needed
     urgency: str  # high, medium, low
     suggested_action: Optional[str] = None  # e.g., "Create task", "Reply needed"
     extracted_deadline: Optional[datetime] = None
     extracted_task: Optional[str] = None  # Suggested task title
-    
+    matched_role: Optional[str] = None  # Role/context that triggered this item
+    confidence: float = 0.5  # Confidence score 0.0-1.0
+    analysis_method: str = "regex"  # "regex" | "profile" | "vip"
+
     def to_dict(self) -> dict:
         """Convert to API-friendly dict (camelCase for JavaScript)."""
         return {
@@ -99,11 +102,14 @@ class AttentionItem:
             "urgency": self.urgency,
             "suggestedAction": self.suggested_action,
             "extractedDeadline": (
-                self.extracted_deadline.isoformat() 
+                self.extracted_deadline.isoformat()
                 if self.extracted_deadline else None
             ),
             "extractedTask": self.extracted_task,
             "labels": self.email.labels,
+            "matchedRole": self.matched_role,
+            "confidence": self.confidence,
+            "analysisMethod": self.analysis_method,
         }
 
 
@@ -844,6 +850,322 @@ def generate_action_suggestions(
         # Limit suggestions to prevent overwhelming the user
         if number > 20:
             break
-    
+
     return suggestions
+
+
+# Profile-aware analysis functions
+
+def is_vip_sender(
+    email: EmailMessage,
+    vip_patterns: List[str],
+) -> bool:
+    """Check if an email is from a VIP sender.
+
+    VIP senders are always high priority regardless of content.
+    Matching is case-insensitive and checks both address and name.
+
+    Args:
+        email: The email message to check.
+        vip_patterns: List of VIP sender patterns (names, domains, etc.)
+
+    Returns:
+        True if sender matches any VIP pattern.
+    """
+    from_lower = email.from_address.lower()
+    from_name_lower = (email.from_name or "").lower()
+
+    for pattern in vip_patterns:
+        pattern_lower = pattern.lower()
+        if pattern_lower in from_lower or pattern_lower in from_name_lower:
+            return True
+
+    return False
+
+
+def matches_not_actionable(
+    email: EmailMessage,
+    not_actionable_patterns: List[str],
+) -> bool:
+    """Check if an email matches not-actionable patterns.
+
+    These are patterns that should be skipped during attention detection
+    because they're known to be not actionable (e.g., prayer requests,
+    automated notifications, marketing).
+
+    Args:
+        email: The email message to check.
+        not_actionable_patterns: List of patterns to skip.
+
+    Returns:
+        True if email matches any not-actionable pattern.
+    """
+    content = f"{email.from_address} {email.from_name or ''} {email.subject} {email.snippet}".lower()
+
+    for pattern in not_actionable_patterns:
+        if pattern.lower() in content:
+            return True
+
+    return False
+
+
+def _determine_profile_urgency(
+    email_account: str,
+    role: str,
+    pattern: str,
+) -> str:
+    """Determine urgency based on account, role, and matched pattern.
+
+    Args:
+        email_account: "church" or "personal"
+        role: The matched role (e.g., "Treasurer", "Parent")
+        pattern: The pattern that matched
+
+    Returns:
+        Urgency level: "high", "medium", or "low"
+    """
+    pattern_lower = pattern.lower()
+
+    # High urgency patterns
+    high_urgency_keywords = [
+        "past due", "urgent", "deadline", "fraud alert",
+        "overdue", "immediately", "asap", "payment due",
+    ]
+    if any(kw in pattern_lower for kw in high_urgency_keywords):
+        return "high"
+
+    # Medium urgency roles (financial/leadership)
+    medium_urgency_roles = [
+        "Treasurer", "Head Elder", "Financial", "Parent",
+        "Procurement Lead",
+    ]
+    if role in medium_urgency_roles:
+        return "medium"
+
+    return "low"
+
+
+def analyze_with_profile(
+    email: EmailMessage,
+    email_account: str,
+    church_roles: List[str],
+    personal_contexts: List[str],
+    vip_senders: Dict[str, List[str]],
+    church_attention_patterns: Dict[str, List[str]],
+    personal_attention_patterns: Dict[str, List[str]],
+    not_actionable_patterns: Dict[str, List[str]],
+) -> Optional[AttentionItem]:
+    """Role-aware attention detection using profile data.
+
+    This function checks emails against the user's profile to determine
+    if attention is needed. It's more intelligent than regex because it
+    understands David's roles and contexts.
+
+    Processing order:
+    1. Check not-actionable patterns (skip these)
+    2. Check VIP senders (always high priority)
+    3. Check role/context-specific patterns
+    4. Fall back to regex patterns if nothing matches
+
+    Args:
+        email: The email message to analyze.
+        email_account: "church" or "personal"
+        church_roles: List of church roles (e.g., ["Treasurer", "IT Lead"])
+        personal_contexts: List of personal contexts (e.g., ["Parent", "Homeowner"])
+        vip_senders: Dict mapping account to VIP sender patterns
+        church_attention_patterns: Dict mapping role to attention keywords
+        personal_attention_patterns: Dict mapping context to attention keywords
+        not_actionable_patterns: Dict mapping account to skip patterns
+
+    Returns:
+        AttentionItem if attention needed, None otherwise.
+    """
+    # Get account-specific patterns
+    account_vips = vip_senders.get(email_account, [])
+    account_not_actionable = not_actionable_patterns.get(email_account, [])
+
+    # 1. Check not-actionable patterns first (skip these)
+    if matches_not_actionable(email, account_not_actionable):
+        return None
+
+    # 2. Check VIP senders (always high priority)
+    if is_vip_sender(email, account_vips):
+        # Find which VIP pattern matched for the reason
+        from_lower = email.from_address.lower()
+        from_name_lower = (email.from_name or "").lower()
+        matched_vip = "VIP sender"
+        for pattern in account_vips:
+            if pattern.lower() in from_lower or pattern.lower() in from_name_lower:
+                matched_vip = pattern
+                break
+
+        return AttentionItem(
+            email=email,
+            reason=f"VIP: {matched_vip}",
+            urgency="high",
+            suggested_action="Review immediately",
+            extracted_task=_extract_task_from_email(email),
+            matched_role="VIP",
+            confidence=0.95,
+            analysis_method="vip",
+        )
+
+    # 3. Check role/context-specific patterns
+    content = f"{email.subject} {email.snippet}".lower()
+
+    # Route to appropriate patterns based on account
+    if email_account == "church":
+        roles = church_roles
+        patterns_by_role = church_attention_patterns
+    else:  # personal
+        roles = personal_contexts
+        patterns_by_role = personal_attention_patterns
+
+    # Check each role's patterns
+    for role in roles:
+        patterns = patterns_by_role.get(role, [])
+        for pattern in patterns:
+            if pattern.lower() in content:
+                urgency = _determine_profile_urgency(email_account, role, pattern)
+                return AttentionItem(
+                    email=email,
+                    reason=f"{role}: {pattern}",
+                    urgency=urgency,
+                    suggested_action=_suggest_action_for_role(role, pattern),
+                    extracted_task=_extract_task_from_email(email),
+                    matched_role=role,
+                    confidence=0.85,
+                    analysis_method="profile",
+                )
+
+    # 4. No profile match - return None (let regex analysis handle it)
+    return None
+
+
+def _extract_task_from_email(email: EmailMessage) -> Optional[str]:
+    """Extract a potential task title from the email subject.
+
+    Args:
+        email: The email message.
+
+    Returns:
+        Cleaned subject line suitable for a task title, or None.
+    """
+    task = email.subject.strip()
+
+    # Remove common prefixes
+    prefixes = ["re:", "fwd:", "fw:"]
+    for prefix in prefixes:
+        if task.lower().startswith(prefix):
+            task = task[len(prefix):].strip()
+
+    # Limit length
+    if len(task) > 60:
+        task = task[:57] + "..."
+
+    return task if task else None
+
+
+def _suggest_action_for_role(role: str, pattern: str) -> str:
+    """Suggest an action based on the matched role and pattern.
+
+    Args:
+        role: The matched role (e.g., "Treasurer", "Parent")
+        pattern: The pattern that matched
+
+    Returns:
+        Suggested action string
+    """
+    pattern_lower = pattern.lower()
+
+    # Financial patterns -> Create task for tracking
+    if any(kw in pattern_lower for kw in ["invoice", "payment", "bill", "deposit", "check request"]):
+        return "Create task to track payment"
+
+    # Deadline patterns -> Create task
+    if any(kw in pattern_lower for kw in ["deadline", "due", "pending", "awaiting"]):
+        return "Create task"
+
+    # Meeting patterns -> Review
+    if any(kw in pattern_lower for kw in ["meeting", "appointment"]):
+        return "Review and calendar"
+
+    # Family patterns -> Reply or action needed
+    if role in ["Parent", "Family Coordinator"]:
+        return "Action needed"
+
+    # Default -> Review
+    return "Review needed"
+
+
+def detect_attention_with_profile(
+    messages: List[EmailMessage],
+    email_account: str,
+    church_roles: List[str],
+    personal_contexts: List[str],
+    vip_senders: Dict[str, List[str]],
+    church_attention_patterns: Dict[str, List[str]],
+    personal_attention_patterns: Dict[str, List[str]],
+    not_actionable_patterns: Dict[str, List[str]],
+    fallback_to_regex: bool = True,
+) -> List[AttentionItem]:
+    """Detect attention items using profile-aware analysis.
+
+    This is the main entry point for profile-aware attention detection.
+    It processes each email with profile analysis first, then optionally
+    falls back to regex for emails that don't match profile patterns.
+
+    Args:
+        messages: List of emails to analyze.
+        email_account: "church" or "personal"
+        church_roles: List of church roles
+        personal_contexts: List of personal contexts
+        vip_senders: Dict mapping account to VIP sender patterns
+        church_attention_patterns: Dict mapping role to attention keywords
+        personal_attention_patterns: Dict mapping context to attention keywords
+        not_actionable_patterns: Dict mapping account to skip patterns
+        fallback_to_regex: If True, use regex analysis for non-profile matches
+
+    Returns:
+        List of AttentionItem objects requiring attention.
+    """
+    attention_items = []
+    processed_ids = set()
+
+    # First pass: Profile-aware analysis
+    for msg in messages:
+        item = analyze_with_profile(
+            email=msg,
+            email_account=email_account,
+            church_roles=church_roles,
+            personal_contexts=personal_contexts,
+            vip_senders=vip_senders,
+            church_attention_patterns=church_attention_patterns,
+            personal_attention_patterns=personal_attention_patterns,
+            not_actionable_patterns=not_actionable_patterns,
+        )
+        if item:
+            attention_items.append(item)
+            processed_ids.add(msg.id)
+
+    # Second pass: Regex fallback for emails not caught by profile
+    if fallback_to_regex:
+        analyzer = EmailAnalyzer(email_account)
+        for msg in messages:
+            if msg.id not in processed_ids:
+                # Check not-actionable first
+                account_not_actionable = not_actionable_patterns.get(email_account, [])
+                if matches_not_actionable(msg, account_not_actionable):
+                    continue
+
+                # Use regex analysis
+                item = analyzer._check_attention_needed(msg)
+                if item:
+                    # Add profile fields with defaults
+                    item.matched_role = None
+                    item.confidence = 0.7
+                    item.analysis_method = "regex"
+                    attention_items.append(item)
+
+    return attention_items
 
