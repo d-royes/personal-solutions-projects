@@ -1655,6 +1655,7 @@ class EmailDraftResponse(BaseModel):
     """Response from draft email endpoint."""
     subject: str
     body: str
+    body_html: str = Field(alias="bodyHtml")
     needs_recipient: bool = Field(alias="needsRecipient")
     task_id: str = Field(alias="taskId")
     task_title: str = Field(alias="taskTitle")
@@ -1697,6 +1698,7 @@ def draft_email_endpoint(
     return {
         "subject": draft_result.subject,
         "body": draft_result.body,
+        "bodyHtml": draft_result.body_html,
         "needsRecipient": draft_result.needs_recipient,
         "taskId": task_id,
         "taskTitle": target.title,

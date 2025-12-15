@@ -117,7 +117,8 @@ function App() {
   const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment'>('auth')
   const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
-  
+  const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
+
   // Global Mode state
   const [globalPerspective, setGlobalPerspective] = useState<Perspective>('personal')
   const [globalConversation, setGlobalConversation] = useState<ConversationMessage[]>([])
@@ -134,13 +135,14 @@ function App() {
 
   const handleSelectTask = useCallback(async (taskId: string) => {
     if (taskId !== selectedTaskId) {
-      // Clear plan when selecting a different task
+      // Clear plan and engagement when selecting a different task
       setAssistPlan(null)
       setAssistError(null)
       setConversation([])
       setSavedDraft(null)
       setEmailDraftOpen(false)
       setEmailError(null)
+      setIsEngaged(false)
     }
     setSelectedTaskId(taskId)
     
@@ -310,6 +312,7 @@ function App() {
       setAssistError('Please sign in first.')
       return
     }
+    setIsEngaged(true)  // Mark as engaged with this task
     setAssistRunning(true)
     setAssistError(null)
     try {
@@ -530,10 +533,10 @@ function App() {
     sourceContent: string,
     recipient?: string,
     regenerateInput?: string
-  ): Promise<{ subject: string; body: string }> {
+  ): Promise<{ subject: string; body: string; bodyHtml?: string }> {
     if (!selectedTask) throw new Error('No task selected')
     if (!authConfig) throw new Error('Please sign in first')
-    
+
     setEmailDraftLoading(true)
     setEmailError(null)
     try {
@@ -546,6 +549,7 @@ function App() {
       return {
         subject: response.subject,
         body: response.body,
+        bodyHtml: response.bodyHtml,
       }
     } catch (error) {
       const message = (error as Error).message
@@ -1152,6 +1156,7 @@ function App() {
             <AssistPanel
               selectedTask={selectedTask}
               latestPlan={assistPlan}
+              isEngaged={isEngaged}
               running={assistRunning}
               planGenerating={planGenerating}
               researchRunning={researchRunning}

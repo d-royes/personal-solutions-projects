@@ -229,6 +229,7 @@ function renderMarkdown(text: string): JSX.Element {
 interface AssistPanelProps {
   selectedTask: Task | null
   latestPlan: AssistPlan | null
+  isEngaged?: boolean  // Whether we've engaged with the current task (separate from having a plan)
   running: boolean
   planGenerating: boolean
   researchRunning: boolean
@@ -268,7 +269,7 @@ interface AssistPanelProps {
   selectedWorkspaceIndex?: number | null
   onSelectWorkspaceItem?: (index: number | null) => void
   // Email draft props
-  onDraftEmail?: (sourceContent: string, recipient?: string, regenerateInput?: string) => Promise<{ subject: string; body: string }>
+  onDraftEmail?: (sourceContent: string, recipient?: string, regenerateInput?: string) => Promise<{ subject: string; body: string; bodyHtml?: string }>
   onSendEmail?: (draft: EmailDraft) => Promise<void>
   onSaveDraft?: (draft: EmailDraft) => Promise<void>
   onDeleteDraft?: () => Promise<void>
@@ -395,6 +396,7 @@ function formatPendingAction(action: PendingAction): string {
 export function AssistPanel({
   selectedTask,
   latestPlan,
+  isEngaged = false,
   running,
   planGenerating,
   researchRunning,
@@ -520,7 +522,6 @@ export function AssistPanel({
   }, [workspaceItems, onWorkspaceChange])
 
   const disableSend = sendingMessage || !message.trim()
-  const hasPlan = !!latestPlan
 
   const handleActionClick = async (action: string) => {
     setActiveAction(action)
@@ -581,6 +582,7 @@ export function AssistPanel({
       setEmailDraft({
         subject: result.subject,
         body: result.body,
+        bodyHtml: result.bodyHtml,
         to: [],
         cc: [],
         fromAccount: '',
@@ -624,6 +626,7 @@ export function AssistPanel({
         ...prev,
         subject: result.subject,
         body: result.body,
+        bodyHtml: result.bodyHtml,
       }))
     } catch (err) {
       console.error('Failed to regenerate email draft:', err)
@@ -1121,7 +1124,7 @@ export function AssistPanel({
   }
 
   // Task selected but not engaged - show preview with Engage button
-  if (!hasPlan) {
+  if (!isEngaged) {
     return (
       <section className="panel assist-panel">
         <header>
@@ -1254,7 +1257,7 @@ export function AssistPanel({
               <h4>Planning</h4>
             </div>
             <div className="zone-content">
-              {latestPlan.summary ? (
+              {latestPlan?.summary ? (
                 <>
                   <div className="plan-section">
                     <h5>
@@ -1284,7 +1287,7 @@ export function AssistPanel({
                     )}
                   </div>
 
-                  {latestPlan.nextSteps.length > 0 && (
+                  {latestPlan.nextSteps?.length > 0 && (
                     <div className="plan-section">
                       <h5>Next Steps</h5>
                       <ul className="compact-list">
@@ -1295,7 +1298,7 @@ export function AssistPanel({
                     </div>
                   )}
 
-                  {latestPlan.efficiencyTips.length > 0 && (
+                  {latestPlan.efficiencyTips?.length > 0 && (
                     <div className="plan-section">
                       <h5>Efficiency Tips</h5>
                       <ul className="compact-list">
@@ -1305,9 +1308,9 @@ export function AssistPanel({
                       </ul>
                     </div>
                   )}
-                  
+
                   {/* Feedback controls for plan */}
-                  {onFeedbackSubmit && (
+                  {onFeedbackSubmit && latestPlan.summary && (
                     <div className="plan-feedback">
                       <FeedbackControls
                         context="plan"

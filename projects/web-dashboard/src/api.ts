@@ -783,6 +783,7 @@ export interface EmailDraftRequest {
 export interface EmailDraftResponse {
   subject: string
   body: string
+  bodyHtml: string
   needsRecipient: boolean
   taskId: string
   taskTitle: string

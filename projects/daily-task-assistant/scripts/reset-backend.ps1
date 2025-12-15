@@ -20,14 +20,14 @@ function Stop-PortProcess {
         Write-Host "  No existing process on port $Port" -ForegroundColor Gray
         return
     }
-    $pids = $connections.OwningProcess | Select-Object -Unique
-    foreach ($pid in $pids) {
+    $processIds = $connections.OwningProcess | Select-Object -Unique
+    foreach ($procId in $processIds) {
         try {
-            $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
-            Write-Host "  Stopping $($proc.ProcessName) (PID $pid)..." -ForegroundColor Yellow
-            Stop-Process -Id $pid -Force
+            $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+            Write-Host "  Stopping $($proc.ProcessName) (PID $procId)..." -ForegroundColor Yellow
+            Stop-Process -Id $procId -Force
         } catch {
-            Write-Warning ("  Failed to stop PID {0}: {1}" -f $pid, $_)
+            Write-Warning ("  Failed to stop PID {0}: {1}" -f $procId, $_)
         }
     }
     # Brief pause to ensure port is released
@@ -36,15 +36,9 @@ function Stop-PortProcess {
 
 Stop-PortProcess -Port $Port
 
-# Also kill any zombie Python processes that might be watching files
-$pythonProcs = Get-Process -Name "python*" -ErrorAction SilentlyContinue | Where-Object {
-    $_.MainWindowTitle -eq "" -and $_.Path -match "python"
-}
-if ($pythonProcs) {
-    Write-Host "  Cleaning up $($pythonProcs.Count) background Python process(es)..." -ForegroundColor Yellow
-    $pythonProcs | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
-}
+# Note: We intentionally do NOT kill all background Python processes here.
+# Other tools and services may run on Python - killing them could disrupt workflows.
+# The Stop-PortProcess function above handles the specific uvicorn dev server.
 
 Write-Host "Starting backend..." -ForegroundColor Cyan
 
