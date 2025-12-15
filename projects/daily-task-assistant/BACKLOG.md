@@ -85,6 +85,8 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| **Workspace Context Selection** | 2025-12-14 | Multi-select workspace items for Plan generation and Email drafts |
+| **Email Rich Text Rendering** | 2025-12-14 | Email drafts render as HTML with proper formatting (bold, lists, paragraphs) |
 | **Sanitize Test Conversations** | 2025-12-14 | Removed PII files from tracking, added to .gitignore |
 | **Email Reply Feature** | 2025-12-12 | Full email body loading, thread context, AI reply drafts, Tiptap editor |
 | **Email-Task Integration** | 2025-12-12 | Task creation from emails, Email Tasks filter |

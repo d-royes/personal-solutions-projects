@@ -81,6 +81,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-dev.ps1
 - Backend: http://localhost:8000
 - Frontend: http://localhost:5173
 
+### Resetting Dev Servers
+```powershell
+cd projects/daily-task-assistant/scripts
+
+# Reset backend (kills process on port 8000, restarts with env vars)
+.\reset-backend.ps1
+
+# Reset frontend (kills process on port 5173, restarts Vite)
+.\reset-frontend.ps1
+```
+
 ### Running Unit Tests
 ```powershell
 cd projects/daily-task-assistant

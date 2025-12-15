@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+#### Workspace Context Selection (2025-12-14)
+- **Multi-select workspace items for Plan generation**: Check workspace cards to include as context when generating plans
+- **Multi-select workspace items for Email drafts**: Selected workspace content included in email draft generation
+- **"N items selected for context" indicator**: Shows how many workspace items are selected
+- DATA references selected workspace content in plans and emails when relevant
+
+#### Email Rich Text Rendering (2025-12-14)
+- **Email drafts render as HTML**: Bold, italic, bullet lists, numbered lists, and paragraphs display properly
+- Added `_convert_markdown_formatting()` for markdown-to-HTML conversion
+- Enhanced `_convert_to_simple_html()` to handle all common formatting patterns
+- API returns `bodyHtml` field alongside plain text `body`
+
 #### Workspace Context in Chat
 - **Selected workspace items now visible to DATA**: Check workspace cards to include their content in chat messages
 - DATA can reference and analyze workspace content directly in responses
@@ -31,6 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Conversation button styling verification
 
 ### Fixed
+- **Clear plan no longer disengages from task** (2025-12-14): Added `isEngaged` state separate from plan state. Clearing the plan keeps you engaged with the task.
+- **Reset scripts no longer kill Claude Code** (2025-12-14): Removed aggressive process killing that terminated all background Node/Python processes. Scripts now only kill the specific process on the target port.
 - **Conversation button spacing**: Changed from `space-between` to `gap: 6px` for proper button proximity
 - **Workspace controls positioning**: Moved controls away from scrollbar (`right: 20px`)
 
