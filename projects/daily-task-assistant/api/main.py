@@ -4087,6 +4087,87 @@ def check_response_warning(
     }
 
 
+# --- Haiku Intelligence Layer endpoints ---
+
+class HaikuSettingsRequest(BaseModel):
+    """Request body for updating Haiku settings."""
+    enabled: Optional[bool] = Field(None, description="Enable/disable Haiku analysis")
+    daily_limit: Optional[int] = Field(None, ge=0, le=500, description="Daily analysis limit")
+    weekly_limit: Optional[int] = Field(None, ge=0, le=2000, description="Weekly analysis limit")
+
+
+@app.get("/email/haiku/settings")
+def get_haiku_settings(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get current Haiku analysis settings for the user.
+
+    Returns the enabled flag and usage limits.
+    """
+    from daily_task_assistant.email import (
+        get_haiku_settings as get_settings,
+    )
+
+    settings = get_settings(user)
+    return {
+        "settings": settings.to_api_dict(),
+    }
+
+
+@app.put("/email/haiku/settings")
+def update_haiku_settings(
+    request: HaikuSettingsRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update Haiku analysis settings.
+
+    Allows toggling Haiku on/off and adjusting daily/weekly limits.
+    """
+    from daily_task_assistant.email import (
+        get_haiku_settings as get_settings,
+        save_haiku_settings as save_settings,
+        HaikuSettings,
+    )
+
+    # Get current settings
+    current = get_settings(user)
+
+    # Update only provided fields
+    new_settings = HaikuSettings(
+        enabled=request.enabled if request.enabled is not None else current.enabled,
+        daily_limit=request.daily_limit if request.daily_limit is not None else current.daily_limit,
+        weekly_limit=request.weekly_limit if request.weekly_limit is not None else current.weekly_limit,
+    )
+
+    # Save and return
+    save_settings(user, new_settings)
+
+    return {
+        "status": "updated",
+        "settings": new_settings.to_api_dict(),
+    }
+
+
+@app.get("/email/haiku/usage")
+def get_haiku_usage(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get current Haiku usage statistics for the user.
+
+    Returns daily/weekly counts, limits, and remaining capacity.
+    Includes flags indicating if user can still use Haiku.
+    """
+    from daily_task_assistant.email import (
+        get_haiku_usage_summary,
+    )
+
+    summary = get_haiku_usage_summary(user)
+
+    return {
+        "usage": summary,
+    }
+
+
 # --- Workspace endpoints ---
 
 class WorkspaceSaveRequest(BaseModel):
