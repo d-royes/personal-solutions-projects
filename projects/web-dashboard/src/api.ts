@@ -2500,3 +2500,104 @@ export async function removeNotActionablePattern(
   }
   return resp.json()
 }
+
+
+// =============================================================================
+// Haiku Intelligence Layer API (F1)
+// =============================================================================
+
+export interface HaikuSettings {
+  enabled: boolean
+  dailyLimit: number
+  weeklyLimit: number
+}
+
+export interface HaikuUsage {
+  dailyCount: number
+  weeklyCount: number
+  dailyLimit: number
+  weeklyLimit: number
+  dailyRemaining: number
+  weeklyRemaining: number
+  canAnalyze: boolean
+  enabled: boolean
+}
+
+export interface HaikuSettingsResponse {
+  settings: HaikuSettings
+}
+
+export interface HaikuSettingsUpdateRequest {
+  enabled?: boolean
+  daily_limit?: number
+  weekly_limit?: number
+}
+
+export interface HaikuUsageResponse {
+  usage: HaikuUsage
+}
+
+/**
+ * Get current Haiku analysis settings for the user.
+ */
+export async function getHaikuSettings(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<HaikuSettingsResponse> {
+  const url = new URL('/email/haiku/settings', baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get Haiku settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update Haiku analysis settings.
+ * Only provided fields are updated.
+ */
+export async function updateHaikuSettings(
+  request: HaikuSettingsUpdateRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; settings: HaikuSettings }> {
+  const url = new URL('/email/haiku/settings', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update Haiku settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get current Haiku usage statistics.
+ * Shows daily/weekly counts, limits, remaining capacity.
+ */
+export async function getHaikuUsage(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<HaikuUsageResponse> {
+  const url = new URL('/email/haiku/usage', baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get Haiku usage failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}

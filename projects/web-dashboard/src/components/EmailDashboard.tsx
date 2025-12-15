@@ -41,6 +41,7 @@ import {
   type DismissReason,
 } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
+import { HaikuSettingsPanel } from './HaikuSettingsPanel'
 
 interface EmailDashboardProps {
   authConfig: AuthConfig
@@ -48,7 +49,7 @@ interface EmailDashboardProps {
   onBack: () => void
 }
 
-type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention'
+type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention' | 'settings'
 
 // Quick action types for email management
 type EmailQuickAction = 
@@ -1347,6 +1348,12 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
               >
                 Attention {attentionItems.length > 0 && `(${attentionItems.length})`}
               </button>
+              <button
+                className={activeTab === 'settings' ? 'active' : ''}
+                onClick={() => setActiveTab('settings')}
+              >
+                Settings
+              </button>
             </nav>
 
       {/* Tab content */}
@@ -2068,6 +2075,13 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                 ))}
               </ul>
             )}
+          </div>
+        )}
+
+        {/* Settings Tab */}
+        {activeTab === 'settings' && (
+          <div className="settings-view">
+            <HaikuSettingsPanel authConfig={authConfig} apiBase={apiBase} />
           </div>
         )}
             </div>
