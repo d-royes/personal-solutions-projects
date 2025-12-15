@@ -2480,7 +2480,8 @@ def analyze_inbox(
         list_active_attention,
         get_dismissed_email_ids,
         purge_expired_records,
-        detect_attention_with_profile,
+        detect_attention_with_haiku,
+        get_haiku_usage_summary,
     )
     from daily_task_assistant.memory.profile import get_or_create_profile
 
@@ -2573,17 +2574,23 @@ def analyze_inbox(
     analyzer = EmailAnalyzer(email_address, existing_rules)
     suggestions, _ = analyzer.analyze_messages(messages_to_analyze)
 
-    # Use profile-aware analysis for attention detection
-    new_attention_items = detect_attention_with_profile(
+    # Use Haiku-enhanced analysis for attention detection (with automatic fallback)
+    new_attention_items, haiku_results = detect_attention_with_haiku(
         messages=messages_to_analyze,
         email_account=account,
+        user_id=user,  # Required for usage tracking
         church_roles=profile.church_roles,
         personal_contexts=profile.personal_contexts,
         vip_senders=profile.vip_senders,
         church_attention_patterns=profile.church_attention_patterns,
         personal_attention_patterns=profile.personal_attention_patterns,
         not_actionable_patterns=profile.not_actionable_patterns,
-        fallback_to_regex=True,
+    )
+
+    # Log Haiku analysis results
+    haiku_analyzed = sum(1 for r in haiku_results.values() if r.analysis_method == "haiku")
+    logger.info(
+        f"[analyze_inbox] Haiku analyzed {haiku_analyzed}/{len(messages_to_analyze)} emails"
     )
 
     # Save new attention items to persistence
@@ -2621,6 +2628,9 @@ def analyze_inbox(
     urgency_order = {"high": 0, "medium": 1, "low": 2}
     all_attention.sort(key=lambda x: urgency_order.get(x.get("urgency", "low"), 2))
 
+    # Get current Haiku usage stats for response
+    haiku_usage = get_haiku_usage_summary(user)
+
     return {
         "account": account,
         "email": email_address,
@@ -2630,6 +2640,8 @@ def analyze_inbox(
         "attentionItems": all_attention,
         "persistedCount": len(persisted_attention),
         "newCount": len(new_attention_items),
+        "haikuAnalyzed": haiku_analyzed,
+        "haikuUsage": haiku_usage,
     }
 
 

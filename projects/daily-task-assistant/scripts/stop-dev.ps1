@@ -7,13 +7,13 @@ function Stop-PortProcess {
         Write-Host "No process found on port $Port"
         return
     }
-    $pids = $connections.OwningProcess | Select-Object -Unique
-    foreach ($pid in $pids) {
+    $processIds = $connections.OwningProcess | Select-Object -Unique
+    foreach ($procId in $processIds) {
         try {
-            Write-Host "Stopping process $pid on port $Port..."
-            Stop-Process -Id $pid -Force
+            Write-Host "Stopping process $procId on port $Port..."
+            Stop-Process -Id $procId -Force
         } catch {
-            Write-Warning ("Failed to stop PID {0}: {1}" -f $pid, $_)
+            Write-Warning ("Failed to stop PID {0}: {1}" -f $procId, $_)
         }
     }
 }
