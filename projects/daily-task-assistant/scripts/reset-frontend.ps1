@@ -38,15 +38,9 @@ function Stop-PortProcess {
 
 Stop-PortProcess -Port $Port
 
-# Also kill any zombie Node processes that might be watching files
-$nodeProcs = Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object {
-    $_.MainWindowTitle -eq ""
-}
-if ($nodeProcs) {
-    Write-Host "  Cleaning up $($nodeProcs.Count) background Node process(es)..." -ForegroundColor Yellow
-    $nodeProcs | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
-}
+# Note: We intentionally do NOT kill all background Node processes here.
+# Claude Code CLI and other tools run on Node.js - killing them would disrupt the session.
+# The Stop-PortProcess function above handles the specific Vite dev server.
 
 Write-Host "Starting frontend..." -ForegroundColor Cyan
 

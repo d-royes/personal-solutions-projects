@@ -36,15 +36,9 @@ function Stop-PortProcess {
 
 Stop-PortProcess -Port $Port
 
-# Also kill any zombie Python processes that might be watching files
-$pythonProcs = Get-Process -Name "python*" -ErrorAction SilentlyContinue | Where-Object {
-    $_.MainWindowTitle -eq "" -and $_.Path -match "python"
-}
-if ($pythonProcs) {
-    Write-Host "  Cleaning up $($pythonProcs.Count) background Python process(es)..." -ForegroundColor Yellow
-    $pythonProcs | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
-}
+# Note: We intentionally do NOT kill all background Python processes here.
+# Other tools and services may run on Python - killing them could disrupt workflows.
+# The Stop-PortProcess function above handles the specific uvicorn dev server.
 
 Write-Host "Starting backend..." -ForegroundColor Cyan
 
