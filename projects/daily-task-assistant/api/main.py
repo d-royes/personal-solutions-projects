@@ -2733,6 +2733,194 @@ def snooze_attention_item(
     }
 
 
+# --- Suggestion Tracking (Sprint 5: Learning Foundation) ---
+
+
+class SuggestionDecisionRequest(BaseModel):
+    """Request body for approving or rejecting a suggestion."""
+
+    approved: bool = Field(
+        description="Whether the suggestion was approved (True) or rejected (False)",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@app.post("/email/suggestions/{suggestion_id}/decide")
+def decide_suggestion(
+    suggestion_id: str,
+    request: SuggestionDecisionRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Record user's decision on a suggestion.
+
+    This feedback is critical for the Trust Gradient system.
+    Approvals increase DATA's confidence in similar suggestions.
+    Rejections help DATA learn what NOT to suggest.
+    """
+    from daily_task_assistant.email import record_suggestion_decision, get_suggestion
+
+    # Record the decision
+    success = record_suggestion_decision(user, suggestion_id, request.approved)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+
+    # Get the updated suggestion for confirmation
+    suggestion = get_suggestion(user, suggestion_id)
+
+    return {
+        "success": True,
+        "suggestionId": suggestion_id,
+        "status": suggestion.status if suggestion else ("approved" if request.approved else "rejected"),
+        "decidedAt": suggestion.decided_at.isoformat() if suggestion and suggestion.decided_at else None,
+    }
+
+
+@app.get("/email/suggestions/pending")
+def get_pending_suggestions(
+    account: Optional[Literal["church", "personal"]] = Query(None, description="Filter by email account"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get all pending suggestions for the user.
+
+    Returns suggestions that haven't been approved or rejected yet.
+    Optional filter by email account.
+    """
+    from daily_task_assistant.email import list_pending_suggestions
+
+    suggestions = list_pending_suggestions(user, account)
+
+    return {
+        "account": account,
+        "suggestions": [s.to_api_dict() for s in suggestions],
+        "count": len(suggestions),
+    }
+
+
+@app.get("/email/suggestions/stats")
+def get_suggestion_stats(
+    days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get suggestion approval statistics for Trust Gradient.
+
+    Returns approval rates by action type and analysis method.
+    This data helps track DATA's learning progress.
+    """
+    from daily_task_assistant.email import get_approval_stats
+
+    stats = get_approval_stats(user, days)
+
+    return {
+        "days": days,
+        "total": stats["total"],
+        "approved": stats["approved"],
+        "rejected": stats["rejected"],
+        "expired": stats["expired"],
+        "pending": stats["pending"],
+        "approvalRate": stats["approval_rate"],
+        "byAction": stats["by_action"],
+        "byMethod": stats["by_method"],
+    }
+
+
+@app.get("/email/suggestions/rejection-patterns")
+def get_rejection_patterns(
+    days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
+    min_rejections: int = Query(3, ge=2, le=10, description="Minimum rejections to suggest as pattern"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get frequently rejected patterns that could be added to not-actionable.
+
+    Analyzes rejection history to find patterns that should be skipped
+    in future suggestions. Use with add-pattern endpoint to teach DATA.
+    """
+    from daily_task_assistant.memory import get_rejection_candidates
+
+    candidates = get_rejection_candidates(user, days, min_rejections)
+
+    return {
+        "days": days,
+        "minRejections": min_rejections,
+        "candidates": candidates,
+    }
+
+
+class AddPatternRequest(BaseModel):
+    """Request body for adding a not-actionable pattern."""
+
+    account: Literal["church", "personal"] = Field(
+        description="Email account to add pattern to",
+    )
+    pattern: str = Field(
+        description="Pattern to mark as not actionable",
+        min_length=3,
+        max_length=100,
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@app.post("/profile/not-actionable/add")
+def add_not_actionable(
+    request: AddPatternRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Add a pattern to not-actionable list.
+
+    This teaches DATA to skip emails matching this pattern in the future.
+    """
+    from daily_task_assistant.memory import add_not_actionable_pattern
+
+    success = add_not_actionable_pattern(user, request.account, request.pattern)
+
+    if not success:
+        # Pattern already exists
+        return {
+            "success": False,
+            "account": request.account,
+            "pattern": request.pattern,
+            "message": "Pattern already exists in not-actionable list",
+        }
+
+    return {
+        "success": True,
+        "account": request.account,
+        "pattern": request.pattern,
+        "message": "Pattern added to not-actionable list",
+    }
+
+
+@app.post("/profile/not-actionable/remove")
+def remove_not_actionable(
+    request: AddPatternRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Remove a pattern from not-actionable list.
+
+    Allows user to re-enable attention for previously skipped patterns.
+    """
+    from daily_task_assistant.memory import remove_not_actionable_pattern
+
+    success = remove_not_actionable_pattern(user, request.account, request.pattern)
+
+    if not success:
+        return {
+            "success": False,
+            "account": request.account,
+            "pattern": request.pattern,
+            "message": "Pattern not found in not-actionable list",
+        }
+
+    return {
+        "success": True,
+        "account": request.account,
+        "pattern": request.pattern,
+        "message": "Pattern removed from not-actionable list",
+    }
+
+
 @app.post("/email/sync/{account}")
 def sync_rules_to_sheet(
     account: Literal["church", "personal"],
@@ -3263,13 +3451,35 @@ def get_email_action_suggestions(
         gmail_config.from_address,
         available_labels=available_labels,
     )
-    
+
+    # Persist suggestions for approval tracking (Sprint 5)
+    from daily_task_assistant.email import create_suggestion
+
+    persisted_suggestions = []
+    for s in suggestions:
+        # Create a persistent record for this suggestion
+        record = create_suggestion(
+            user_id=user,
+            email_id=s.email.id,
+            email_account=account,
+            action=s.action.value,
+            rationale=s.rationale,
+            confidence=0.5 if s.confidence.value == "medium" else (0.8 if s.confidence.value == "high" else 0.3),
+            label_name=s.label_name,
+            task_title=s.task_title,
+            analysis_method="regex",  # Current implementation uses regex patterns
+        )
+        # Add suggestion_id to the response for tracking
+        suggestion_dict = s.to_dict()
+        suggestion_dict["suggestionId"] = record.suggestion_id
+        persisted_suggestions.append(suggestion_dict)
+
     return {
         "account": account,
         "email": gmail_config.from_address,
         "messagesAnalyzed": len(messages),
         "availableLabels": available_labels,
-        "suggestions": [s.to_dict() for s in suggestions],
+        "suggestions": persisted_suggestions,
     }
 
 

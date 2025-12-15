@@ -420,3 +420,168 @@ def _write_file_profile(profile: DavidProfile) -> bool:
     except Exception as exc:
         print(f"[Profile] Failed to write file profile: {exc}")
         return False
+
+
+# Profile Feedback System (Sprint 5)
+
+
+def add_not_actionable_pattern(
+    user_id: str,
+    account: str,
+    pattern: str,
+) -> bool:
+    """Add a pattern to not-actionable list based on rejection feedback.
+
+    Called when a user rejects suggestions multiple times with similar patterns.
+    This teaches DATA to skip similar emails in the future.
+
+    Args:
+        user_id: User identifier
+        account: Email account ("church" or "personal")
+        pattern: The pattern to mark as not actionable
+
+    Returns:
+        True if pattern was added, False if it already exists or failed
+    """
+    profile = get_or_create_profile(user_id)
+
+    # Get or initialize the account's not-actionable list
+    patterns = profile.not_actionable_patterns.get(account, [])
+
+    # Check if pattern already exists (case-insensitive)
+    pattern_lower = pattern.lower()
+    if any(p.lower() == pattern_lower for p in patterns):
+        return False  # Already exists
+
+    # Add the new pattern
+    patterns.append(pattern)
+    profile.not_actionable_patterns[account] = patterns
+
+    return save_profile(profile)
+
+
+def remove_not_actionable_pattern(
+    user_id: str,
+    account: str,
+    pattern: str,
+) -> bool:
+    """Remove a pattern from not-actionable list.
+
+    Called when user explicitly wants to receive attention for this pattern again.
+
+    Args:
+        user_id: User identifier
+        account: Email account ("church" or "personal")
+        pattern: The pattern to remove
+
+    Returns:
+        True if pattern was removed, False if not found
+    """
+    profile = get_profile(user_id)
+    if profile is None:
+        return False
+
+    patterns = profile.not_actionable_patterns.get(account, [])
+
+    # Find and remove pattern (case-insensitive)
+    pattern_lower = pattern.lower()
+    original_len = len(patterns)
+    patterns = [p for p in patterns if p.lower() != pattern_lower]
+
+    if len(patterns) == original_len:
+        return False  # Pattern not found
+
+    profile.not_actionable_patterns[account] = patterns
+    return save_profile(profile)
+
+
+def get_rejection_candidates(
+    user_id: str,
+    days: int = 30,
+    min_rejections: int = 3,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Analyze rejected suggestions to find patterns for not-actionable.
+
+    Returns patterns that have been rejected multiple times, suggesting
+    they should be added to the not-actionable list.
+
+    Args:
+        user_id: User identifier
+        days: Days to look back
+        min_rejections: Minimum rejections to suggest as pattern
+
+    Returns:
+        Dict with 'church' and 'personal' keys, each containing list of
+        candidate patterns with rejection counts
+    """
+    from ..email.suggestion_store import (
+        _force_file_fallback as _suggestion_force_file,
+        _suggestion_dir,
+        _sanitize_user_id,
+        SuggestionRecord,
+        _now,
+    )
+    from datetime import timedelta
+    from collections import Counter
+
+    cutoff = _now() - timedelta(days=days)
+
+    # Track rejections by account and pattern
+    rejections: Dict[str, Counter] = {
+        "church": Counter(),
+        "personal": Counter(),
+    }
+
+    # Try Firestore first (if not forcing file fallback)
+    used_firestore = False
+    if not _suggestion_force_file():
+        try:
+            from ..firestore import get_firestore_client
+            db = get_firestore_client()
+            if db:
+                collection = db.collection("users").document(user_id).collection("email_suggestions")
+                query = collection.where("status", "==", "rejected").where("created_at", ">=", cutoff.isoformat())
+
+                for doc in query.stream():
+                    data = doc.to_dict()
+                    account = data.get("email_account", "personal")
+                    pattern_key = data.get("rationale", "").lower()[:50]
+                    rejections[account][pattern_key] += 1
+                used_firestore = True
+        except Exception:
+            # Fall back to file-based storage
+            pass
+
+    # File-based: read all suggestions (if Firestore wasn't used)
+    if not used_firestore:
+        store_dir = _suggestion_dir() / _sanitize_user_id(user_id)
+        if store_dir.exists():
+            for file_path in store_dir.glob("*.json"):
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                record = SuggestionRecord.from_dict(data)
+
+                # Only count recent rejections
+                if record.status == "rejected" and record.created_at >= cutoff:
+                    account = record.email_account
+                    # Use rationale as the pattern identifier
+                    pattern_key = record.rationale.lower()[:50]  # Truncate long rationales
+                    rejections[account][pattern_key] += 1
+
+    # Build candidate list
+    candidates = {
+        "church": [],
+        "personal": [],
+    }
+
+    for account, counter in rejections.items():
+        for pattern, count in counter.most_common():
+            if count >= min_rejections:
+                candidates[account].append({
+                    "pattern": pattern,
+                    "rejectionCount": count,
+                    "suggestedAction": "add_to_not_actionable",
+                })
+
+    return candidates

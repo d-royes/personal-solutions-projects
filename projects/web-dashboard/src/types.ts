@@ -263,3 +263,70 @@ export interface ThreadContext {
   messages: ThreadContextMessage[]
 }
 
+// Suggestion Tracking Types (Sprint 5)
+export type SuggestionStatus = 'pending' | 'approved' | 'rejected' | 'expired'
+export type SuggestionAction = 'archive' | 'label' | 'delete' | 'star' | 'create_task' | 'mark_important'
+export type AnalysisMethod = 'regex' | 'haiku' | 'profile_match'
+
+export interface PersistentSuggestion {
+  suggestionId: string
+  emailId: string
+  emailAccount: string
+  action: SuggestionAction
+  rationale: string
+  confidence: number
+  labelName?: string
+  taskTitle?: string
+  status: SuggestionStatus
+  decidedAt?: string
+  analysisMethod: AnalysisMethod
+  createdAt: string
+}
+
+export interface SuggestionDecisionResponse {
+  success: boolean
+  suggestionId: string
+  status: SuggestionStatus
+  decidedAt?: string
+}
+
+export interface PendingSuggestionsResponse {
+  account?: string
+  suggestions: PersistentSuggestion[]
+  count: number
+}
+
+export interface SuggestionStats {
+  days: number
+  total: number
+  approved: number
+  rejected: number
+  expired: number
+  pending: number
+  approvalRate: number
+  byAction: Record<string, { approved: number; rejected: number }>
+  byMethod: Record<string, { approved: number; rejected: number }>
+}
+
+export interface RejectionCandidate {
+  pattern: string
+  rejectionCount: number
+  suggestedAction: string
+}
+
+export interface RejectionPatternsResponse {
+  days: number
+  minRejections: number
+  candidates: {
+    church: RejectionCandidate[]
+    personal: RejectionCandidate[]
+  }
+}
+
+export interface AddPatternResponse {
+  success: boolean
+  account: string
+  pattern: string
+  message: string
+}
+

@@ -5,6 +5,12 @@ import type {
   DataSource,
   TaskResponse,
   WorkBadge,
+  // Sprint 5: Suggestion Tracking
+  SuggestionDecisionResponse,
+  PendingSuggestionsResponse,
+  SuggestionStats,
+  RejectionPatternsResponse,
+  AddPatternResponse,
 } from './types'
 import type { AuthConfig } from './auth/types'
 
@@ -2311,6 +2317,157 @@ export async function updateProfile(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Update profile failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// --- Suggestion Tracking (Sprint 5) ---
+
+/**
+ * Record a decision (approve/reject) on a suggestion.
+ * This feedback is critical for the Trust Gradient learning system.
+ */
+export async function decideSuggestion(
+  suggestionId: string,
+  approved: boolean,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SuggestionDecisionResponse> {
+  const url = new URL(`/email/suggestions/${suggestionId}/decide`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ approved }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Decide suggestion failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get all pending suggestions for the user.
+ * Optional filter by email account.
+ */
+export async function getPendingSuggestions(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  account?: EmailAccount,
+): Promise<PendingSuggestionsResponse> {
+  const url = new URL('/email/suggestions/pending', baseUrl)
+  if (account) {
+    url.searchParams.set('account', account)
+  }
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get pending suggestions failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get suggestion approval statistics for Trust Gradient tracking.
+ */
+export async function getSuggestionStats(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  days: number = 30,
+): Promise<SuggestionStats> {
+  const url = new URL('/email/suggestions/stats', baseUrl)
+  url.searchParams.set('days', String(days))
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get suggestion stats failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get frequently rejected patterns that could be added to not-actionable.
+ */
+export async function getRejectionPatterns(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  days: number = 30,
+  minRejections: number = 3,
+): Promise<RejectionPatternsResponse> {
+  const url = new URL('/email/suggestions/rejection-patterns', baseUrl)
+  url.searchParams.set('days', String(days))
+  url.searchParams.set('min_rejections', String(minRejections))
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get rejection patterns failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Add a pattern to the not-actionable list.
+ * This teaches DATA to skip emails matching this pattern.
+ */
+export async function addNotActionablePattern(
+  account: EmailAccount,
+  pattern: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<AddPatternResponse> {
+  const url = new URL('/profile/not-actionable/add', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ account, pattern }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Add pattern failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Remove a pattern from the not-actionable list.
+ */
+export async function removeNotActionablePattern(
+  account: EmailAccount,
+  pattern: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<AddPatternResponse> {
+  const url = new URL('/profile/not-actionable/remove', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ account, pattern }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Remove pattern failed: ${resp.statusText}`)
   }
   return resp.json()
 }

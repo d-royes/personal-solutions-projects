@@ -7,6 +7,10 @@ from .profile import (
     save_profile,
     get_default_profile,
     get_or_create_profile,
+    # Profile feedback system (Sprint 5)
+    add_not_actionable_pattern,
+    remove_not_actionable_pattern,
+    get_rejection_candidates,
 )
 
 __all__ = [
@@ -15,4 +19,8 @@ __all__ = [
     "save_profile",
     "get_default_profile",
     "get_or_create_profile",
+    # Profile feedback system (Sprint 5)
+    "add_not_actionable_pattern",
+    "remove_not_actionable_pattern",
+    "get_rejection_candidates",
 ]
