@@ -181,6 +181,20 @@ export interface AnalyzeInboxResponse {
 // App mode for navigation
 export type AppMode = 'tasks' | 'email'
 
+// User Profile types (for email management intelligence)
+export interface UserProfile {
+  userId: string
+  churchRoles: string[]
+  personalContexts: string[]
+  vipSenders: Record<string, string[]>
+  churchAttentionPatterns: Record<string, string[]>
+  personalAttentionPatterns: Record<string, string[]>
+  notActionablePatterns: Record<string, string[]>
+  version: string
+  createdAt: string
+  updatedAt: string
+}
+
 // Firestore Task (created from emails)
 export interface FirestoreTask {
   id: string

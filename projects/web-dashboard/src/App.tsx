@@ -6,6 +6,7 @@ import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import { RebalancingEditor } from './components/RebalancingEditor'
 import { EmailDashboard } from './components/EmailDashboard'
+import { ProfileSettings } from './components/ProfileSettings'
 import {
   clearGlobalHistory,
   deleteGlobalMessage,
@@ -114,7 +115,7 @@ function App() {
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment'>('auth')
+  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment' | 'profile'>('auth')
   const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
   const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
@@ -1061,7 +1062,14 @@ function App() {
                 disabled={!authConfig}
               >
                 Activity
-        </button>
+              </button>
+              <button
+                className={menuView === 'profile' ? 'active' : ''}
+                onClick={() => setMenuView('profile')}
+                disabled={!authConfig}
+              >
+                Profile
+              </button>
             </nav>
             <div className="menu-view">
               {menuView === 'auth' && <AuthPanel onClose={() => setMenuOpen(false)} />}
@@ -1106,6 +1114,15 @@ function App() {
                   </div>
                 ) : (
                   <p className="subtle">Sign in to view activity.</p>
+                ))}
+              {menuView === 'profile' &&
+                (authConfig ? (
+                  <ProfileSettings
+                    authConfig={authConfig}
+                    apiBase={apiBase}
+                  />
+                ) : (
+                  <p className="subtle">Sign in to view profile.</p>
                 ))}
             </div>
           </div>

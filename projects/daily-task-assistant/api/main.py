@@ -4154,13 +4154,117 @@ def delete_contact_endpoint(
 ) -> dict:
     """Delete a contact by ID."""
     from daily_task_assistant.contacts import delete_contact
-    
+
     deleted = delete_contact(contact_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Contact not found.")
-    
+
     return {
         "status": "success",
         "message": "Contact deleted.",
+    }
+
+
+# =============================================================================
+# Profile Management Endpoints
+# =============================================================================
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Request body for updating user profile."""
+    church_roles: Optional[List[str]] = Field(None, alias="churchRoles")
+    personal_contexts: Optional[List[str]] = Field(None, alias="personalContexts")
+    vip_senders: Optional[Dict[str, List[str]]] = Field(None, alias="vipSenders")
+    church_attention_patterns: Optional[Dict[str, List[str]]] = Field(
+        None, alias="churchAttentionPatterns"
+    )
+    personal_attention_patterns: Optional[Dict[str, List[str]]] = Field(
+        None, alias="personalAttentionPatterns"
+    )
+    not_actionable_patterns: Optional[Dict[str, List[str]]] = Field(
+        None, alias="notActionablePatterns"
+    )
+
+    class Config:
+        populate_by_name = True
+
+
+@app.get("/profile")
+def get_profile_endpoint(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get the current user's profile.
+
+    Returns the profile with church roles, personal contexts, VIP senders,
+    and attention patterns for role-aware email management.
+    """
+    from daily_task_assistant.memory import get_or_create_profile
+
+    profile = get_or_create_profile(user)
+
+    return {
+        "profile": {
+            "userId": profile.user_id,
+            "churchRoles": profile.church_roles,
+            "personalContexts": profile.personal_contexts,
+            "vipSenders": profile.vip_senders,
+            "churchAttentionPatterns": profile.church_attention_patterns,
+            "personalAttentionPatterns": profile.personal_attention_patterns,
+            "notActionablePatterns": profile.not_actionable_patterns,
+            "version": profile.version,
+            "createdAt": profile.created_at,
+            "updatedAt": profile.updated_at,
+        }
+    }
+
+
+@app.put("/profile")
+def update_profile_endpoint(
+    request: ProfileUpdateRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update the current user's profile.
+
+    Only provided fields are updated; omitted fields retain their current values.
+    A versioned backup is created for audit purposes.
+    """
+    from daily_task_assistant.memory import get_or_create_profile, save_profile
+
+    profile = get_or_create_profile(user)
+
+    # Update only provided fields
+    if request.church_roles is not None:
+        profile.church_roles = request.church_roles
+    if request.personal_contexts is not None:
+        profile.personal_contexts = request.personal_contexts
+    if request.vip_senders is not None:
+        profile.vip_senders = request.vip_senders
+    if request.church_attention_patterns is not None:
+        profile.church_attention_patterns = request.church_attention_patterns
+    if request.personal_attention_patterns is not None:
+        profile.personal_attention_patterns = request.personal_attention_patterns
+    if request.not_actionable_patterns is not None:
+        profile.not_actionable_patterns = request.not_actionable_patterns
+
+    success = save_profile(profile)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to save profile.")
+
+    return {
+        "status": "success",
+        "message": "Profile updated.",
+        "profile": {
+            "userId": profile.user_id,
+            "churchRoles": profile.church_roles,
+            "personalContexts": profile.personal_contexts,
+            "vipSenders": profile.vip_senders,
+            "churchAttentionPatterns": profile.church_attention_patterns,
+            "personalAttentionPatterns": profile.personal_attention_patterns,
+            "notActionablePatterns": profile.not_actionable_patterns,
+            "version": profile.version,
+            "createdAt": profile.created_at,
+            "updatedAt": profile.updated_at,
+        }
     }
 

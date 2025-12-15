@@ -2162,7 +2162,7 @@ export async function sendReply(
   baseUrl: string = defaultBase,
 ): Promise<ReplySendResponse> {
   const url = new URL(`/email/${account}/reply-send`, baseUrl)
-  
+
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
@@ -2180,6 +2180,71 @@ export async function sendReply(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Send reply failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// User Profile API Functions
+// =============================================================================
+
+import type { UserProfile } from './types'
+
+export interface ProfileResponse {
+  profile: UserProfile
+}
+
+export interface ProfileUpdateRequest {
+  churchRoles?: string[]
+  personalContexts?: string[]
+  vipSenders?: Record<string, string[]>
+  churchAttentionPatterns?: Record<string, string[]>
+  personalAttentionPatterns?: Record<string, string[]>
+  notActionablePatterns?: Record<string, string[]>
+}
+
+/**
+ * Fetch the current user's profile for role-aware email management.
+ */
+export async function getProfile(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<ProfileResponse> {
+  const url = new URL('/profile', baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get profile failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update the current user's profile.
+ * Only provided fields are updated; omitted fields retain their current values.
+ */
+export async function updateProfile(
+  request: ProfileUpdateRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<ProfileResponse> {
+  const url = new URL('/profile', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update profile failed: ${resp.statusText}`)
   }
   return resp.json()
 }

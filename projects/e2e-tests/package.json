@@ -11,6 +11,7 @@
     "test:api": "npx playwright test api-health.spec.ts",
     "test:tasks": "npx playwright test tests/tasks/",
     "test:email": "npx playwright test tests/email/",
+    "test:profile": "npx playwright test tests/profile/",
     "report": "npx playwright show-report",
     "codegen": "npx playwright codegen localhost:5173"
   },

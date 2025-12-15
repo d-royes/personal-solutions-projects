@@ -599,7 +599,7 @@ button:not(:disabled):hover {
 .menu-view {
   flex: 1;
   padding: 1.5rem;
-  overflow: hidden;
+  overflow-y: auto;
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.35);
 }
 

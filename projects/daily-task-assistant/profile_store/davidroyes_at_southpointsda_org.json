@@ -1,0 +1,142 @@
+{
+  "user_id": "davidroyes@southpointsda.org",
+  "church_roles": [
+    "Treasurer",
+    "Procurement Lead",
+    "Maintenance Lead",
+    "Head Elder",
+    "IT Lead"
+  ],
+  "personal_contexts": [
+    "Homeowner",
+    "Parent",
+    "Family Coordinator",
+    "Pet Owner",
+    "Financial",
+    "Spiritual Guide"
+  ],
+  "vip_senders": {
+    "personal": [
+      "esther",
+      "elijah",
+      "daniel",
+      "scarlett"
+    ],
+    "church": [
+      "earl fenstermacher",
+      "florida conference",
+      "floridaconference.com"
+    ]
+  },
+  "church_attention_patterns": {
+    "Treasurer": [
+      "past due",
+      "invoice",
+      "year-end",
+      "1099",
+      "payment",
+      "reimbursement",
+      "check request",
+      "deposit",
+      "bank statement"
+    ],
+    "Procurement Lead": [
+      "pending purchase",
+      "PO-",
+      "MSR-",
+      "delivery pending",
+      "approval status",
+      "purchase request",
+      "order status"
+    ],
+    "Maintenance Lead": [
+      "maintenance issue",
+      "open maintenance",
+      "repair needed",
+      "facility",
+      "building issue"
+    ],
+    "Head Elder": [
+      "board meeting",
+      "did not receive approval",
+      "elder in charge",
+      "pastor search",
+      "church leadership",
+      "membership",
+      "discipline",
+      "nominating committee"
+    ],
+    "IT Lead": [
+      "website",
+      "streaming",
+      "AV issue",
+      "tech support",
+      "sound system",
+      "projector"
+    ]
+  },
+  "personal_attention_patterns": {
+    "Homeowner": [
+      "home repair",
+      "maintenance due",
+      "HOA",
+      "utility bill",
+      "property tax",
+      "insurance renewal",
+      "mortgage"
+    ],
+    "Parent": [
+      "school",
+      "pickup",
+      "permission",
+      "report card",
+      "parent meeting",
+      "elijah",
+      "daniel",
+      "teacher"
+    ],
+    "Family Coordinator": [
+      "appointment",
+      "reservation",
+      "travel itinerary",
+      "family event",
+      "birthday",
+      "anniversary"
+    ],
+    "Pet Owner": [
+      "vet appointment",
+      "koko",
+      "nix",
+      "pet"
+    ],
+    "Financial": [
+      "statement ready",
+      "payment due",
+      "bill reminder",
+      "account alert",
+      "fraud alert",
+      "tax document",
+      "credit card"
+    ]
+  },
+  "not_actionable_patterns": {
+    "church": [
+      "prayer request from cliflobartley",
+      "prayer request from flo.bartley",
+      "onedrive memories",
+      "google cloud marketing",
+      "promotional"
+    ],
+    "personal": [
+      "onedrive memories",
+      "google photos memories",
+      "smartsheet automation",
+      "marketing newsletter",
+      "promotional offer",
+      "unsubscribe"
+    ]
+  },
+  "version": "1.0.0",
+  "created_at": "2025-12-15T14:29:00.873118+00:00",
+  "updated_at": "2025-12-15T14:33:12.994519+00:00"
+}

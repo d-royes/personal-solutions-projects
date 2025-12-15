@@ -1,0 +1,334 @@
+.profile-settings {
+  padding: 1rem;
+  max-width: 600px;
+  color: #e2e8f0;
+}
+
+.profile-settings h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  color: #e2e8f0;
+}
+
+.profile-description {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.7);
+  margin-bottom: 1.5rem;
+  line-height: 1.4;
+}
+
+.profile-settings .loading {
+  color: rgba(226, 232, 240, 0.7);
+  font-style: italic;
+}
+
+.profile-settings .error {
+  color: #f87171;
+  padding: 0.5rem;
+  background: rgba(239, 68, 68, 0.15);
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.profile-settings .success {
+  color: #4ade80;
+  padding: 0.5rem;
+  background: rgba(74, 222, 128, 0.15);
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+/* Section styling */
+.profile-section {
+  margin-bottom: 1.5rem;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.section-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #e2e8f0;
+}
+
+.section-hint {
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.6);
+  margin: 0 0 0.75rem;
+  font-style: italic;
+}
+
+/* Button styling */
+.profile-settings .edit-btn {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.8), rgba(139, 92, 246, 0.8));
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.profile-settings .edit-btn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 1), rgba(139, 92, 246, 1));
+}
+
+.profile-settings .add-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  background: transparent;
+  color: #a5b4fc;
+  border: 1px dashed rgba(99, 102, 241, 0.5);
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 0.5rem;
+}
+
+.profile-settings .add-btn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.8);
+}
+
+.profile-settings .add-btn.indent {
+  margin-left: 1rem;
+}
+
+.profile-settings .remove-btn {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.9rem;
+  background: transparent;
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.profile-settings .remove-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.8);
+}
+
+.profile-settings .save-btn {
+  padding: 0.35rem 1rem;
+  font-size: 0.85rem;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(22, 163, 74, 0.8));
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.profile-settings .save-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 1), rgba(22, 163, 74, 1));
+}
+
+.profile-settings .save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* List styling */
+.profile-settings .item-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.profile-settings .item-list li {
+  padding: 0.35rem 0.5rem;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 4px;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+  border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.profile-settings .item-list li.empty {
+  color: rgba(226, 232, 240, 0.5);
+  font-style: italic;
+  background: transparent;
+  border: none;
+}
+
+/* Edit form styling */
+.profile-settings .edit-form {
+  margin-top: 0.5rem;
+}
+
+.profile-settings .edit-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  align-items: center;
+}
+
+.profile-settings .edit-row.indent {
+  margin-left: 1rem;
+}
+
+.profile-settings .edit-row input {
+  flex: 1;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #e2e8f0;
+}
+
+.profile-settings .edit-row input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.8);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.profile-settings .edit-row input::placeholder {
+  color: rgba(226, 232, 240, 0.4);
+}
+
+.profile-settings .edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.profile-settings .edit-actions button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.profile-settings .edit-actions button:first-child {
+  background: transparent;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #e2e8f0;
+}
+
+.profile-settings .edit-actions button:first-child:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Dict display styling */
+.profile-settings .dict-display {
+  font-size: 0.9rem;
+}
+
+.profile-settings .dict-group-display {
+  margin-bottom: 0.75rem;
+}
+
+.profile-settings .dict-group-display strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #a5b4fc;
+}
+
+.profile-settings .dict-group-display ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0 1rem;
+}
+
+.profile-settings .dict-group-display li {
+  padding: 0.2rem 0;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.profile-settings .pattern-list li {
+  display: inline-block;
+  background: rgba(99, 102, 241, 0.2);
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  margin: 0.15rem 0.25rem 0.15rem 0;
+  font-size: 0.8rem;
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+/* Dict edit styling */
+.profile-settings .dict-group {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 4px;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.profile-settings .dict-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.profile-settings .dict-header strong {
+  font-size: 0.9rem;
+  color: #a5b4fc;
+}
+
+.profile-settings .add-key-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.profile-settings .add-key-row input {
+  flex: 1;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #e2e8f0;
+}
+
+.profile-settings .add-key-row input::placeholder {
+  color: rgba(226, 232, 240, 0.4);
+}
+
+/* Profile metadata section */
+.profile-settings .profile-metadata {
+  background: rgba(15, 23, 42, 0.4);
+  font-size: 0.85rem;
+}
+
+.profile-settings .profile-metadata h4 {
+  margin-bottom: 0.75rem;
+  color: #e2e8f0;
+}
+
+.profile-settings .profile-metadata p {
+  margin: 0.25rem 0;
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.profile-settings .profile-metadata strong {
+  color: #e2e8f0;
+}
+
+/* Empty state */
+.profile-settings .dict-display .empty {
+  color: rgba(226, 232, 240, 0.5);
+  font-style: italic;
+}

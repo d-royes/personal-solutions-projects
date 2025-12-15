@@ -2,8 +2,9 @@
 
 > A living document chronicling the philosophical foundation, evolution, and guiding principles of the Daily Autonomous Task Assistant.
 
-**Version**: 1.0.0  
-**Established**: December 5, 2025  
+**Version**: 1.1.0
+**Established**: December 5, 2025
+**Last Updated**: December 15, 2025
 **Author**: David Royes & DATA (collaborative session)
 
 ---
@@ -172,6 +173,96 @@ A structured document capturing who David is—not just preferences, but pattern
 
 ---
 
+## Email Management Philosophy
+
+### The Three Layers
+
+Email management operates across three distinct layers, each with different goals and trust requirements:
+
+| Layer | Purpose | Status | Trust Level |
+|-------|---------|--------|-------------|
+| **Rules** | Automated categorization via Gmail filters | Working (Apps Script) | N/A - User-defined |
+| **Suggestions** | Inbox hygiene + pattern learning | Needs persistence | Level 1 (suggest, await approval) |
+| **Attention** | Action-required items surfaced | Needs persistence + intelligence | Level 0-1 (surface, suggest) |
+
+**Rules** are the foundation—automated filters that categorize incoming mail without AI involvement. These are managed through Google Sheets and deployed via Apps Script.
+
+**Suggestions** represent DATA's inbox hygiene recommendations: archive this, label that, create a task from this. Each suggestion includes rationale and awaits David's approval. Over time, approval patterns feed the Trust Gradient.
+
+**Attention** items are emails requiring David's action. These are surfaced proactively based on role-awareness and context, not just keyword matching.
+
+### Persistence Before Intelligence
+
+**Core Principle**: Information David has processed should not require re-processing.
+
+Why this matters:
+- **Token efficiency**: Re-analyzing the same email wastes API calls
+- **Dismissals stick**: If David says "not actionable," that decision persists
+- **Patterns accumulate**: Learning requires memory of past decisions
+- **UX continuity**: Navigate away and back—items remain
+
+This principle drives architecture decisions: attention items and suggestions are persisted to Firestore with TTL, not held only in React state.
+
+### Role-Aware Detection
+
+Generic regex patterns cannot capture the context that makes an email actionable. The phrase "pending purchase request" is noise for most people but HIGH priority for a Procurement Lead.
+
+**Church Roles** (for davidroyes@southpointsda.org):
+- Treasurer: invoices, payments, year-end, 1099s
+- Procurement Lead: PO approvals, delivery status, purchase requests
+- Maintenance Lead: facility issues, repairs
+- Head Elder: board meetings, church leadership, pastor search
+- IT Lead: AV issues, streaming, website
+
+**Personal Contexts** (for david.a.royes@gmail.com):
+- Homeowner: repairs, HOA, utilities, insurance
+- Parent: school, appointments, Elijah & Daniel
+- Family Coordinator: travel, events, appointments
+- Financial: bills, statements, alerts
+
+Role-awareness means DATA understands **why** David cares about certain emails, not just pattern-matching keywords.
+
+### Trust Gradient for Email (Aligned with Core Philosophy)
+
+Email actions follow the same Trust Gradient as other DATA capabilities:
+
+```
+Level 0: Surface attention items
+         "These 5 emails may need action." User decides.
+
+Level 1: Suggest with rationale → Receive vote
+         "I suggest archiving these 12 newsletters. Approve?"
+
+Level 2: Small autonomous actions (earned)
+         "I archived 8 OneDrive notification emails."
+
+Level 3: Larger scope autonomy (future)
+         "I've been managing your newsletter backlog weekly."
+```
+
+**Current State**: DATA operates at Level 0-1 for email. Level 2+ requires demonstrated success in suggestions (tracked approval rate).
+
+### Storage Efficiency Principle
+
+**Core Principle**: Data must have TTL or automated purge. No bloat that kills performance.
+
+| Data Type | TTL | Rationale |
+|-----------|-----|-----------|
+| Active attention items | 30 days | Emails older than this are probably handled |
+| Dismissed items | 7 days | Short memory for "not actionable" decisions |
+| Approved suggestions | 30 days | Feeds learning, then expires |
+| Rejected suggestions | 7 days | Learn from mistakes briefly, then move on |
+
+Purge runs on-demand during analysis or via scheduled job. Relevant data is preserved; irrelevant data expires automatically.
+
+### Work Email Exclusion
+
+Work email (PGA TOUR) is intentionally excluded from DATA's email management for corporate privacy reasons. DATA manages only:
+- Church: davidroyes@southpointsda.org
+- Personal: david.a.royes@gmail.com
+
+---
+
 ## The Quarterly Interview
 
 ### Purpose
@@ -293,6 +384,7 @@ This isn't science fiction. It's the logical endpoint of the philosophy document
 
 | Version | Date | Summary |
 |---------|------|---------|
+| 1.1.0 | 2025-12-15 | Added Email Management Philosophy section (three layers, persistence, role-awareness, trust gradient, storage efficiency) |
 | 1.0.0 | 2025-12-05 | Initial philosophy document from foundational session |
 
 ---

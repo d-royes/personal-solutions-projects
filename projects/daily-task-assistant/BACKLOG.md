@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-14
+> **Last Updated**: 2025-12-15
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -68,16 +68,27 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
-| **Dismissed Attention Cache** | Track dismissed attention items (email IDs) so they don't resurface. 7-day TTL. | - |
+| **F1: Haiku Intelligence Layer** | AI-powered email analysis using Claude Haiku for context-aware detection when profile matching is inconclusive. | [Email Management Plan - F1](../.claude/plans/rippling-discovering-whale.md#f1-haiku-intelligence-layer) |
+| **F2: Calendar Management Integration** | Complete the Assistant Trifecta (Email + Tasks + Calendar) with smart scheduling and meeting prep. | [Email Management Plan - F2](../.claude/plans/rippling-discovering-whale.md#f2-calendar-management-integration) |
+| **F3: Full Memory Architecture** | Complete DATA Memory Architecture: weekly reflections, knowledge base, session notes. | [Email Management Plan - F3](../.claude/plans/rippling-discovering-whale.md#f3-full-memory-architecture-phase-2-foundation) |
+| **F5: Smart Rule Suggestions** | AI-powered rule suggestions that understand context, not just patterns. Filter bad suggestions. | [Email Management Plan - F5](../.claude/plans/rippling-discovering-whale.md#f5-smart-rule-suggestions) |
 | Bulk Task Prioritization | Analyze all open tasks and propose realistic due date distribution. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
 
 ### Low Priority
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
+| **F4: Microsoft Integration** | Support Outlook ecosystem (MS Graph API) for DATA Cloud multi-tenancy. | [Email Management Plan - F4](../.claude/plans/rippling-discovering-whale.md#f4-microsoft-integration) |
+| **F6: Bulk Email Actions** | Batch archive, label, dismiss operations with pattern recognition. | [Email Management Plan - F6](../.claude/plans/rippling-discovering-whale.md#f6-bulk-email-actions) |
 | **Email Management Settings Page** | Admin settings for attention scanning time window, labels, notifications. | - |
 | Feedback Summary View | Admin menu view for aggregated feedback statistics. | - |
 | Save Contact Feature | Save frequently used contacts for quick email drafting access. | - |
+
+### Superseded / Completed by Other Work
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| ~~Dismissed Attention Cache~~ | Superseded | Now part of Sprint 2: Full Attention Persistence in [Email Management Plan](../.claude/plans/rippling-discovering-whale.md#sprint-2-persistence) |
 
 ---
 
