@@ -19,6 +19,7 @@ from .analyzer import (
     detect_attention_with_haiku,
     analyze_email_with_haiku_safe,
     get_haiku_usage_for_user,
+    generate_action_suggestions_with_haiku,
 )
 
 from .attention_store import (
@@ -124,6 +125,7 @@ __all__ = [
     "detect_attention_with_haiku",
     "analyze_email_with_haiku_safe",
     "get_haiku_usage_for_user",
+    "generate_action_suggestions_with_haiku",
     # Attention Store
     "AttentionRecord",
     "save_attention",

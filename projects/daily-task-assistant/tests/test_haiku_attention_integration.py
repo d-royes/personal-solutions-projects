@@ -14,6 +14,10 @@ from daily_task_assistant.email.analyzer import (
     detect_attention_with_haiku,
     _haiku_result_to_attention_item,
     analyze_email_with_haiku_safe,
+    generate_action_suggestions_with_haiku,
+    _haiku_action_to_suggestion,
+    EmailActionType,
+    ConfidenceLevel,
 )
 from daily_task_assistant.email.haiku_analyzer import (
     HaikuAnalysisResult,
@@ -526,3 +530,370 @@ class TestDetectAttentionWithHaiku:
         assert "reg1" in results
         assert "vip1" not in results  # VIP doesn't need Haiku
         assert "skip1" not in results  # Not actionable was skipped
+
+
+# =============================================================================
+# Test Action Suggestions with Haiku (Sprint 3)
+# =============================================================================
+
+class TestHaikuActionToSuggestion:
+    """Tests for converting Haiku action results to suggestions."""
+
+    def test_converts_archive_action(self):
+        """Should convert archive action to ARCHIVE suggestion."""
+        email = make_email()
+        result = make_haiku_result()
+        result.action = HaikuActionResult(
+            action="archive",
+            reason="Old newsletter, already read",
+            confidence=0.85,
+        )
+        result.confidence = 0.85
+
+        suggestion = _haiku_action_to_suggestion(
+            email=email,
+            result=result,
+            number=1,
+            label_lookup={},
+        )
+
+        assert suggestion is not None
+        assert suggestion.action == EmailActionType.ARCHIVE
+        assert suggestion.rationale == "Old newsletter, already read"
+        assert suggestion.confidence == ConfidenceLevel.HIGH
+
+    def test_converts_label_action_with_known_label(self):
+        """Should convert label action with matching label lookup."""
+        email = make_email()
+        result = make_haiku_result()
+        result.action = HaikuActionResult(
+            action="label",
+            label_name="Work",
+            reason="Related to work project",
+            confidence=0.75,
+        )
+        result.confidence = 0.75
+
+        label_lookup = {"work": {"id": "Label_123", "name": "Work"}}
+
+        suggestion = _haiku_action_to_suggestion(
+            email=email,
+            result=result,
+            number=2,
+            label_lookup=label_lookup,
+        )
+
+        assert suggestion is not None
+        assert suggestion.action == EmailActionType.LABEL
+        assert suggestion.label_id == "Label_123"
+        assert suggestion.label_name == "Work"
+
+    def test_converts_label_action_with_unknown_label(self):
+        """Should handle label action when label not in lookup."""
+        email = make_email()
+        result = make_haiku_result()
+        result.action = HaikuActionResult(
+            action="label",
+            label_name="NewCategory",
+            reason="New category suggestion",
+            confidence=0.7,
+        )
+        result.confidence = 0.7
+
+        suggestion = _haiku_action_to_suggestion(
+            email=email,
+            result=result,
+            number=1,
+            label_lookup={},
+        )
+
+        assert suggestion is not None
+        assert suggestion.action == EmailActionType.LABEL
+        assert suggestion.label_id is None
+        assert suggestion.label_name == "NewCategory"
+
+    def test_converts_star_action(self):
+        """Should convert star action to STAR suggestion."""
+        email = make_email()
+        result = make_haiku_result()
+        result.action = HaikuActionResult(
+            action="star",
+            reason="Important message to revisit",
+            confidence=0.8,
+        )
+        result.confidence = 0.8
+
+        suggestion = _haiku_action_to_suggestion(
+            email=email,
+            result=result,
+            number=1,
+            label_lookup={},
+        )
+
+        assert suggestion is not None
+        assert suggestion.action == EmailActionType.STAR
+        assert suggestion.confidence == ConfidenceLevel.HIGH
+
+    def test_converts_delete_action(self):
+        """Should convert delete action to DELETE suggestion."""
+        email = make_email()
+        result = make_haiku_result()
+        result.action = HaikuActionResult(
+            action="delete",
+            reason="Spam message",
+            confidence=0.65,
+        )
+        result.confidence = 0.65
+
+        suggestion = _haiku_action_to_suggestion(
+            email=email,
+            result=result,
+            number=1,
+            label_lookup={},
+        )
+
+        assert suggestion is not None
+        assert suggestion.action == EmailActionType.DELETE
+        assert suggestion.confidence == ConfidenceLevel.MEDIUM
+
+    def test_returns_none_for_keep_action(self):
+        """Should return None for keep action (no action needed)."""
+        email = make_email()
+        result = make_haiku_result()
+        result.action = HaikuActionResult(
+            action="keep",
+            reason="No action required",
+            confidence=0.9,
+        )
+
+        suggestion = _haiku_action_to_suggestion(
+            email=email,
+            result=result,
+            number=1,
+            label_lookup={},
+        )
+
+        assert suggestion is None
+
+    def test_confidence_levels(self):
+        """Should map confidence to correct ConfidenceLevel."""
+        email = make_email()
+
+        # High confidence (>= 0.8)
+        result_high = make_haiku_result()
+        result_high.action = HaikuActionResult(action="archive", confidence=0.9)
+        result_high.confidence = 0.9
+        suggestion_high = _haiku_action_to_suggestion(email, result_high, 1, {})
+        assert suggestion_high.confidence == ConfidenceLevel.HIGH
+
+        # Medium confidence (0.6-0.8)
+        result_med = make_haiku_result()
+        result_med.action = HaikuActionResult(action="archive", confidence=0.65)
+        result_med.confidence = 0.65
+        suggestion_med = _haiku_action_to_suggestion(email, result_med, 1, {})
+        assert suggestion_med.confidence == ConfidenceLevel.MEDIUM
+
+        # Low confidence (< 0.6)
+        result_low = make_haiku_result()
+        result_low.action = HaikuActionResult(action="archive", confidence=0.4)
+        result_low.confidence = 0.4
+        suggestion_low = _haiku_action_to_suggestion(email, result_low, 1, {})
+        assert suggestion_low.confidence == ConfidenceLevel.LOW
+
+
+class TestGenerateActionSuggestionsWithHaiku:
+    """Tests for generate_action_suggestions_with_haiku function."""
+
+    def test_uses_haiku_results_when_available(self):
+        """Should use Haiku results for emails in haiku_results dict."""
+        email = make_email(email_id="haiku_analyzed")
+        haiku_results = {
+            "haiku_analyzed": make_haiku_result()
+        }
+        haiku_results["haiku_analyzed"].action = HaikuActionResult(
+            action="archive",
+            reason="Newsletter - safe to archive",
+            confidence=0.85,
+        )
+        haiku_results["haiku_analyzed"].confidence = 0.85
+
+        suggestions = generate_action_suggestions_with_haiku(
+            messages=[email],
+            email_account="personal",
+            haiku_results=haiku_results,
+            available_labels=[],
+        )
+
+        assert len(suggestions) == 1
+        assert suggestions[0].action == EmailActionType.ARCHIVE
+        assert "Newsletter" in suggestions[0].rationale
+
+    def test_falls_back_to_regex_for_non_haiku_emails(self):
+        """Should use regex for emails without Haiku results."""
+        email = make_email(
+            email_id="no_haiku",
+            to_address="david@test.com",
+            subject="Unsubscribe from our list",
+            snippet="Click here to unsubscribe from our newsletter.",
+            labels=["INBOX"],  # No user labels
+        )
+        # Make it old enough to trigger archive suggestion
+        email = EmailMessage(
+            id="no_haiku",
+            thread_id="thread_no_haiku",
+            from_address="newsletter@example.com",
+            from_name="Newsletter",
+            to_address="david@test.com",
+            subject="Weekly Update - unsubscribe",
+            snippet="Click here to unsubscribe from our newsletter.",
+            date=datetime.now(timezone.utc) - timedelta(days=5),
+            labels=["INBOX"],
+            is_unread=True,
+        )
+
+        suggestions = generate_action_suggestions_with_haiku(
+            messages=[email],
+            email_account="personal",
+            haiku_results={},  # No Haiku results
+            available_labels=[],
+        )
+
+        # Should suggest archive due to promotional pattern + age
+        assert len(suggestions) >= 1
+        assert any(s.action == EmailActionType.ARCHIVE for s in suggestions)
+
+    def test_skips_emails_with_user_labels(self):
+        """Should skip emails that already have user-defined labels."""
+        email = make_email(
+            email_id="labeled",
+            labels=["INBOX", "Label_Work"],  # Has user label
+        )
+        haiku_results = {
+            "labeled": make_haiku_result()
+        }
+        haiku_results["labeled"].action = HaikuActionResult(
+            action="archive",
+            reason="Test",
+            confidence=0.9,
+        )
+
+        suggestions = generate_action_suggestions_with_haiku(
+            messages=[email],
+            email_account="personal",
+            haiku_results=haiku_results,
+            available_labels=[],
+        )
+
+        assert len(suggestions) == 0
+
+    def test_includes_task_creation_from_haiku_attention(self):
+        """Should suggest task creation when Haiku attention has extracted_task."""
+        email = make_email(email_id="task_email")
+        haiku_results = {
+            "task_email": make_haiku_result(
+                needs_attention=True,
+                extracted_task="Complete quarterly report",
+                suggested_action="Create task",
+                confidence=0.8,
+            )
+        }
+        haiku_results["task_email"].action = HaikuActionResult(
+            action="star",
+            reason="Important deadline",
+            confidence=0.8,
+        )
+        haiku_results["task_email"].confidence = 0.8
+
+        suggestions = generate_action_suggestions_with_haiku(
+            messages=[email],
+            email_account="personal",
+            haiku_results=haiku_results,
+            available_labels=[],
+        )
+
+        # Should have both star and create_task suggestions
+        actions = [s.action for s in suggestions]
+        assert EmailActionType.STAR in actions
+        assert EmailActionType.CREATE_TASK in actions
+
+        # Check task title
+        task_suggestions = [s for s in suggestions if s.action == EmailActionType.CREATE_TASK]
+        assert len(task_suggestions) == 1
+        assert task_suggestions[0].task_title == "Complete quarterly report"
+
+    def test_respects_label_lookup(self):
+        """Should match Haiku label suggestions to available labels."""
+        email = make_email(email_id="label_email")
+        haiku_results = {
+            "label_email": make_haiku_result()
+        }
+        haiku_results["label_email"].action = HaikuActionResult(
+            action="label",
+            label_name="Transactional",
+            reason="Receipt/invoice",
+            confidence=0.9,
+        )
+        haiku_results["label_email"].confidence = 0.9
+
+        available_labels = [
+            {"id": "Label_Trans", "name": "Transactional"},
+        ]
+
+        suggestions = generate_action_suggestions_with_haiku(
+            messages=[email],
+            email_account="personal",
+            haiku_results=haiku_results,
+            available_labels=available_labels,
+        )
+
+        assert len(suggestions) == 1
+        assert suggestions[0].action == EmailActionType.LABEL
+        assert suggestions[0].label_id == "Label_Trans"
+        assert suggestions[0].label_name == "Transactional"
+
+    def test_mixed_haiku_and_fallback(self):
+        """Should handle mix of Haiku-analyzed and fallback emails."""
+        haiku_email = make_email(email_id="haiku1")
+        fallback_email = EmailMessage(
+            id="fallback1",
+            thread_id="thread_fallback1",
+            from_address="spam@junk.com",
+            from_name="Spam",
+            to_address="david@test.com",
+            subject="Congratulations! You've been selected!",
+            snippet="Claim your prize now!",
+            date=datetime.now(timezone.utc),
+            labels=["INBOX"],
+            is_unread=True,
+        )
+
+        haiku_results = {
+            "haiku1": make_haiku_result()
+        }
+        haiku_results["haiku1"].action = HaikuActionResult(
+            action="archive",
+            reason="FYI email",
+            confidence=0.8,
+        )
+        haiku_results["haiku1"].confidence = 0.8
+
+        suggestions = generate_action_suggestions_with_haiku(
+            messages=[haiku_email, fallback_email],
+            email_account="personal",
+            haiku_results=haiku_results,
+            available_labels=[],
+        )
+
+        # Should have at least 2 suggestions
+        # haiku1 -> archive, fallback1 -> delete (junk pattern)
+        assert len(suggestions) >= 2
+
+        # Check haiku-based suggestion
+        haiku_suggestions = [s for s in suggestions if s.email.id == "haiku1"]
+        assert len(haiku_suggestions) == 1
+        assert haiku_suggestions[0].action == EmailActionType.ARCHIVE
+
+        # Check regex-based suggestion
+        fallback_suggestions = [s for s in suggestions if s.email.id == "fallback1"]
+        assert len(fallback_suggestions) == 1
+        assert fallback_suggestions[0].action == EmailActionType.DELETE

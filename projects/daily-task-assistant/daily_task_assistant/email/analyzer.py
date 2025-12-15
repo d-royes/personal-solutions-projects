@@ -1438,3 +1438,218 @@ def get_haiku_usage_for_user(user_id: str) -> Dict:
         Dict with usage stats (dailyCount, weeklyCount, limits, etc.)
     """
     return get_haiku_usage_summary(user_id)
+
+
+def _haiku_action_to_suggestion(
+    email: EmailMessage,
+    result: HaikuAnalysisResult,
+    number: int,
+    label_lookup: Dict[str, Dict[str, str]],
+) -> Optional[EmailActionSuggestion]:
+    """Convert HaikuActionResult to EmailActionSuggestion.
+
+    Args:
+        email: The analyzed email message.
+        result: The Haiku analysis result.
+        number: Suggestion number for ordering.
+        label_lookup: Dict mapping label names to label info.
+
+    Returns:
+        EmailActionSuggestion if action is actionable, None otherwise.
+    """
+    action_result = result.action
+
+    # Map Haiku action to EmailActionType
+    action_map = {
+        "archive": EmailActionType.ARCHIVE,
+        "label": EmailActionType.LABEL,
+        "star": EmailActionType.STAR,
+        "delete": EmailActionType.DELETE,
+        "keep": None,  # No action needed
+    }
+
+    action_type = action_map.get(action_result.action)
+    if action_type is None:
+        return None
+
+    # Map confidence
+    confidence = ConfidenceLevel.HIGH if result.confidence >= 0.8 else (
+        ConfidenceLevel.MEDIUM if result.confidence >= 0.6 else ConfidenceLevel.LOW
+    )
+
+    # Build suggestion
+    suggestion = EmailActionSuggestion(
+        number=number,
+        email=email,
+        action=action_type,
+        rationale=action_result.reason or "Suggested by AI analysis",
+        confidence=confidence,
+    )
+
+    # Add label info if labeling
+    if action_type == EmailActionType.LABEL and action_result.label_name:
+        label_name_lower = action_result.label_name.lower()
+        if label_name_lower in label_lookup:
+            label_info = label_lookup[label_name_lower]
+            suggestion.label_id = label_info.get("id")
+            suggestion.label_name = label_info.get("name", action_result.label_name)
+        else:
+            suggestion.label_name = action_result.label_name
+
+    return suggestion
+
+
+def generate_action_suggestions_with_haiku(
+    messages: List[EmailMessage],
+    email_account: str,
+    haiku_results: Dict[str, HaikuAnalysisResult],
+    available_labels: Optional[List[Dict[str, str]]] = None,
+) -> List[EmailActionSuggestion]:
+    """Generate action suggestions using pre-computed Haiku results.
+
+    This function uses Haiku analysis results from detect_attention_with_haiku()
+    to generate intelligent action suggestions. For emails without Haiku results,
+    it falls back to regex-based analysis.
+
+    Args:
+        messages: Messages to generate suggestions for.
+        email_account: Email account being analyzed.
+        haiku_results: Dict mapping email_id to HaikuAnalysisResult (from attention).
+        available_labels: List of user's custom labels (id, name, color).
+
+    Returns:
+        List of numbered EmailActionSuggestion objects.
+    """
+    suggestions = []
+    number = 1
+
+    # Build label lookup
+    label_lookup = {}
+    if available_labels:
+        for label in available_labels:
+            label_lookup[label["name"].lower()] = label
+
+    # System labels to ignore when checking for user labels
+    SYSTEM_LABELS = {
+        "INBOX", "UNREAD", "STARRED", "IMPORTANT", "SENT", "DRAFT",
+        "SPAM", "TRASH", "CATEGORY_PERSONAL", "CATEGORY_SOCIAL",
+        "CATEGORY_PROMOTIONS", "CATEGORY_UPDATES", "CATEGORY_FORUMS"
+    }
+
+    def has_user_label(email_labels: List[str]) -> bool:
+        """Check if email has any user-defined label."""
+        for lbl in email_labels:
+            if lbl.startswith("Label_") or lbl not in SYSTEM_LABELS:
+                return True
+        return False
+
+    analyzer = EmailAnalyzer(email_account)
+
+    for msg in messages:
+        # Skip emails that already have user-defined labels
+        if has_user_label(msg.labels):
+            continue
+
+        # Try Haiku results first
+        if msg.id in haiku_results:
+            haiku_result = haiku_results[msg.id]
+            suggestion = _haiku_action_to_suggestion(
+                email=msg,
+                result=haiku_result,
+                number=number,
+                label_lookup=label_lookup,
+            )
+            if suggestion:
+                suggestions.append(suggestion)
+                number += 1
+
+            # Also check attention for task creation
+            attention = haiku_result.attention
+            if attention.needs_attention and attention.extracted_task:
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.CREATE_TASK,
+                    rationale=attention.reason,
+                    task_title=attention.extracted_task,
+                    confidence=ConfidenceLevel.MEDIUM if attention.confidence >= 0.7 else ConfidenceLevel.LOW,
+                ))
+                number += 1
+
+            continue  # Skip regex fallback for Haiku-analyzed emails
+
+        # Fallback: Regex-based analysis (existing logic)
+        content = (msg.subject + " " + msg.snippet).lower()
+
+        # Check for old promotional emails - suggest archive
+        age_hours = msg.age_hours()
+        if age_hours > 72:  # Over 3 days old
+            if analyzer._matches_patterns(content, analyzer.PROMOTIONAL_PATTERNS):
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.ARCHIVE,
+                    rationale=f"Promotional email over {int(age_hours / 24)} days old",
+                    confidence=ConfidenceLevel.HIGH,
+                ))
+                number += 1
+                continue
+
+        # Check for transactional emails - suggest labeling
+        if analyzer._matches_patterns(content, analyzer.TRANSACTIONAL_PATTERNS):
+            label_info = label_lookup.get("transactional")
+            if label_info:
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.LABEL,
+                    rationale="Appears to be a receipt/invoice/shipping notification",
+                    label_id=label_info.get("id"),
+                    label_name="Transactional",
+                    confidence=ConfidenceLevel.HIGH,
+                ))
+                number += 1
+                continue
+
+        # Check for attention-worthy emails - suggest star
+        attention = analyzer._check_attention_needed(msg)
+        if attention and attention.urgency == "high":
+            if not msg.is_starred:
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.STAR,
+                    rationale=attention.reason,
+                    confidence=ConfidenceLevel.MEDIUM,
+                ))
+                number += 1
+
+            # Also suggest task creation if deadline detected
+            if attention.extracted_task:
+                suggestions.append(EmailActionSuggestion(
+                    number=number,
+                    email=msg,
+                    action=EmailActionType.CREATE_TASK,
+                    rationale=attention.reason,
+                    task_title=attention.extracted_task,
+                    confidence=ConfidenceLevel.MEDIUM,
+                ))
+                number += 1
+
+        # Check for junk patterns - suggest delete
+        if analyzer._matches_patterns(content, analyzer.JUNK_PATTERNS):
+            suggestions.append(EmailActionSuggestion(
+                number=number,
+                email=msg,
+                action=EmailActionType.DELETE,
+                rationale="Appears to be junk/spam email",
+                confidence=ConfidenceLevel.MEDIUM,
+            ))
+            number += 1
+            continue
+
+        # Limit suggestions
+        if number > 20:
+            break
+
+    return suggestions
