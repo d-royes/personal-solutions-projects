@@ -92,6 +92,17 @@ cd projects/daily-task-assistant/scripts
 .\reset-frontend.ps1
 ```
 
+### Claude Code Backend Restart
+When restarting the backend from Claude Code (bash shell), the PowerShell script runs in a new window. For Claude Code to start the backend in the same shell, use:
+```bash
+cd "C:\Users\david\psp-cli\projects\daily-task-assistant" && \
+  export DTA_DEV_AUTH_BYPASS="1" && \
+  export PYTHONPATH="." && \
+  export GOOGLE_APPLICATION_CREDENTIALS="C:\Users\david\.gcp\daily-task-assistant-church-4c371ea55362.json" && \
+  python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Run this as a background task to keep the server running while working.
+
 ### Running Unit Tests
 ```powershell
 cd projects/daily-task-assistant
