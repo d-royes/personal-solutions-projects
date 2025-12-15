@@ -1653,3 +1653,145 @@ def generate_action_suggestions_with_haiku(
             break
 
     return suggestions
+
+
+def _haiku_rule_to_suggestion(
+    email: EmailMessage,
+    result: HaikuAnalysisResult,
+    email_account: str,
+) -> Optional[RuleSuggestion]:
+    """Convert HaikuRuleResult to RuleSuggestion.
+
+    Args:
+        email: The analyzed email message.
+        result: The Haiku analysis result.
+        email_account: Email account for the rule.
+
+    Returns:
+        RuleSuggestion if Haiku suggests a rule, None otherwise.
+    """
+    rule_result = result.rule
+
+    if not rule_result.should_suggest:
+        return None
+
+    # Map pattern_type to FilterField
+    field_map = {
+        "sender": FilterField.SENDER_EMAIL.value,
+        "subject": FilterField.EMAIL_SUBJECT.value,
+        "content": FilterField.EMAIL_SUBJECT.value,  # Map content to subject for now
+    }
+
+    field = field_map.get(rule_result.pattern_type, FilterField.SENDER_EMAIL.value)
+
+    # Determine operator based on pattern type
+    operator = FilterOperator.CONTAINS.value
+
+    # Determine category and action
+    action_map = {
+        "label": "Add",
+        "archive": "Add",
+        "star": "Add",
+    }
+
+    # Default to 1 Week Hold category if label action
+    category = FilterCategory.ONE_WEEK_HOLD.value
+    if rule_result.action == "label" and rule_result.label_name:
+        # Try to map label to category
+        label_to_category = {
+            "promotional": FilterCategory.PROMOTIONAL.value,
+            "transactional": FilterCategory.TRANSACTIONAL.value,
+            "junk": FilterCategory.JUNK.value,
+            "personal": FilterCategory.PERSONAL.value,
+            "admin": FilterCategory.ADMIN.value,
+        }
+        category = label_to_category.get(
+            rule_result.label_name.lower(),
+            FilterCategory.ONE_WEEK_HOLD.value
+        )
+
+    # Map confidence to ConfidenceLevel
+    confidence = ConfidenceLevel.HIGH if result.confidence >= 0.8 else (
+        ConfidenceLevel.MEDIUM if result.confidence >= 0.6 else ConfidenceLevel.LOW
+    )
+
+    return RuleSuggestion(
+        type=SuggestionType.NEW_LABEL,
+        suggested_rule=FilterRule(
+            email_account=email_account,
+            order=1,  # Default order
+            category=category,
+            field=field,
+            operator=operator,
+            value=rule_result.pattern or email.from_address,
+            action=action_map.get(rule_result.action, "Add"),
+        ),
+        confidence=confidence,
+        reason=rule_result.reason or "Suggested by AI analysis",
+        examples=[email.subject[:50]],
+        email_count=1,
+    )
+
+
+def generate_rule_suggestions_with_haiku(
+    messages: List[EmailMessage],
+    email_account: str,
+    haiku_results: Dict[str, HaikuAnalysisResult],
+    existing_rules: Optional[List[FilterRule]] = None,
+) -> List[RuleSuggestion]:
+    """Generate filter rule suggestions using pre-computed Haiku results.
+
+    This function uses Haiku analysis results from detect_attention_with_haiku()
+    to generate intelligent rule suggestions. For emails without Haiku results,
+    it falls back to pattern-based analysis.
+
+    Args:
+        messages: Messages to analyze for rule patterns.
+        email_account: Email account being analyzed.
+        haiku_results: Dict mapping email_id to HaikuAnalysisResult (from attention).
+        existing_rules: Current filter rules to avoid duplicates.
+
+    Returns:
+        List of RuleSuggestion objects.
+    """
+    suggestions: List[RuleSuggestion] = []
+    seen_patterns: Set[str] = set()
+
+    # Build set of existing patterns
+    if existing_rules:
+        for rule in existing_rules:
+            seen_patterns.add(rule.value.lower())
+
+    # Process Haiku results first
+    for msg in messages:
+        if msg.id in haiku_results:
+            haiku_result = haiku_results[msg.id]
+            suggestion = _haiku_rule_to_suggestion(
+                email=msg,
+                result=haiku_result,
+                email_account=email_account,
+            )
+            if suggestion:
+                pattern = suggestion.suggested_rule.value.lower()
+                if pattern not in seen_patterns:
+                    suggestions.append(suggestion)
+                    seen_patterns.add(pattern)
+
+    # Fallback: Use EmailAnalyzer for pattern-based analysis
+    analyzer = EmailAnalyzer(email_account, existing_rules)
+
+    # Filter messages that weren't analyzed by Haiku
+    non_haiku_messages = [m for m in messages if m.id not in haiku_results]
+
+    if non_haiku_messages:
+        regex_suggestions, _ = analyzer.analyze_messages(non_haiku_messages)
+
+        # Add regex suggestions that aren't duplicates
+        for suggestion in regex_suggestions:
+            pattern = suggestion.suggested_rule.value.lower()
+            if pattern not in seen_patterns:
+                suggestions.append(suggestion)
+                seen_patterns.add(pattern)
+
+    # Deduplicate and limit
+    return suggestions[:20]  # Limit to 20 suggestions

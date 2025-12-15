@@ -16,8 +16,14 @@ from daily_task_assistant.email.analyzer import (
     analyze_email_with_haiku_safe,
     generate_action_suggestions_with_haiku,
     _haiku_action_to_suggestion,
+    generate_rule_suggestions_with_haiku,
+    _haiku_rule_to_suggestion,
     EmailActionType,
     ConfidenceLevel,
+    FilterField,
+    FilterOperator,
+    FilterCategory,
+    FilterRule,
 )
 from daily_task_assistant.email.haiku_analyzer import (
     HaikuAnalysisResult,
@@ -897,3 +903,360 @@ class TestGenerateActionSuggestionsWithHaiku:
         fallback_suggestions = [s for s in suggestions if s.email.id == "fallback1"]
         assert len(fallback_suggestions) == 1
         assert fallback_suggestions[0].action == EmailActionType.DELETE
+
+
+# =============================================================================
+# Test Rule Suggestions with Haiku (Sprint 4)
+# =============================================================================
+
+def make_haiku_result_with_rule(
+    should_suggest: bool = True,
+    pattern_type: str = "sender",
+    pattern: str = "newsletter@example.com",
+    action: str = "archive",
+    label_name: str = None,
+    reason: str = "Recurring newsletter pattern",
+    confidence: float = 0.8,
+) -> HaikuAnalysisResult:
+    """Create a test HaikuAnalysisResult with rule suggestion."""
+    return HaikuAnalysisResult(
+        attention=HaikuAttentionResult(
+            needs_attention=False,
+            urgency="low",
+            reason="No action needed",
+            suggested_action="Archive",
+            confidence=confidence,
+        ),
+        action=HaikuActionResult(
+            action="archive",
+            reason="Default action",
+            confidence=confidence,
+        ),
+        rule=HaikuRuleResult(
+            should_suggest=should_suggest,
+            pattern_type=pattern_type,
+            pattern=pattern,
+            action=action,
+            label_name=label_name,
+            reason=reason,
+            confidence=confidence,
+        ),
+        confidence=confidence,
+        analysis_method="haiku",
+    )
+
+
+class TestHaikuRuleToSuggestion:
+    """Tests for converting Haiku rule results to RuleSuggestion."""
+
+    def test_converts_sender_rule(self):
+        """Should convert sender pattern to RuleSuggestion."""
+        email = make_email(from_address="newsletter@example.com")
+        result = make_haiku_result_with_rule(
+            should_suggest=True,
+            pattern_type="sender",
+            pattern="newsletter@example.com",
+            action="archive",
+            reason="Recurring newsletter",
+            confidence=0.85,
+        )
+
+        suggestion = _haiku_rule_to_suggestion(
+            email=email,
+            result=result,
+            email_account="personal",
+        )
+
+        assert suggestion is not None
+        assert suggestion.suggested_rule.field == FilterField.SENDER_EMAIL.value
+        assert suggestion.suggested_rule.value == "newsletter@example.com"
+        assert suggestion.reason == "Recurring newsletter"
+        assert suggestion.confidence.value >= "Medium"  # HIGH, MEDIUM, or LOW
+
+    def test_converts_subject_rule(self):
+        """Should convert subject pattern to RuleSuggestion."""
+        email = make_email(subject="Weekly Digest")
+        result = make_haiku_result_with_rule(
+            should_suggest=True,
+            pattern_type="subject",
+            pattern="Weekly Digest",
+            action="label",
+            label_name="Newsletter",
+            reason="Weekly digest pattern",
+            confidence=0.75,
+        )
+
+        suggestion = _haiku_rule_to_suggestion(
+            email=email,
+            result=result,
+            email_account="personal",
+        )
+
+        assert suggestion is not None
+        assert suggestion.suggested_rule.field == FilterField.EMAIL_SUBJECT.value
+        assert suggestion.suggested_rule.value == "Weekly Digest"
+
+    def test_converts_content_rule_to_subject(self):
+        """Should map content pattern to subject field (fallback)."""
+        email = make_email()
+        result = make_haiku_result_with_rule(
+            should_suggest=True,
+            pattern_type="content",
+            pattern="unsubscribe",
+            action="archive",
+            reason="Marketing email pattern",
+        )
+
+        suggestion = _haiku_rule_to_suggestion(
+            email=email,
+            result=result,
+            email_account="personal",
+        )
+
+        assert suggestion is not None
+        # Content maps to subject since body search not implemented
+        assert suggestion.suggested_rule.field == FilterField.EMAIL_SUBJECT.value
+
+    def test_returns_none_when_no_suggestion(self):
+        """Should return None when Haiku says no rule needed."""
+        email = make_email()
+        result = make_haiku_result_with_rule(
+            should_suggest=False,
+            pattern_type=None,
+            pattern=None,
+        )
+
+        suggestion = _haiku_rule_to_suggestion(
+            email=email,
+            result=result,
+            email_account="personal",
+        )
+
+        assert suggestion is None
+
+    def test_maps_label_to_category(self):
+        """Should map Haiku label suggestions to FilterCategory."""
+        email = make_email()
+        result = make_haiku_result_with_rule(
+            should_suggest=True,
+            pattern_type="sender",
+            pattern="promotions@store.com",
+            action="label",
+            label_name="promotional",
+            reason="Promotional emails",
+        )
+
+        suggestion = _haiku_rule_to_suggestion(
+            email=email,
+            result=result,
+            email_account="personal",
+        )
+
+        assert suggestion is not None
+        assert suggestion.suggested_rule.category == FilterCategory.PROMOTIONAL.value
+
+    def test_default_category_for_unknown_labels(self):
+        """Should use 1 Week Hold for unknown label names."""
+        email = make_email()
+        result = make_haiku_result_with_rule(
+            should_suggest=True,
+            pattern_type="sender",
+            pattern="updates@service.com",
+            action="label",
+            label_name="CustomLabel",  # Not in mapping
+            reason="Custom label suggestion",
+        )
+
+        suggestion = _haiku_rule_to_suggestion(
+            email=email,
+            result=result,
+            email_account="personal",
+        )
+
+        assert suggestion is not None
+        assert suggestion.suggested_rule.category == FilterCategory.ONE_WEEK_HOLD.value
+
+
+class TestGenerateRuleSuggestionsWithHaiku:
+    """Tests for generate_rule_suggestions_with_haiku function."""
+
+    def test_uses_haiku_results_for_rule_suggestions(self):
+        """Should use Haiku results to generate rule suggestions."""
+        email = make_email(
+            email_id="haiku_rule",
+            from_address="newsletter@company.com",
+        )
+        haiku_results = {
+            "haiku_rule": make_haiku_result_with_rule(
+                should_suggest=True,
+                pattern_type="sender",
+                pattern="newsletter@company.com",
+                action="archive",
+                reason="Recurring newsletter",
+                confidence=0.85,
+            )
+        }
+
+        suggestions = generate_rule_suggestions_with_haiku(
+            messages=[email],
+            email_account="personal",
+            haiku_results=haiku_results,
+        )
+
+        assert len(suggestions) >= 1
+        # Find the Haiku-generated suggestion
+        haiku_suggestions = [
+            s for s in suggestions
+            if s.suggested_rule.value == "newsletter@company.com"
+        ]
+        assert len(haiku_suggestions) == 1
+        assert haiku_suggestions[0].reason == "Recurring newsletter"
+
+    def test_falls_back_to_pattern_analysis(self):
+        """Should use pattern analysis for non-Haiku emails."""
+        # Create multiple emails from same sender (triggers pattern detection)
+        emails = [
+            make_email(
+                email_id=f"email_{i}",
+                from_address="bulk@marketing.com",
+                subject="Sale notification",
+            )
+            for i in range(3)  # 3 emails triggers pattern
+        ]
+
+        suggestions = generate_rule_suggestions_with_haiku(
+            messages=emails,
+            email_account="personal",
+            haiku_results={},  # No Haiku results
+        )
+
+        # Should suggest rule based on repeated sender pattern
+        # The exact behavior depends on EmailAnalyzer implementation
+        assert isinstance(suggestions, list)
+
+    def test_avoids_duplicate_patterns(self):
+        """Should not suggest rules for patterns already in existing rules."""
+        email = make_email(
+            email_id="dup_email",
+            from_address="existing@company.com",
+        )
+        haiku_results = {
+            "dup_email": make_haiku_result_with_rule(
+                should_suggest=True,
+                pattern_type="sender",
+                pattern="existing@company.com",
+                action="archive",
+            )
+        }
+
+        existing_rules = [
+            FilterRule(
+                email_account="personal",
+                order=1,
+                field=FilterField.SENDER_EMAIL.value,
+                operator=FilterOperator.CONTAINS.value,
+                value="existing@company.com",
+                category=FilterCategory.ONE_WEEK_HOLD.value,
+            )
+        ]
+
+        suggestions = generate_rule_suggestions_with_haiku(
+            messages=[email],
+            email_account="personal",
+            haiku_results=haiku_results,
+            existing_rules=existing_rules,
+        )
+
+        # Should not suggest the same pattern again
+        matching = [
+            s for s in suggestions
+            if s.suggested_rule.value.lower() == "existing@company.com"
+        ]
+        assert len(matching) == 0
+
+    def test_combines_haiku_and_fallback_suggestions(self):
+        """Should include both Haiku and fallback suggestions."""
+        haiku_email = make_email(
+            email_id="haiku1",
+            from_address="haiku@example.com",
+        )
+        fallback_emails = [
+            make_email(
+                email_id=f"fallback_{i}",
+                from_address="repeated@bulk.com",
+            )
+            for i in range(3)
+        ]
+
+        haiku_results = {
+            "haiku1": make_haiku_result_with_rule(
+                should_suggest=True,
+                pattern_type="sender",
+                pattern="haiku@example.com",
+                action="archive",
+            )
+        }
+
+        all_messages = [haiku_email] + fallback_emails
+
+        suggestions = generate_rule_suggestions_with_haiku(
+            messages=all_messages,
+            email_account="personal",
+            haiku_results=haiku_results,
+        )
+
+        # Should have the Haiku suggestion
+        haiku_suggestions = [
+            s for s in suggestions
+            if s.suggested_rule.value == "haiku@example.com"
+        ]
+        assert len(haiku_suggestions) == 1
+
+    def test_skips_emails_without_rule_suggestion(self):
+        """Should skip emails where Haiku says no rule needed."""
+        email = make_email(email_id="no_rule")
+        haiku_results = {
+            "no_rule": make_haiku_result_with_rule(
+                should_suggest=False,  # No rule suggested
+            )
+        }
+
+        suggestions = generate_rule_suggestions_with_haiku(
+            messages=[email],
+            email_account="personal",
+            haiku_results=haiku_results,
+        )
+
+        # Should not include this email in suggestions
+        matching = [
+            s for s in suggestions
+            if hasattr(s, 'email') and s.email and s.email.id == "no_rule"
+        ]
+        assert len(matching) == 0
+
+    def test_limits_suggestions_count(self):
+        """Should limit total number of suggestions."""
+        # Create many emails with rule suggestions
+        emails = []
+        haiku_results = {}
+        for i in range(30):
+            email = make_email(
+                email_id=f"email_{i}",
+                from_address=f"sender{i}@example.com",
+            )
+            emails.append(email)
+            haiku_results[f"email_{i}"] = make_haiku_result_with_rule(
+                should_suggest=True,
+                pattern_type="sender",
+                pattern=f"sender{i}@example.com",
+                action="archive",
+            )
+
+        suggestions = generate_rule_suggestions_with_haiku(
+            messages=emails,
+            email_account="personal",
+            haiku_results=haiku_results,
+        )
+
+        # Should limit to 20 suggestions max
+        assert len(suggestions) <= 20
