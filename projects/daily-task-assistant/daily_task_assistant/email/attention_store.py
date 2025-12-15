@@ -111,6 +111,7 @@ class AttentionRecord:
     date: datetime
     snippet: str
     from_name: Optional[str] = None
+    labels: List[str] = field(default_factory=list)  # Gmail label IDs
 
     # Analysis results
     reason: str = ""
@@ -167,6 +168,7 @@ class AttentionRecord:
             "from_name": self.from_name,
             "date": dt_to_str(self.date),
             "snippet": self.snippet,
+            "labels": self.labels,
             "reason": self.reason,
             "urgency": self.urgency,
             "confidence": self.confidence,
@@ -197,6 +199,7 @@ class AttentionRecord:
             "fromName": self.from_name,
             "date": dt_to_str(self.date),
             "snippet": self.snippet,
+            "labels": self.labels,
             "reason": self.reason,
             "urgency": self.urgency,
             "confidence": self.confidence,
@@ -229,6 +232,7 @@ class AttentionRecord:
             from_name=data.get("from_name"),
             date=str_to_dt(data["date"]) or _now(),
             snippet=data.get("snippet", ""),
+            labels=data.get("labels", []),
             reason=data.get("reason", ""),
             urgency=data.get("urgency", "medium"),
             confidence=data.get("confidence", 0.5),

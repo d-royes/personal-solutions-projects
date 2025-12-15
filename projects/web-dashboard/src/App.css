@@ -4880,6 +4880,20 @@ button:not(:disabled):hover {
   border: 1px solid rgba(100, 116, 139, 0.25);
 }
 
+/* Attention view header with sync timestamp */
+.attention-view-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+}
+
+.last-sync {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.7);
+  font-style: italic;
+}
+
 /* Attention card actions (dismiss/snooze) */
 .attention-actions {
   display: flex;
@@ -4887,6 +4901,42 @@ button:not(:disabled):hover {
   margin-top: 0.75rem;
   padding-top: 0.5rem;
   border-top: 1px solid rgba(99, 102, 241, 0.1);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Compact task buttons for inline display */
+.create-task-btn.compact,
+.task-exists-btn.compact {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.create-task-btn.compact {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  color: rgba(134, 239, 172, 0.95);
+}
+
+.create-task-btn.compact:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.task-exists-btn.compact {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: rgba(165, 180, 252, 0.95);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.task-exists-btn.compact:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.35);
 }
 
 .dismiss-dropdown,

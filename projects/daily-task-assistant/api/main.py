@@ -2597,6 +2597,7 @@ def analyze_inbox(
             from_name=item.email.from_name,
             date=item.email.date,
             snippet=item.email.snippet,
+            labels=item.email.labels,
             reason=item.reason,
             urgency=item.urgency,
             confidence=item.confidence,

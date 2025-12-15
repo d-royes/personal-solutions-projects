@@ -1,6 +1,7 @@
 import type {
   ActivityEntry,
   AssistResponse,
+  AttentionItem,
   ConversationMessage,
   DataSource,
   TaskResponse,
@@ -1521,6 +1522,34 @@ export interface SnoozeResult {
   emailId: string
   account: string
   snoozedUntil: string
+}
+
+export interface PersistedAttentionResponse {
+  account: string
+  attentionItems: AttentionItem[]
+  count: number
+}
+
+/**
+ * Get persisted attention items from storage (without re-analyzing).
+ * Use this on page load to restore previous attention state.
+ */
+export async function getAttentionItems(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PersistedAttentionResponse> {
+  const url = new URL(`/email/attention/${account}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Failed to get attention items: ${resp.statusText}`)
+  }
+  return resp.json()
 }
 
 export async function dismissAttentionItem(

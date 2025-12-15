@@ -32,6 +32,7 @@ import {
   sendReply,
   dismissAttentionItem,
   snoozeAttentionItem,
+  getAttentionItems,
   type EmailPendingAction,
   type EmailActionSuggestion,
   type GmailLabel,
@@ -132,6 +133,9 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   const [loadingRules, setLoadingRules] = useState(false)
   const [loadingAnalysis, setLoadingAnalysis] = useState(false)
   const [loadingActionSuggestions, setLoadingActionSuggestions] = useState(false)
+
+  // Last sync timestamp for attention items
+  const [lastAttentionSync, setLastAttentionSync] = useState<Date | null>(null)
   
   // Error state
   const [error, setError] = useState<string | null>(null)
@@ -261,15 +265,46 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         }
       }
       
-      updateCache({ 
+      updateCache({
         suggestions: response.suggestions,
         attentionItems: response.attentionItems,
         emailTaskLinks: taskLinks,
       })
+      setLastAttentionSync(new Date())  // Update sync timestamp
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed')
     } finally {
       setLoadingAnalysis(false)
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache])
+
+  // Load persisted attention items (without re-analyzing)
+  const loadPersistedAttention = useCallback(async () => {
+    try {
+      const response = await getAttentionItems(selectedAccount, authConfig, apiBase)
+
+      // Check which attention emails already have tasks
+      let taskLinks: Record<string, EmailTaskInfo> = {}
+      if (response.attentionItems.length > 0) {
+        try {
+          const emailIds = response.attentionItems.map(item => item.emailId)
+          const taskCheck = await checkEmailsHaveTasks(selectedAccount, emailIds, authConfig, apiBase)
+          taskLinks = taskCheck.tasks
+        } catch (err) {
+          console.warn('Failed to check email-task links:', err)
+        }
+      }
+
+      updateCache({
+        attentionItems: response.attentionItems,
+        emailTaskLinks: taskLinks,
+      })
+      if (response.attentionItems.length > 0) {
+        setLastAttentionSync(new Date())  // Update sync timestamp when items loaded
+      }
+    } catch (err) {
+      // Silent fail - persisted attention is optional, user can run analysis
+      console.warn('Failed to load persisted attention:', err)
     }
   }, [selectedAccount, authConfig, apiBase, updateCache])
 
@@ -367,6 +402,8 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   useEffect(() => {
     loadInbox()
     loadRules()
+    loadLabels()  // Load labels for name lookup
+    loadPersistedAttention()  // Load persisted attention items on account change
   }, [selectedAccount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle adding a new rule
@@ -1303,7 +1340,9 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                 className={activeTab === 'attention' ? 'active' : ''}
                 onClick={() => {
                   setActiveTab('attention')
-                  if (attentionItems.length === 0) runAnalysis()
+                  // Only load persisted items, don't auto-analyze
+                  // User should click "Analyze Inbox" on Dashboard to refresh
+                  if (attentionItems.length === 0) loadPersistedAttention()
                 }}
               >
                 Attention {attentionItems.length > 0 && `(${attentionItems.length})`}
@@ -1869,6 +1908,14 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         {/* Attention Tab */}
         {activeTab === 'attention' && (
           <div className="attention-view">
+            {/* Attention header with sync timestamp */}
+            <div className="attention-view-header">
+              {lastAttentionSync && (
+                <span className="last-sync" title={lastAttentionSync.toLocaleString()}>
+                  Last synced: {lastAttentionSync.toLocaleTimeString()}
+                </span>
+              )}
+            </div>
             {loadingAnalysis ? (
               <div className="loading">Analyzing inbox...</div>
             ) : attentionItems.length === 0 ? (
@@ -1896,14 +1943,21 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                           {item.matchedRole}
                         </span>
                       )}
-                      {/* Show custom labels (filter out system labels) */}
+                      {/* Show custom labels (filter out system labels, display name not ID) */}
                       {item.labels?.filter(l =>
                         !['INBOX', 'UNREAD', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'].includes(l)
-                      ).map(label => (
-                        <span key={label} className="email-label-badge" title={label}>
-                          {label}
-                        </span>
-                      ))}
+                      ).map(labelId => {
+                        // Look up label name from availableLabels
+                        const labelInfo = availableLabels.find(l => l.id === labelId)
+                        // Use name if found, otherwise show cleaned ID (remove "Label_" prefix)
+                        const displayName = labelInfo?.name ||
+                          (labelId.startsWith('Label_') ? `#${labelId.slice(6)}` : labelId)
+                        return (
+                          <span key={labelId} className="email-label-badge" title={labelInfo?.name || labelId}>
+                            {displayName}
+                          </span>
+                        )
+                      })}
                       <span className="attention-date">
                         {new Date(item.date).toLocaleDateString()}
                       </span>
@@ -1918,50 +1972,13 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                         Suggested: <strong>{item.suggestedAction}</strong>
                       </div>
                     )}
-                    {item.extractedTask && (
-                      <div className="attention-task">
-                        {emailTaskLinks[item.emailId] ? (
-                          <button 
-                            className="task-exists-btn"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              // Navigate to task view
-                              onBack()  // Go back to tasks
-                              // Note: Could pass taskId to auto-select, but for now just navigate
-                            }}
-                            title={`View task: ${emailTaskLinks[item.emailId].title}`}
-                          >
-                            <span className="task-exists-icon">📋</span>
-                            <span className="task-exists-label">Task exists</span>
-                            <span className={`task-status-badge ${emailTaskLinks[item.emailId].status}`}>
-                              {emailTaskLinks[item.emailId].status}
-                            </span>
-                          </button>
-                        ) : (
-                          <button
-                            className="create-task-btn"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEmailQuickAction({
-                                type: 'create_task',
-                                emailId: item.emailId,
-                                subject: item.extractedTask || item.subject
-                              })
-                            }}
-                          >
-                            Create Task: {item.extractedTask}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {/* Dismiss/Snooze actions */}
+                    {/* Compact action row: Dismiss, Snooze, and Task badge/button */}
                     <div className="attention-actions">
                       <div className="dismiss-dropdown">
                         <button
                           className="dismiss-btn"
                           onClick={(e) => {
                             e.stopPropagation()
-                            // Show dropdown menu
                             const dropdown = e.currentTarget.nextElementSibling as HTMLElement
                             if (dropdown) dropdown.classList.toggle('show')
                           }}
@@ -2013,6 +2030,39 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                           }}>Next week</button>
                         </div>
                       </div>
+                      {/* Task badge/button inline with actions */}
+                      {item.extractedTask && (
+                        emailTaskLinks[item.emailId] ? (
+                          <button
+                            className="task-exists-btn compact"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onBack()
+                            }}
+                            title={`View task: ${emailTaskLinks[item.emailId].title}`}
+                          >
+                            <span className="task-exists-icon">📋</span>
+                            <span className={`task-status-badge ${emailTaskLinks[item.emailId].status}`}>
+                              {emailTaskLinks[item.emailId].status}
+                            </span>
+                          </button>
+                        ) : (
+                          <button
+                            className="create-task-btn compact"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEmailQuickAction({
+                                type: 'create_task',
+                                emailId: item.emailId,
+                                subject: item.extractedTask || item.subject
+                              })
+                            }}
+                            title={`Create task: ${item.extractedTask}`}
+                          >
+                            + Task
+                          </button>
+                        )
+                      )}
                     </div>
                   </li>
                 ))}
