@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from daily_task_assistant.api.auth import get_current_user
 from daily_task_assistant.config import load_settings
@@ -2453,12 +2453,17 @@ def analyze_inbox(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Analyze inbox patterns and suggest filter rules.
-    
+
     Reads recent emails and identifies:
     - New senders not covered by existing rules
     - Promotional/transactional patterns
     - Emails requiring David's attention
-    
+
+    Uses persistence to:
+    - Skip already-analyzed emails
+    - Filter out dismissed attention items
+    - Save new attention items for future sessions
+
     Returns suggestions that can be approved to add as rules.
     """
     from daily_task_assistant.mailer import (
@@ -2468,19 +2473,39 @@ def analyze_inbox(
         search_messages,
     )
     from daily_task_assistant.sheets import FilterRulesManager, SheetsError
-    from daily_task_assistant.email import EmailAnalyzer
-    
+    from daily_task_assistant.email import (
+        EmailAnalyzer,
+        AttentionRecord,
+        save_attention,
+        list_active_attention,
+        get_dismissed_email_ids,
+        purge_expired_records,
+    )
+
     # Load Gmail config
     try:
         gmail_config = load_account_from_env(account)
         email_address = gmail_config.from_address
     except GmailError as exc:
         raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
-    
+
+    # Purge expired records (opportunistic cleanup)
+    try:
+        purge_expired_records(user)
+    except Exception as e:
+        logger.warning(f"[analyze_inbox] Failed to purge expired records: {e}")
+
+    # Get set of dismissed email IDs to filter out
+    dismissed_ids = get_dismissed_email_ids(user, account)
+
+    # Get already-active attention items from persistence
+    persisted_attention = list_active_attention(user, account)
+    persisted_email_ids = {r.email_id for r in persisted_attention}
+
     # Build account-specific query to scan beyond just inbox
     # This catches action items that automations have filed to labels
     config = ATTENTION_SCAN_CONFIG.get(account, {"include": [], "exclude": []})
-    
+
     # Build label inclusion part (inbox + action-oriented labels)
     label_parts = ["in:inbox"]
     for label in config["include"]:
@@ -2489,19 +2514,19 @@ def analyze_inbox(
             label_parts.append(f'label:"{label}"')
         else:
             label_parts.append(f"label:{label}")
-    
+
     # Build exclusion part (skip junk/promotional)
     exclude_parts = ["-in:spam"]
     for label in config["exclude"]:
         exclude_parts.append(f"-label:{label}")
-    
+
     # Combine into query: recent emails in action-oriented locations
     action_labels_query = (
         f"newer_than:7d {' '.join(exclude_parts)} ({' OR '.join(label_parts)})"
     )
-    
+
     logger.info(f"[analyze_inbox] Query for {account}: {action_labels_query}")
-    
+
     # Get recent messages for analysis
     try:
         messages = search_messages(
@@ -2511,7 +2536,20 @@ def analyze_inbox(
         )
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
-    
+
+    # Filter out dismissed and already-persisted emails before analysis
+    messages_to_analyze = [
+        m for m in messages
+        if m.id not in dismissed_ids and m.id not in persisted_email_ids
+    ]
+
+    logger.info(
+        f"[analyze_inbox] {len(messages)} fetched, "
+        f"{len(dismissed_ids)} dismissed, "
+        f"{len(persisted_email_ids)} already tracked, "
+        f"{len(messages_to_analyze)} to analyze"
+    )
+
     # Load existing rules
     existing_rules = []
     try:
@@ -2520,18 +2558,145 @@ def analyze_inbox(
     except SheetsError:
         # Continue without existing rules
         pass
-    
-    # Analyze patterns
+
+    # Analyze patterns on new messages only
     analyzer = EmailAnalyzer(email_address, existing_rules)
-    suggestions, attention_items = analyzer.analyze_messages(messages)
-    
+    suggestions, new_attention_items = analyzer.analyze_messages(messages_to_analyze)
+
+    # Save new attention items to persistence
+    for item in new_attention_items:
+        record = AttentionRecord(
+            email_id=item.email.id,
+            email_account=account,
+            user_id=user,
+            subject=item.email.subject,
+            from_address=item.email.from_address,
+            from_name=item.email.from_name,
+            date=item.email.date,
+            snippet=item.email.snippet,
+            reason=item.reason,
+            urgency=item.urgency,
+            confidence=0.7,  # Default confidence for regex analysis
+            suggested_action=item.suggested_action,
+            extracted_task=item.extracted_task,
+            analysis_method="regex",
+        )
+        try:
+            save_attention(user, record)
+        except Exception as e:
+            logger.warning(f"[analyze_inbox] Failed to save attention record: {e}")
+
+    # Combine persisted attention items with new ones for response
+    # Convert persisted records to API format
+    all_attention = [r.to_api_dict() for r in persisted_attention]
+    # Add new items (using the analyzer's format for consistency)
+    all_attention.extend([a.to_dict() for a in new_attention_items])
+
     return {
         "account": account,
         "email": email_address,
-        "messagesAnalyzed": len(messages),
+        "messagesAnalyzed": len(messages_to_analyze),
         "existingRulesCount": len(existing_rules),
         "suggestions": [s.to_dict() for s in suggestions],  # Rule suggestions (New Rules tab)
-        "attentionItems": [a.to_dict() for a in attention_items],
+        "attentionItems": all_attention,
+        "persistedCount": len(persisted_attention),
+        "newCount": len(new_attention_items),
+    }
+
+
+@app.get("/email/attention/{account}")
+def get_attention_items(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get persisted attention items for an account.
+
+    Returns active attention items from storage without re-analyzing emails.
+    Use this for quick refresh of the attention tab.
+    """
+    from daily_task_assistant.email import list_active_attention
+
+    attention_items = list_active_attention(user, account)
+
+    return {
+        "account": account,
+        "attentionItems": [r.to_api_dict() for r in attention_items],
+        "count": len(attention_items),
+    }
+
+
+class DismissRequest(BaseModel):
+    """Request body for dismissing an attention item."""
+
+    reason: Literal["not_actionable", "handled", "false_positive"] = Field(
+        alias="reason",
+        description="Why the item is being dismissed",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@app.post("/email/attention/{account}/{email_id}/dismiss")
+def dismiss_attention_item(
+    account: Literal["church", "personal"],
+    email_id: str,
+    request: DismissRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Dismiss an attention item.
+
+    Marks the item as dismissed so it won't appear in future analyses.
+    Dismissed items are kept for 7 days for audit purposes.
+    """
+    from daily_task_assistant.email import dismiss_attention
+
+    success = dismiss_attention(user, email_id, request.reason)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {
+        "success": True,
+        "emailId": email_id,
+        "account": account,
+        "reason": request.reason,
+    }
+
+
+class SnoozeRequest(BaseModel):
+    """Request body for snoozing an attention item."""
+
+    until: datetime = Field(
+        alias="until",
+        description="When to resurface the item (ISO timestamp)",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@app.post("/email/attention/{account}/{email_id}/snooze")
+def snooze_attention_item(
+    account: Literal["church", "personal"],
+    email_id: str,
+    request: SnoozeRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Snooze an attention item until a specific time.
+
+    The item will reappear after the snooze period expires.
+    """
+    from daily_task_assistant.email import snooze_attention
+
+    success = snooze_attention(user, email_id, request.until)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {
+        "success": True,
+        "emailId": email_id,
+        "account": account,
+        "snoozedUntil": request.until.isoformat(),
     }
 
 

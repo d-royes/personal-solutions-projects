@@ -12,6 +12,30 @@ from .analyzer import (
     generate_action_suggestions,
 )
 
+from .attention_store import (
+    AttentionRecord,
+    save_attention,
+    get_attention,
+    list_active_attention,
+    dismiss_attention,
+    snooze_attention,
+    link_task,
+    is_already_analyzed,
+    purge_expired_records,
+    get_dismissed_email_ids,
+)
+
+from .suggestion_store import (
+    SuggestionRecord,
+    save_suggestion,
+    get_suggestion,
+    list_pending_suggestions,
+    record_suggestion_decision,
+    create_suggestion,
+    get_approval_stats,
+    purge_old_suggestions,
+)
+
 from .memory import (
     CategoryPattern,
     SenderProfile,
@@ -51,6 +75,26 @@ __all__ = [
     "suggest_label_rules",
     "detect_attention_items",
     "generate_action_suggestions",
+    # Attention Store
+    "AttentionRecord",
+    "save_attention",
+    "get_attention",
+    "list_active_attention",
+    "dismiss_attention",
+    "snooze_attention",
+    "link_task",
+    "is_already_analyzed",
+    "purge_expired_records",
+    "get_dismissed_email_ids",
+    # Suggestion Store
+    "SuggestionRecord",
+    "save_suggestion",
+    "get_suggestion",
+    "list_pending_suggestions",
+    "record_suggestion_decision",
+    "create_suggestion",
+    "get_approval_stats",
+    "purge_old_suggestions",
     # Memory - data classes
     "CategoryPattern",
     "SenderProfile",
