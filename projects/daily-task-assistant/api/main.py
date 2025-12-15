@@ -2616,6 +2616,10 @@ def analyze_inbox(
     # Add new items (using the analyzer's format for consistency)
     all_attention.extend([a.to_dict() for a in new_attention_items])
 
+    # Sort by urgency: high > medium > low
+    urgency_order = {"high": 0, "medium": 1, "low": 2}
+    all_attention.sort(key=lambda x: urgency_order.get(x.get("urgency", "low"), 2))
+
     return {
         "account": account,
         "email": email_address,
@@ -2642,10 +2646,15 @@ def get_attention_items(
 
     attention_items = list_active_attention(user, account)
 
+    # Convert to API format and sort by urgency: high > medium > low
+    api_items = [r.to_api_dict() for r in attention_items]
+    urgency_order = {"high": 0, "medium": 1, "low": 2}
+    api_items.sort(key=lambda x: urgency_order.get(x.get("urgency", "low"), 2))
+
     return {
         "account": account,
-        "attentionItems": [r.to_api_dict() for r in attention_items],
-        "count": len(attention_items),
+        "attentionItems": api_items,
+        "count": len(api_items),
     }
 
 
