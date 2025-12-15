@@ -222,6 +222,7 @@ class HaikuUsage:
             "dailyResetAt": self.daily_reset_at.isoformat(),
             "weeklyResetAt": self.weekly_reset_at.isoformat(),
             "enabled": settings.enabled,
+            "canAnalyze": self.can_analyze(settings),
         }
 
     @classmethod
