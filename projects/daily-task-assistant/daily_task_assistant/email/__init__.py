@@ -15,6 +15,10 @@ from .analyzer import (
     matches_not_actionable,
     analyze_with_profile,
     detect_attention_with_profile,
+    # Haiku-enhanced analysis
+    detect_attention_with_haiku,
+    analyze_email_with_haiku_safe,
+    get_haiku_usage_for_user,
 )
 
 from .attention_store import (
@@ -116,6 +120,10 @@ __all__ = [
     "matches_not_actionable",
     "analyze_with_profile",
     "detect_attention_with_profile",
+    # Haiku-enhanced analysis
+    "detect_attention_with_haiku",
+    "analyze_email_with_haiku_safe",
+    "get_haiku_usage_for_user",
     # Attention Store
     "AttentionRecord",
     "save_attention",

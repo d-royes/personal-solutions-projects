@@ -10,9 +10,16 @@ The analyzer follows the "Better Tool" philosophy:
 - Suggests, doesn't act
 - Requires explicit approval
 - Learns from patterns
+
+Haiku Intelligence Layer (v1.0):
+- Uses Claude 3.5 Haiku for semantic email understanding
+- Runs in parallel with profile/regex analysis
+- Includes usage tracking with daily/weekly limits
+- Falls back to regex when limits reached
 """
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -27,6 +34,18 @@ from ..sheets.filter_rules import (
     FilterField,
     FilterOperator,
 )
+from .haiku_analyzer import (
+    HaikuAnalysisResult,
+    analyze_email_with_haiku,
+)
+from .haiku_usage import (
+    can_use_haiku,
+    increment_usage as increment_haiku_usage,
+    get_usage_summary as get_haiku_usage_summary,
+)
+from ..llm.anthropic_client import AnthropicError
+
+logger = logging.getLogger(__name__)
 
 
 class SuggestionType(str, Enum):
@@ -1169,3 +1188,253 @@ def detect_attention_with_profile(
 
     return attention_items
 
+
+# =============================================================================
+# Haiku Intelligence Layer Integration
+# =============================================================================
+
+def _haiku_result_to_attention_item(
+    email: EmailMessage,
+    result: HaikuAnalysisResult,
+) -> Optional[AttentionItem]:
+    """Convert HaikuAnalysisResult to AttentionItem.
+
+    Args:
+        email: The analyzed email message.
+        result: The Haiku analysis result.
+
+    Returns:
+        AttentionItem if attention needed, None otherwise.
+    """
+    attention = result.attention
+
+    if not attention.needs_attention:
+        return None
+
+    return AttentionItem(
+        email=email,
+        reason=attention.reason,
+        urgency=attention.urgency,
+        suggested_action=attention.suggested_action,
+        extracted_deadline=None,  # Haiku doesn't extract deadlines yet
+        extracted_task=attention.extracted_task,
+        matched_role=attention.matched_role,
+        confidence=attention.confidence,
+        analysis_method="haiku",
+    )
+
+
+def analyze_email_with_haiku_safe(
+    email: EmailMessage,
+    user_id: str,
+    roles_context: Optional[str] = None,
+    available_labels: Optional[str] = None,
+) -> Optional[HaikuAnalysisResult]:
+    """Safely analyze an email with Haiku, handling errors gracefully.
+
+    Args:
+        email: The email to analyze.
+        user_id: User identifier for usage tracking.
+        roles_context: Optional custom roles context.
+        available_labels: Optional custom labels list.
+
+    Returns:
+        HaikuAnalysisResult if successful, None if error or skipped.
+    """
+    try:
+        result = analyze_email_with_haiku(
+            sender_email=email.from_address,
+            sender_name=email.from_name or "",
+            subject=email.subject,
+            snippet=email.snippet,
+            date=email.date.isoformat() if email.date else "",
+            body=None,  # Use snippet only to reduce costs
+            roles_context=roles_context,
+            available_labels=available_labels,
+        )
+
+        # Increment usage only on successful analysis (not skipped)
+        if result.analysis_method == "haiku":
+            increment_haiku_usage(user_id)
+
+        return result
+
+    except AnthropicError as exc:
+        logger.warning(f"Haiku analysis failed for email {email.id}: {exc}")
+        return None
+    except Exception as exc:
+        logger.error(f"Unexpected error in Haiku analysis: {exc}")
+        return None
+
+
+def detect_attention_with_haiku(
+    messages: List[EmailMessage],
+    email_account: str,
+    user_id: str,
+    church_roles: List[str],
+    personal_contexts: List[str],
+    vip_senders: Dict[str, List[str]],
+    church_attention_patterns: Dict[str, List[str]],
+    personal_attention_patterns: Dict[str, List[str]],
+    not_actionable_patterns: Dict[str, List[str]],
+    roles_context: Optional[str] = None,
+    available_labels: Optional[str] = None,
+    already_analyzed_ids: Optional[Set[str]] = None,
+) -> Tuple[List[AttentionItem], Dict[str, HaikuAnalysisResult]]:
+    """Detect attention items with Haiku Intelligence Layer.
+
+    This is the enhanced entry point for attention detection that uses
+    Claude 3.5 Haiku for semantic email understanding. Analysis flow:
+
+    1. Check not-actionable patterns (skip these entirely)
+    2. Check VIP senders (always high priority, no Haiku needed)
+    3. Check if already analyzed by Haiku (skip to avoid duplicates)
+    4. If Haiku enabled and under limits: run Haiku analysis
+    5. Fall back to profile/regex for remaining emails
+
+    Args:
+        messages: List of emails to analyze.
+        email_account: "church" or "personal"
+        user_id: User identifier for usage tracking.
+        church_roles: List of church roles
+        personal_contexts: List of personal contexts
+        vip_senders: Dict mapping account to VIP sender patterns
+        church_attention_patterns: Dict mapping role to attention keywords
+        personal_attention_patterns: Dict mapping context to attention keywords
+        not_actionable_patterns: Dict mapping account to skip patterns
+        roles_context: Optional custom roles context for Haiku.
+        available_labels: Optional custom labels list for Haiku.
+        already_analyzed_ids: Set of email IDs already analyzed by Haiku.
+
+    Returns:
+        Tuple of (attention_items, haiku_results)
+        - attention_items: List of AttentionItem objects requiring attention
+        - haiku_results: Dict mapping email_id to HaikuAnalysisResult for later use
+    """
+    attention_items: List[AttentionItem] = []
+    haiku_results: Dict[str, HaikuAnalysisResult] = {}
+    processed_ids: Set[str] = set()
+    already_analyzed = already_analyzed_ids or set()
+
+    # Get account-specific patterns
+    account_vips = vip_senders.get(email_account, [])
+    account_not_actionable = not_actionable_patterns.get(email_account, [])
+
+    # Check if Haiku is available
+    haiku_available = can_use_haiku(user_id)
+    if not haiku_available:
+        logger.info(f"Haiku not available for {user_id}, using profile/regex only")
+
+    for msg in messages:
+        # Skip already processed in this batch
+        if msg.id in processed_ids:
+            continue
+
+        # 1. Check not-actionable patterns (skip entirely)
+        if matches_not_actionable(msg, account_not_actionable):
+            processed_ids.add(msg.id)
+            continue
+
+        # 2. Check VIP senders (always high priority, no Haiku needed)
+        if is_vip_sender(msg, account_vips):
+            # Find which VIP pattern matched
+            from_lower = msg.from_address.lower()
+            from_name_lower = (msg.from_name or "").lower()
+            matched_vip = "VIP sender"
+            for pattern in account_vips:
+                if pattern.lower() in from_lower or pattern.lower() in from_name_lower:
+                    matched_vip = pattern
+                    break
+
+            attention_items.append(AttentionItem(
+                email=msg,
+                reason=f"VIP: {matched_vip}",
+                urgency="high",
+                suggested_action="Review immediately",
+                extracted_task=_extract_task_from_email(msg),
+                matched_role="VIP",
+                confidence=0.95,
+                analysis_method="vip",
+            ))
+            processed_ids.add(msg.id)
+            continue
+
+        # 3. Skip if already analyzed by Haiku (avoid re-analysis)
+        if msg.id in already_analyzed:
+            processed_ids.add(msg.id)
+            continue
+
+        # 4. Try Haiku analysis if available
+        if haiku_available:
+            # Re-check availability (may have hit limit during batch)
+            if can_use_haiku(user_id):
+                haiku_result = analyze_email_with_haiku_safe(
+                    email=msg,
+                    user_id=user_id,
+                    roles_context=roles_context,
+                    available_labels=available_labels,
+                )
+
+                if haiku_result and haiku_result.analysis_method == "haiku":
+                    # Store result for later use (action/rule suggestions)
+                    haiku_results[msg.id] = haiku_result
+
+                    # Convert to attention item if needed
+                    item = _haiku_result_to_attention_item(msg, haiku_result)
+                    if item:
+                        attention_items.append(item)
+                    processed_ids.add(msg.id)
+                    continue
+                elif haiku_result and haiku_result.skipped_reason:
+                    # Haiku skipped due to privacy (sensitive domain)
+                    logger.debug(f"Haiku skipped {msg.id}: {haiku_result.skipped_reason}")
+                    # Fall through to profile/regex
+
+    # 5. Fallback to profile/regex for remaining emails
+    analyzer = EmailAnalyzer(email_account)
+    for msg in messages:
+        if msg.id in processed_ids:
+            continue
+
+        # Check not-actionable again (shouldn't happen but safety check)
+        if matches_not_actionable(msg, account_not_actionable):
+            continue
+
+        # Try profile analysis first
+        item = analyze_with_profile(
+            email=msg,
+            email_account=email_account,
+            church_roles=church_roles,
+            personal_contexts=personal_contexts,
+            vip_senders=vip_senders,
+            church_attention_patterns=church_attention_patterns,
+            personal_attention_patterns=personal_attention_patterns,
+            not_actionable_patterns=not_actionable_patterns,
+        )
+
+        if item:
+            attention_items.append(item)
+        else:
+            # Last resort: regex analysis
+            regex_item = analyzer._check_attention_needed(msg)
+            if regex_item:
+                regex_item.matched_role = None
+                regex_item.confidence = 0.7
+                regex_item.analysis_method = "regex"
+                attention_items.append(regex_item)
+
+    return attention_items, haiku_results
+
+
+def get_haiku_usage_for_user(user_id: str) -> Dict:
+    """Get Haiku usage summary for a user.
+
+    Convenience function for API endpoints.
+
+    Args:
+        user_id: User identifier.
+
+    Returns:
+        Dict with usage stats (dailyCount, weeklyCount, limits, etc.)
+    """
+    return get_haiku_usage_summary(user_id)
