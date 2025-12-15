@@ -84,6 +84,8 @@ test.describe('Attention API - Analyze with Persistence', () => {
   });
 
   test('analyze endpoint includes persisted items in response when Gmail configured', async ({ request }) => {
+    // This test makes two sequential analyze calls, each ~20s, so we need longer timeout
+    test.setTimeout(60000);
     // First call to populate persistence
     const response1 = await request.get(`${API_BASE}/email/analyze/personal`, {
       headers: AUTH_HEADERS

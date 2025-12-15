@@ -1499,6 +1499,72 @@ export async function analyzeInbox(
   return resp.json()
 }
 
+// --- Attention Item Actions (Sprint 4) ---
+
+export type DismissReason = 'not_actionable' | 'handled' | 'false_positive'
+
+export interface DismissResult {
+  success: boolean
+  emailId: string
+  account: string
+  reason: DismissReason
+}
+
+export interface SnoozeResult {
+  success: boolean
+  emailId: string
+  account: string
+  snoozedUntil: string
+}
+
+export async function dismissAttentionItem(
+  account: EmailAccount,
+  emailId: string,
+  reason: DismissReason,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<DismissResult> {
+  const url = new URL(`/email/attention/${account}/${emailId}/dismiss`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ reason }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Dismiss failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function snoozeAttentionItem(
+  account: EmailAccount,
+  emailId: string,
+  until: Date,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SnoozeResult> {
+  const url = new URL(`/email/attention/${account}/${emailId}/snooze`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ until: until.toISOString() }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Snooze failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 // --- Rule Sync ---
 
 export async function syncRulesToSheet(

@@ -30,11 +30,14 @@ import {
   getEmailFull,
   generateReplyDraft,
   sendReply,
+  dismissAttentionItem,
+  snoozeAttentionItem,
   type EmailPendingAction,
   type EmailActionSuggestion,
   type GmailLabel,
   type TaskPreview,
   type EmailTaskInfo,
+  type DismissReason,
 } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 
@@ -299,6 +302,34 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   }, [selectedAccount, authConfig, apiBase, updateCache])
   // Suppress unused warning - available for future explicit label loading
   void loadLabels
+
+  // Dismiss an attention item
+  const handleDismiss = useCallback(async (emailId: string, reason: DismissReason) => {
+    try {
+      await dismissAttentionItem(selectedAccount, emailId, reason, authConfig, apiBase)
+      // Remove from local cache
+      updateCache({
+        attentionItems: attentionItems.filter(item => item.emailId !== emailId)
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to dismiss')
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache, attentionItems])
+
+  // Snooze an attention item
+  const handleSnooze = useCallback(async (emailId: string, hours: number) => {
+    try {
+      const until = new Date()
+      until.setHours(until.getHours() + hours)
+      await snoozeAttentionItem(selectedAccount, emailId, until, authConfig, apiBase)
+      // Remove from local cache (will reappear after snooze expires)
+      updateCache({
+        attentionItems: attentionItems.filter(item => item.emailId !== emailId)
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to snooze')
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache, attentionItems])
 
   // Refresh all data for current account
   const refreshAll = useCallback(() => {
@@ -1859,8 +1890,14 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                       <span className={`urgency-badge ${item.urgency}`}>
                         {item.urgency}
                       </span>
+                      {/* Profile-aware role badge */}
+                      {item.matchedRole && (
+                        <span className={`role-badge ${item.analysisMethod}`} title={`Detected via ${item.analysisMethod} (${Math.round(item.confidence * 100)}% confidence)`}>
+                          {item.matchedRole}
+                        </span>
+                      )}
                       {/* Show custom labels (filter out system labels) */}
-                      {item.labels?.filter(l => 
+                      {item.labels?.filter(l =>
                         !['INBOX', 'UNREAD', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'STARRED', 'IMPORTANT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'].includes(l)
                       ).map(label => (
                         <span key={label} className="email-label-badge" title={label}>
@@ -1901,14 +1938,14 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                             </span>
                           </button>
                         ) : (
-                          <button 
+                          <button
                             className="create-task-btn"
                             onClick={(e) => {
                               e.stopPropagation()
-                              handleEmailQuickAction({ 
-                                type: 'create_task', 
-                                emailId: item.emailId, 
-                                subject: item.extractedTask || item.subject 
+                              handleEmailQuickAction({
+                                type: 'create_task',
+                                emailId: item.emailId,
+                                subject: item.extractedTask || item.subject
                               })
                             }}
                           >
@@ -1917,6 +1954,66 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                         )}
                       </div>
                     )}
+                    {/* Dismiss/Snooze actions */}
+                    <div className="attention-actions">
+                      <div className="dismiss-dropdown">
+                        <button
+                          className="dismiss-btn"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // Show dropdown menu
+                            const dropdown = e.currentTarget.nextElementSibling as HTMLElement
+                            if (dropdown) dropdown.classList.toggle('show')
+                          }}
+                        >
+                          Dismiss ▼
+                        </button>
+                        <div className="dismiss-menu">
+                          <button onClick={(e) => {
+                            e.stopPropagation()
+                            handleDismiss(item.emailId, 'handled')
+                          }}>✓ Already handled</button>
+                          <button onClick={(e) => {
+                            e.stopPropagation()
+                            handleDismiss(item.emailId, 'not_actionable')
+                          }}>✗ Not actionable</button>
+                          <button onClick={(e) => {
+                            e.stopPropagation()
+                            handleDismiss(item.emailId, 'false_positive')
+                          }}>⚠ False positive</button>
+                        </div>
+                      </div>
+                      <div className="snooze-dropdown">
+                        <button
+                          className="snooze-btn"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const dropdown = e.currentTarget.nextElementSibling as HTMLElement
+                            if (dropdown) dropdown.classList.toggle('show')
+                          }}
+                        >
+                          Snooze ▼
+                        </button>
+                        <div className="snooze-menu">
+                          <button onClick={(e) => {
+                            e.stopPropagation()
+                            handleSnooze(item.emailId, 1)
+                          }}>1 hour</button>
+                          <button onClick={(e) => {
+                            e.stopPropagation()
+                            handleSnooze(item.emailId, 4)
+                          }}>4 hours</button>
+                          <button onClick={(e) => {
+                            e.stopPropagation()
+                            handleSnooze(item.emailId, 24)
+                          }}>Tomorrow</button>
+                          <button onClick={(e) => {
+                            e.stopPropagation()
+                            handleSnooze(item.emailId, 168)
+                          }}>Next week</button>
+                        </div>
+                      </div>
+                    </div>
                   </li>
                 ))}
               </ul>

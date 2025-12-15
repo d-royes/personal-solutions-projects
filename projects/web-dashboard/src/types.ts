@@ -119,6 +119,13 @@ export interface AttentionItem {
   extractedDeadline?: string
   extractedTask?: string
   labels?: string[]
+  // Profile-aware analysis fields (Sprint 3)
+  matchedRole?: string  // Role/context that triggered (e.g., "Treasurer", "VIP")
+  confidence: number  // 0.0-1.0 confidence score
+  analysisMethod: 'regex' | 'profile' | 'vip'  // How item was detected
+  // Status fields for dismiss/snooze (Sprint 4)
+  status?: 'active' | 'dismissed' | 'snoozed'
+  snoozedUntil?: string
 }
 
 export interface AttachmentInfo {

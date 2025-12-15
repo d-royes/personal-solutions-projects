@@ -4853,6 +4853,128 @@ button:not(:disabled):hover {
   white-space: nowrap;
 }
 
+/* Role badge (profile-aware analysis) */
+.role-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: help;
+}
+
+.role-badge.vip {
+  background: rgba(168, 85, 247, 0.2);
+  color: rgba(216, 180, 254, 0.95);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.role-badge.profile {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgba(134, 239, 172, 0.95);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.role-badge.regex {
+  background: rgba(100, 116, 139, 0.2);
+  color: rgba(148, 163, 184, 0.9);
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+/* Attention card actions (dismiss/snooze) */
+.attention-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.dismiss-dropdown,
+.snooze-dropdown {
+  position: relative;
+}
+
+.dismiss-btn,
+.snooze-btn {
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dismiss-btn {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: rgba(248, 113, 113, 0.9);
+}
+
+.dismiss-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.snooze-btn {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  color: rgba(253, 224, 71, 0.9);
+}
+
+.snooze-btn:hover {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.dismiss-menu,
+.snooze-menu {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  min-width: 140px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dismiss-menu.show,
+.snooze-menu.show {
+  display: block;
+}
+
+.dismiss-menu button,
+.snooze-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.dismiss-menu button:hover,
+.snooze-menu button:hover {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.dismiss-menu button:first-child,
+.snooze-menu button:first-child {
+  border-radius: 5px 5px 0 0;
+}
+
+.dismiss-menu button:last-child,
+.snooze-menu button:last-child {
+  border-radius: 0 0 5px 5px;
+}
+
 .attention-date {
   margin-left: auto;
   font-size: 0.75rem;
