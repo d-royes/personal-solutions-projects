@@ -4839,6 +4839,29 @@ button:not(:disabled):hover {
   color: rgba(165, 180, 252, 0.9);
 }
 
+/* Analysis engine badge - shows AI vs Regex */
+.analysis-engine-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: help;
+}
+
+.analysis-engine-badge.ai {
+  background: rgba(6, 182, 212, 0.2);
+  color: rgba(103, 232, 249, 0.95);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+.analysis-engine-badge.regex {
+  background: rgba(100, 116, 139, 0.15);
+  color: rgba(148, 163, 184, 0.85);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+}
+
 /* Email label badges in attention items */
 .email-label-badge {
   padding: 0.1rem 0.35rem;
@@ -4878,6 +4901,12 @@ button:not(:disabled):hover {
   background: rgba(100, 116, 139, 0.2);
   color: rgba(148, 163, 184, 0.9);
   border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.role-badge.haiku {
+  background: rgba(100, 116, 139, 0.1);
+  color: rgba(148, 163, 184, 0.9);
+  border: 1px solid rgba(100, 116, 139, 0.3);
 }
 
 /* Attention view header with sync timestamp */

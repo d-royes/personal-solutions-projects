@@ -2482,6 +2482,8 @@ def analyze_inbox(
         purge_expired_records,
         detect_attention_with_haiku,
         get_haiku_usage_summary,
+        generate_rule_suggestions_with_haiku,
+        generate_action_suggestions_with_haiku,
     )
     from daily_task_assistant.memory.profile import get_or_create_profile
 
@@ -2569,12 +2571,8 @@ def analyze_inbox(
         f"{len(profile.personal_contexts)} personal contexts"
     )
 
-    # Analyze patterns on new messages
-    # Use EmailAnalyzer for rule suggestions
-    analyzer = EmailAnalyzer(email_address, existing_rules)
-    suggestions, _ = analyzer.analyze_messages(messages_to_analyze)
-
     # Use Haiku-enhanced analysis for attention detection (with automatic fallback)
+    # This also returns haiku_results for use in rule/action suggestions
     new_attention_items, haiku_results = detect_attention_with_haiku(
         messages=messages_to_analyze,
         email_account=account,
@@ -2591,6 +2589,14 @@ def analyze_inbox(
     haiku_analyzed = sum(1 for r in haiku_results.values() if r.analysis_method == "haiku")
     logger.info(
         f"[analyze_inbox] Haiku analyzed {haiku_analyzed}/{len(messages_to_analyze)} emails"
+    )
+
+    # Generate rule suggestions using Haiku results (with fallback to regex)
+    suggestions = generate_rule_suggestions_with_haiku(
+        messages=messages_to_analyze,
+        email_account=account,
+        haiku_results=haiku_results,
+        existing_rules=existing_rules,
     )
 
     # Save new attention items to persistence
@@ -2631,12 +2637,21 @@ def analyze_inbox(
     # Get current Haiku usage stats for response
     haiku_usage = get_haiku_usage_summary(user)
 
+    # Generate action suggestions using Haiku results (with fallback to regex)
+    action_suggestions = generate_action_suggestions_with_haiku(
+        messages=messages_to_analyze,
+        email_account=account,
+        haiku_results=haiku_results,
+        available_labels=None,  # TODO: Fetch user labels if needed
+    )
+
     return {
         "account": account,
         "email": email_address,
         "messagesAnalyzed": len(messages_to_analyze),
         "existingRulesCount": len(existing_rules),
         "suggestions": [s.to_dict() for s in suggestions],  # Rule suggestions (New Rules tab)
+        "actionSuggestions": [s.to_dict() for s in action_suggestions],  # Action suggestions (Suggestions tab)
         "attentionItems": all_attention,
         "persistedCount": len(persisted_attention),
         "newCount": len(new_attention_items),

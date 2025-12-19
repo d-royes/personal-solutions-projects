@@ -160,6 +160,9 @@ The `.env` file in `projects/daily-task-assistant/` contains:
 
 ## Boundaries
 
+### Command Execution
+Claude Code should never ask David to run commands unless there is a critical reason and Claude Code is unable to execute them. Claude Code is the developer and CLI specialist. David depends on your expertise to run, evaluate, and resolve any issues when executing commands.
+
 ### Do
 - Write tests for new backend functionality
 - Run `npx tsc --noEmit` before committing frontend changes

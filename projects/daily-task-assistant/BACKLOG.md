@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-15
+> **Last Updated**: 2025-12-16
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -55,6 +55,11 @@ Earned autonomy through demonstrated understanding and tracked success.
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
 | **Email Task Assistant Integration** | Complete integration of Email Tasks (Firestore) into the Assistant workflow. | - |
+| **F1: Attention Tab Testing** | Finish testing Attention tabs in Church and Personal accounts. Ensure Haiku analysis works consistently for both. | F1 Haiku Integration |
+| **F1: Analysis Engine Badges** | Get AI/Regex badges working and consistent across all attention items. Role badges should also be styled consistently. | F1 Haiku Integration |
+| **F1: New Rules Tab Persistence** | Add persistence to New Email Rules tab so suggestions survive page refresh. | F1 Haiku Integration |
+| **F1: Suggestions Tab Auto-Populate** | Suggestions tab should populate immediately after Analyze Inbox since all 3 results (attention, rules, actions) are returned together. Remove need for separate Suggestions button click. | F1 Haiku Integration |
+| **F1: Suggestions Persistence** | Add persistence to Suggestion entries so they survive page refresh (if not already implemented). | F1 Haiku Integration |
 
 ### High Priority
 

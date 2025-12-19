@@ -1944,9 +1944,14 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                       <span className={`urgency-badge ${item.urgency}`}>
                         {item.urgency}
                       </span>
+                      {/* Analysis engine badge - shows AI for Haiku, Regex for others */}
+                      <span className={`analysis-engine-badge ${item.analysisMethod === 'haiku' ? 'ai' : 'regex'}`}
+                        title={`Analyzed by ${item.analysisMethod === 'haiku' ? 'Haiku AI' : 'pattern matching'} (${Math.round(item.confidence * 100)}% confidence)`}>
+                        {item.analysisMethod === 'haiku' ? 'AI' : 'Regex'}
+                      </span>
                       {/* Profile-aware role badge */}
                       {item.matchedRole && (
-                        <span className={`role-badge ${item.analysisMethod}`} title={`Detected via ${item.analysisMethod} (${Math.round(item.confidence * 100)}% confidence)`}>
+                        <span className={`role-badge ${item.analysisMethod}`} title={`Matched: ${item.matchedRole}`}>
                           {item.matchedRole}
                         </span>
                       )}
