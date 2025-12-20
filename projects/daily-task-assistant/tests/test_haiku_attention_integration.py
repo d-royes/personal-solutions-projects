@@ -191,7 +191,8 @@ class TestAnalyzeEmailWithHaikuSafe:
 
         assert result is not None
         assert result.analysis_method == "haiku"
-        mock_increment.assert_called_once_with("user@test.com")
+        # Usage is tracked globally, not per-user
+        mock_increment.assert_called_once_with()
 
     @patch("daily_task_assistant.email.analyzer.analyze_email_with_haiku")
     @patch("daily_task_assistant.email.analyzer.increment_haiku_usage")
@@ -956,7 +957,8 @@ class TestHaikuRuleToSuggestion:
             should_suggest=True,
             pattern_type="sender",
             pattern="newsletter@example.com",
-            action="archive",
+            action="label",
+            label_name="promotional",  # Use known label
             reason="Recurring newsletter",
             confidence=0.85,
         )
@@ -965,6 +967,7 @@ class TestHaikuRuleToSuggestion:
             email=email,
             result=result,
             email_account="personal",
+            available_labels={"Promotional", "Transactional", "Admin"},
         )
 
         assert suggestion is not None
@@ -981,7 +984,7 @@ class TestHaikuRuleToSuggestion:
             pattern_type="subject",
             pattern="Weekly Digest",
             action="label",
-            label_name="Newsletter",
+            label_name="promotional",  # Use known label
             reason="Weekly digest pattern",
             confidence=0.75,
         )
@@ -990,6 +993,7 @@ class TestHaikuRuleToSuggestion:
             email=email,
             result=result,
             email_account="personal",
+            available_labels={"Promotional", "Transactional", "Admin"},
         )
 
         assert suggestion is not None
@@ -1003,7 +1007,8 @@ class TestHaikuRuleToSuggestion:
             should_suggest=True,
             pattern_type="content",
             pattern="unsubscribe",
-            action="archive",
+            action="label",
+            label_name="promotional",  # Use known label
             reason="Marketing email pattern",
         )
 
@@ -1011,6 +1016,7 @@ class TestHaikuRuleToSuggestion:
             email=email,
             result=result,
             email_account="personal",
+            available_labels={"Promotional", "Transactional", "Admin"},
         )
 
         assert suggestion is not None
@@ -1055,15 +1061,15 @@ class TestHaikuRuleToSuggestion:
         assert suggestion is not None
         assert suggestion.suggested_rule.category == FilterCategory.PROMOTIONAL.value
 
-    def test_default_category_for_unknown_labels(self):
-        """Should use 1 Week Hold for unknown label names."""
+    def test_returns_none_for_unknown_labels(self):
+        """Should return None for unknown labels not in available_labels."""
         email = make_email()
         result = make_haiku_result_with_rule(
             should_suggest=True,
             pattern_type="sender",
             pattern="updates@service.com",
             action="label",
-            label_name="CustomLabel",  # Not in mapping
+            label_name="CustomLabel",  # Not in available_labels
             reason="Custom label suggestion",
         )
 
@@ -1071,10 +1077,11 @@ class TestHaikuRuleToSuggestion:
             email=email,
             result=result,
             email_account="personal",
+            available_labels={"Promotional", "Transactional", "Admin"},  # CustomLabel not in this set
         )
 
-        assert suggestion is not None
-        assert suggestion.suggested_rule.category == FilterCategory.ONE_WEEK_HOLD.value
+        # Should return None since label is not in allowed set
+        assert suggestion is None
 
 
 class TestGenerateRuleSuggestionsWithHaiku:
@@ -1091,7 +1098,8 @@ class TestGenerateRuleSuggestionsWithHaiku:
                 should_suggest=True,
                 pattern_type="sender",
                 pattern="newsletter@company.com",
-                action="archive",
+                action="label",
+                label_name="promotional",  # Use known label
                 reason="Recurring newsletter",
                 confidence=0.85,
             )
@@ -1101,6 +1109,7 @@ class TestGenerateRuleSuggestionsWithHaiku:
             messages=[email],
             email_account="personal",
             haiku_results=haiku_results,
+            available_labels={"Promotional", "Transactional", "Admin"},
         )
 
         assert len(suggestions) >= 1
@@ -1193,7 +1202,8 @@ class TestGenerateRuleSuggestionsWithHaiku:
                 should_suggest=True,
                 pattern_type="sender",
                 pattern="haiku@example.com",
-                action="archive",
+                action="label",
+                label_name="promotional",  # Use known label
             )
         }
 
@@ -1203,6 +1213,7 @@ class TestGenerateRuleSuggestionsWithHaiku:
             messages=all_messages,
             email_account="personal",
             haiku_results=haiku_results,
+            available_labels={"Promotional", "Transactional", "Admin"},
         )
 
         # Should have the Haiku suggestion
