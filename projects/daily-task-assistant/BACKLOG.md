@@ -168,6 +168,7 @@ Email → Haiku (rule prompt)       ─┘
 - Relationship detection guidance
 - Pattern recognition criteria
 - Account-specific context
+- **Existing rules as examples**: Send current Google Sheets rules to show DATA what good rules look like and learn user preferences (field patterns, category choices, naming conventions)
 
 ---
 
