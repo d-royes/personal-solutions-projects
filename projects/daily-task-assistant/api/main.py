@@ -2497,6 +2497,7 @@ def analyze_inbox(
         generate_rule_suggestions_with_haiku,
         generate_action_suggestions_with_haiku,
         create_suggestion,
+        has_pending_suggestion_for_email,
         create_rule_suggestion,
         has_pending_rule_for_pattern,
         list_pending_rules,
@@ -2727,7 +2728,13 @@ def analyze_inbox(
     }
 
     persisted_action_suggestions = []
+    skipped_duplicates = 0
     for s in action_suggestions:
+        # Skip if a pending suggestion already exists for this email
+        if has_pending_suggestion_for_email(account, s.email.id):
+            skipped_duplicates += 1
+            continue
+
         # Determine analysis method
         analysis_method = "haiku" if s.email.id in haiku_analyzed_ids else "regex"
 
@@ -2764,7 +2771,8 @@ def analyze_inbox(
             persisted_action_suggestions.append(s.to_dict())
 
     logger.info(
-        f"[analyze_inbox] Persisted {len(persisted_action_suggestions)} action suggestions"
+        f"[analyze_inbox] Persisted {len(persisted_action_suggestions)} action suggestions "
+        f"(skipped {skipped_duplicates} duplicates)"
     )
 
     # Save last analysis result for auditing (persists across machines)

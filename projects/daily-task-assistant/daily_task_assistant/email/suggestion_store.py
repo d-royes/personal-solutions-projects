@@ -436,6 +436,70 @@ def _list_pending_suggestions_firestore(account: str) -> List[SuggestionRecord]:
     return records
 
 
+def has_pending_suggestion_for_email(account: str, email_id: str) -> bool:
+    """Check if a pending suggestion already exists for an email.
+
+    Used to prevent duplicate suggestions when re-analyzing inbox.
+
+    Args:
+        account: Email account ("church" or "personal")
+        email_id: Gmail message ID
+
+    Returns:
+        True if a pending suggestion exists for this email
+    """
+    if _force_file_fallback():
+        return _has_pending_suggestion_file(account, email_id)
+    return _has_pending_suggestion_firestore(account, email_id)
+
+
+def _has_pending_suggestion_file(account: str, email_id: str) -> bool:
+    """Check for pending suggestion in file storage."""
+    store_dir = _suggestion_dir() / account
+    if not store_dir.exists():
+        return False
+
+    for file_path in store_dir.glob("*.json"):
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if data.get("email_id") == email_id and data.get("status") == "pending":
+            # Check expiration
+            record = SuggestionRecord.from_dict(data)
+            if not record.is_expired():
+                return True
+
+    return False
+
+
+def _has_pending_suggestion_firestore(account: str, email_id: str) -> bool:
+    """Check for pending suggestion in Firestore."""
+    db = get_firestore_client()
+    if db is None:
+        return _has_pending_suggestion_file(account, email_id)
+
+    collection_ref = (
+        db.collection("email_accounts")
+        .document(account)
+        .collection("suggestions")
+    )
+
+    # Query for pending suggestions with this email_id
+    query = (
+        collection_ref
+        .where("email_id", "==", email_id)
+        .where("status", "==", "pending")
+        .limit(1)
+    )
+
+    for doc in query.stream():
+        record = SuggestionRecord.from_dict(doc.to_dict())
+        if not record.is_expired():
+            return True
+
+    return False
+
+
 def record_suggestion_decision(
     account: str,
     suggestion_id: str,
@@ -739,3 +803,114 @@ def _purge_old_suggestions_firestore(account: str, days: int = 30) -> int:
             count += 1
 
     return count
+
+
+def cleanup_duplicate_suggestions(account: str) -> Dict[str, Any]:
+    """Remove duplicate pending suggestions, keeping only the newest for each email.
+
+    Used to fix data corruption from missing duplicate checks.
+
+    Args:
+        account: Email account ("church" or "personal")
+
+    Returns:
+        Dict with cleanup statistics
+    """
+    if _force_file_fallback():
+        return _cleanup_duplicates_file(account)
+    return _cleanup_duplicates_firestore(account)
+
+
+def _cleanup_duplicates_file(account: str) -> Dict[str, Any]:
+    """Cleanup duplicates from file storage."""
+    store_dir = _suggestion_dir() / account
+    if not store_dir.exists():
+        return {"removed": 0, "kept": 0, "email_ids_affected": 0}
+
+    # Group pending suggestions by email_id
+    email_suggestions: Dict[str, List[tuple]] = {}  # email_id -> [(path, record), ...]
+
+    for file_path in store_dir.glob("*.json"):
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        record = SuggestionRecord.from_dict(data)
+
+        if record.status != "pending":
+            continue
+
+        email_id = record.email_id
+        if email_id not in email_suggestions:
+            email_suggestions[email_id] = []
+        email_suggestions[email_id].append((file_path, record))
+
+    removed = 0
+    kept = 0
+    email_ids_affected = 0
+
+    for email_id, suggestions in email_suggestions.items():
+        if len(suggestions) <= 1:
+            kept += len(suggestions)
+            continue
+
+        email_ids_affected += 1
+
+        # Sort by created_at descending (newest first)
+        suggestions.sort(key=lambda x: x[1].created_at, reverse=True)
+
+        # Keep the newest, delete the rest
+        kept += 1
+        for file_path, _ in suggestions[1:]:
+            file_path.unlink()
+            removed += 1
+
+    return {"removed": removed, "kept": kept, "email_ids_affected": email_ids_affected}
+
+
+def _cleanup_duplicates_firestore(account: str) -> Dict[str, Any]:
+    """Cleanup duplicates from Firestore."""
+    db = get_firestore_client()
+    if db is None:
+        return _cleanup_duplicates_file(account)
+
+    collection_ref = (
+        db.collection("email_accounts")
+        .document(account)
+        .collection("suggestions")
+    )
+
+    # Get all pending suggestions
+    query = collection_ref.where("status", "==", "pending")
+
+    # Group by email_id
+    email_suggestions: Dict[str, List[tuple]] = {}  # email_id -> [(doc_ref, record), ...]
+
+    for doc in query.stream():
+        record = SuggestionRecord.from_dict(doc.to_dict())
+        email_id = record.email_id
+
+        if email_id not in email_suggestions:
+            email_suggestions[email_id] = []
+        email_suggestions[email_id].append((doc.reference, record))
+
+    removed = 0
+    kept = 0
+    email_ids_affected = 0
+
+    for email_id, suggestions in email_suggestions.items():
+        if len(suggestions) <= 1:
+            kept += len(suggestions)
+            continue
+
+        email_ids_affected += 1
+
+        # Sort by created_at descending (newest first)
+        suggestions.sort(key=lambda x: x[1].created_at, reverse=True)
+
+        # Keep the newest, delete the rest
+        kept += 1
+        for doc_ref, _ in suggestions[1:]:
+            doc_ref.delete()
+            removed += 1
+
+    return {"removed": removed, "kept": kept, "email_ids_affected": email_ids_affected}

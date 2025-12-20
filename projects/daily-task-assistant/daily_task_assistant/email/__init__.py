@@ -41,10 +41,12 @@ from .suggestion_store import (
     save_suggestion,
     get_suggestion,
     list_pending_suggestions,
+    has_pending_suggestion_for_email,
     record_suggestion_decision,
     create_suggestion,
     get_approval_stats,
     purge_old_suggestions,
+    cleanup_duplicate_suggestions,
 )
 
 from .memory import (
