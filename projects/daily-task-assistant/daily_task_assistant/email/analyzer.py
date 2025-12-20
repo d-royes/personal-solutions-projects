@@ -430,7 +430,11 @@ class EmailAnalyzer:
         """Suggest a rule based on domain pattern."""
         # Determine likely category based on content
         category = self._infer_category(messages)
-        
+
+        # Only suggest if a clear category was identified
+        if category is None:
+            return None
+
         return RuleSuggestion(
             type=SuggestionType.NEW_LABEL,
             suggested_rule=FilterRule(
@@ -447,7 +451,7 @@ class EmailAnalyzer:
             examples=[m.subject[:50] for m in messages[:3]],
             email_count=len(messages),
         )
-    
+
     def _suggest_address_rule(
         self,
         address: str,
@@ -455,7 +459,11 @@ class EmailAnalyzer:
     ) -> Optional[RuleSuggestion]:
         """Suggest a rule based on specific address."""
         category = self._infer_category(messages)
-        
+
+        # Only suggest if a clear category was identified
+        if category is None:
+            return None
+
         return RuleSuggestion(
             type=SuggestionType.NEW_LABEL,
             suggested_rule=FilterRule(
@@ -542,25 +550,29 @@ class EmailAnalyzer:
     def _infer_category(
         self,
         messages: List[EmailMessage],
-    ) -> str:
-        """Infer the most likely category for a set of messages."""
+    ) -> Optional[str]:
+        """Infer the most likely category for a set of messages.
+
+        Returns None if no clear pattern is detected - DATA should only
+        suggest rules when there's a clear pattern, not out of obligation.
+        """
         # Combine all content for analysis
         all_content = " ".join(
             f"{m.subject} {m.snippet}" for m in messages
         ).lower()
-        
+
         # Check patterns in order of priority
         if self._matches_patterns(all_content, self.JUNK_PATTERNS):
             return FilterCategory.JUNK.value
-        
+
         if self._matches_patterns(all_content, self.PROMOTIONAL_PATTERNS):
             return FilterCategory.PROMOTIONAL.value
-        
+
         if self._matches_patterns(all_content, self.TRANSACTIONAL_PATTERNS):
             return FilterCategory.TRANSACTIONAL.value
-        
-        # Default to 1 Week Hold for unknown patterns
-        return FilterCategory.ONE_WEEK_HOLD.value
+
+        # NO DEFAULT - if there's no clear pattern match, don't suggest a rule
+        return None
     
     def _get_category_order(self, category: str) -> int:
         """Get the order number for a category."""
@@ -1703,21 +1715,28 @@ def _haiku_rule_to_suggestion(
         "star": "Add",
     }
 
-    # Default to 1 Week Hold category if label action
-    category = FilterCategory.ONE_WEEK_HOLD.value
+    # Only suggest a rule if Haiku explicitly identifies an appropriate label
+    # NO DEFAULT - if there's no clear category match, don't suggest a rule
+    # DATA should only suggest rules when there's a clear pattern, not out of obligation
+    label_to_category = {
+        "promotional": FilterCategory.PROMOTIONAL.value,
+        "transactional": FilterCategory.TRANSACTIONAL.value,
+        "junk": FilterCategory.JUNK.value,
+        "personal": FilterCategory.PERSONAL.value,
+        "admin": FilterCategory.ADMIN.value,
+        "1 week hold": FilterCategory.ONE_WEEK_HOLD.value,
+        "1_week_hold": FilterCategory.ONE_WEEK_HOLD.value,
+        "one week hold": FilterCategory.ONE_WEEK_HOLD.value,
+    }
+
+    category = None
     if rule_result.action == "label" and rule_result.label_name:
-        # Try to map label to category
-        label_to_category = {
-            "promotional": FilterCategory.PROMOTIONAL.value,
-            "transactional": FilterCategory.TRANSACTIONAL.value,
-            "junk": FilterCategory.JUNK.value,
-            "personal": FilterCategory.PERSONAL.value,
-            "admin": FilterCategory.ADMIN.value,
-        }
-        category = label_to_category.get(
-            rule_result.label_name.lower(),
-            FilterCategory.ONE_WEEK_HOLD.value
-        )
+        # Only set category if there's an explicit match
+        category = label_to_category.get(rule_result.label_name.lower())
+
+    # If no clear category was identified, skip this suggestion
+    if category is None:
+        return None
 
     # Validate category exists in available labels for this account
     if available_labels:
