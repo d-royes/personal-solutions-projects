@@ -279,3 +279,101 @@ test.describe('Suggestion Duplicate Prevention', () => {
     expect(countBefore).toBeGreaterThan(0);
   });
 });
+
+test.describe('Allowed Labels Configuration', () => {
+
+  test('allowed-labels endpoint requires authentication', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/rules/church/allowed-labels`);
+    expect(response.status()).toBeGreaterThanOrEqual(400);
+  });
+
+  test('allowed-labels endpoint returns correct structure for church', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/rules/church/allowed-labels`, {
+      headers: AUTH_HEADERS
+    });
+    expect(response.ok()).toBeTruthy();
+
+    const data = await response.json();
+    expect(data).toHaveProperty('account');
+    expect(data.account).toBe('church');
+    expect(data).toHaveProperty('allowedLabels');
+    expect(data).toHaveProperty('count');
+    expect(Array.isArray(data.allowedLabels)).toBeTruthy();
+    expect(data.count).toBe(data.allowedLabels.length);
+  });
+
+  test('allowed-labels endpoint returns correct structure for personal', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/rules/personal/allowed-labels`, {
+      headers: AUTH_HEADERS
+    });
+    expect(response.ok()).toBeTruthy();
+
+    const data = await response.json();
+    expect(data.account).toBe('personal');
+    expect(Array.isArray(data.allowedLabels)).toBeTruthy();
+  });
+
+  test('church has expected labels', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/rules/church/allowed-labels`, {
+      headers: AUTH_HEADERS
+    });
+    expect(response.ok()).toBeTruthy();
+
+    const data = await response.json();
+    const labels = data.allowedLabels;
+
+    // Church should have these specific labels
+    expect(labels).toContain('1 Week Hold');
+    expect(labels).toContain('Admin');
+    expect(labels).toContain('Ministry Comms');
+    expect(labels).toContain('Risk Management Forms');
+
+    // Church should NOT have generic "Risk Management" (consolidated)
+    expect(labels).not.toContain('Risk Management');
+  });
+
+  test('personal has restricted label set', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/rules/personal/allowed-labels`, {
+      headers: AUTH_HEADERS
+    });
+    expect(response.ok()).toBeTruthy();
+
+    const data = await response.json();
+    const labels = data.allowedLabels;
+
+    // Personal should have core filtering labels
+    expect(labels).toContain('1 Week Hold');
+    expect(labels).toContain('Admin');
+    expect(labels).toContain('Promotional');
+    expect(labels).toContain('Transactional');
+
+    // Personal should NOT have church-specific labels
+    expect(labels).not.toContain('Ministry Comms');
+    expect(labels).not.toContain('Risk Management Forms');
+  });
+
+  test('pending rules only use allowed labels', async ({ request }) => {
+    // Get allowed labels for church
+    const labelsResponse = await request.get(`${API_BASE}/email/rules/church/allowed-labels`, {
+      headers: AUTH_HEADERS
+    });
+    expect(labelsResponse.ok()).toBeTruthy();
+    const labelsData = await labelsResponse.json();
+    const allowedLabels = new Set(labelsData.allowedLabels);
+
+    // Get pending rules
+    const rulesResponse = await request.get(`${API_BASE}/email/rules/church/pending`, {
+      headers: AUTH_HEADERS
+    });
+    expect(rulesResponse.ok()).toBeTruthy();
+    const rulesData = await rulesResponse.json();
+
+    // Verify all pending rules use allowed labels
+    for (const rule of rulesData.rules) {
+      const category = rule.suggestedRule?.category;
+      if (category) {
+        expect(allowedLabels.has(category)).toBeTruthy();
+      }
+    }
+  });
+});

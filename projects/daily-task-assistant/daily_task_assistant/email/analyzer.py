@@ -1665,6 +1665,7 @@ def _haiku_rule_to_suggestion(
     email: EmailMessage,
     result: HaikuAnalysisResult,
     email_account: str,
+    available_labels: Optional[Set[str]] = None,
 ) -> Optional[RuleSuggestion]:
     """Convert HaikuRuleResult to RuleSuggestion.
 
@@ -1672,6 +1673,8 @@ def _haiku_rule_to_suggestion(
         email: The analyzed email message.
         result: The Haiku analysis result.
         email_account: Email account for the rule.
+        available_labels: Set of label names available in this Gmail account.
+            If provided, only suggests rules with labels that exist.
 
     Returns:
         RuleSuggestion if Haiku suggests a rule, None otherwise.
@@ -1716,6 +1719,12 @@ def _haiku_rule_to_suggestion(
             FilterCategory.ONE_WEEK_HOLD.value
         )
 
+    # Validate category exists in available labels for this account
+    if available_labels:
+        if category not in available_labels:
+            # Category/label doesn't exist in this account, skip suggestion
+            return None
+
     # Map confidence to ConfidenceLevel
     confidence = ConfidenceLevel.HIGH if result.confidence >= 0.8 else (
         ConfidenceLevel.MEDIUM if result.confidence >= 0.6 else ConfidenceLevel.LOW
@@ -1744,6 +1753,7 @@ def generate_rule_suggestions_with_haiku(
     email_account: str,
     haiku_results: Dict[str, HaikuAnalysisResult],
     existing_rules: Optional[List[FilterRule]] = None,
+    available_labels: Optional[Set[str]] = None,
 ) -> List[RuleSuggestion]:
     """Generate filter rule suggestions using pre-computed Haiku results.
 
@@ -1756,6 +1766,8 @@ def generate_rule_suggestions_with_haiku(
         email_account: Email account being analyzed.
         haiku_results: Dict mapping email_id to HaikuAnalysisResult (from attention).
         existing_rules: Current filter rules to avoid duplicates.
+        available_labels: Set of label names available in this Gmail account.
+            If provided, only suggests rules with labels that exist.
 
     Returns:
         List of RuleSuggestion objects.
@@ -1776,6 +1788,7 @@ def generate_rule_suggestions_with_haiku(
                 email=msg,
                 result=haiku_result,
                 email_account=email_account,
+                available_labels=available_labels,
             )
             if suggestion:
                 pattern = suggestion.suggested_rule.value.lower()
@@ -1793,9 +1806,14 @@ def generate_rule_suggestions_with_haiku(
         regex_suggestions, _ = analyzer.analyze_messages(non_haiku_messages)
 
         # Add regex suggestions that aren't duplicates
+        # Also validate category against available labels
         for suggestion in regex_suggestions:
             pattern = suggestion.suggested_rule.value.lower()
             if pattern not in seen_patterns:
+                # Validate category if available_labels provided
+                if available_labels:
+                    if suggestion.suggested_rule.category not in available_labels:
+                        continue  # Skip if label doesn't exist
                 suggestions.append(suggestion)
                 seen_patterns.add(pattern)
 

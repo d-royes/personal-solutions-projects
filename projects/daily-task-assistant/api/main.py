@@ -62,6 +62,33 @@ ATTENTION_SCAN_CONFIG = {
         "exclude": ["Junk", "Promotional", "Trash"],
     },
 }
+
+# Labels that DATA is allowed to suggest for rule creation (per account)
+# These are intentionally restricted to prevent DATA from suggesting
+# labels that don't exist or aren't appropriate for each account.
+# NOTE: If a label isn't in this list, DATA won't suggest rules using it.
+ALLOWED_SUGGESTION_LABELS = {
+    "church": {
+        "1 Week Hold",
+        "Admin",
+        "Junk",
+        "Ministry Comms",
+        "Personal",
+        "Promotional",
+        "Risk Management Forms",  # Consolidated from "Risk Management"
+        "Transactional",
+        "Unknown",
+    },
+    "personal": {
+        # Restricted to core filtering labels (not all 95+ Gmail labels)
+        "1 Week Hold",
+        "Admin",
+        "Junk",
+        "Personal",
+        "Promotional",
+        "Transactional",
+    },
+}
 origins = [origin for origin in ALLOWED_ORIGINS if origin]
 
 if origins:
@@ -2613,11 +2640,14 @@ def analyze_inbox(
     )
 
     # Generate rule suggestions using Haiku results (with fallback to regex)
+    # Pass allowed labels to filter suggestions to valid labels for this account
+    allowed_labels = ALLOWED_SUGGESTION_LABELS.get(account, set())
     suggestions = generate_rule_suggestions_with_haiku(
         messages=messages_to_analyze,
         email_account=account,
         haiku_results=haiku_results,
         existing_rules=existing_rules,
+        available_labels=allowed_labels,
     )
 
     # Persist rule suggestions (for Trust Gradient tracking)
@@ -3293,6 +3323,25 @@ def get_trust_metrics(
         "trustLevel": trust_level,
         "progressToLevel2": round(progress_to_level_2, 4),
         "recommendation": recommendation,
+    }
+
+
+@app.get("/email/rules/{account}/allowed-labels")
+def get_allowed_suggestion_labels(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get the list of labels DATA is allowed to suggest for rule creation.
+
+    This is a curated list per account - DATA won't suggest rules using
+    labels that aren't in this list, even if they exist in Gmail.
+    """
+    allowed = ALLOWED_SUGGESTION_LABELS.get(account, set())
+
+    return {
+        "account": account,
+        "allowedLabels": sorted(allowed),
+        "count": len(allowed),
     }
 
 
