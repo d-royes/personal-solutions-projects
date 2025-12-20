@@ -65,7 +65,9 @@ Data that belongs to a specific email account (church inbox vs personal inbox).
 | `profile.py` | `memory/` | GLOBAL | `"david"` | User identity shared across logins |
 | `haiku_usage.py` | `email/` | GLOBAL | `"david"` | Prevents limit bypass via login switching |
 | `attention_store.py` | `email/` | ACCOUNT | `"church"/"personal"` | Emails are account-specific |
-| `suggestion_store.py` | `email/` | ACCOUNT | `"church"/"personal"` | Suggestions are for specific emails |
+| `suggestion_store.py` | `email/` | ACCOUNT | `"church"/"personal"` | Action suggestions for specific emails |
+| `rule_store.py` | `email/` | ACCOUNT | `"church"/"personal"` | Rule suggestions for specific inbox |
+| `analysis_store.py` | `email/` | ACCOUNT | `"church"/"personal"` | Last analysis results per inbox |
 | `memory.py` | `email/` | ACCOUNT | `"church"/"personal"` | Learning patterns are inbox-specific |
 
 ---

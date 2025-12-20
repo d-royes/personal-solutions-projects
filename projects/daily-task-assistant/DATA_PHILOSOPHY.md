@@ -2,9 +2,9 @@
 
 > A living document chronicling the philosophical foundation, evolution, and guiding principles of the Daily Autonomous Task Assistant.
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Established**: December 5, 2025
-**Last Updated**: December 15, 2025
+**Last Updated**: December 19, 2025
 **Author**: David Royes & DATA (collaborative session)
 
 ---
@@ -108,6 +108,13 @@ Level 3: Act on larger scope → Periodic review
 3. **Threshold Achievement**: When DATA consistently (e.g., 90%+) suggests correctly, trust level increases
 4. **Scope Expansion**: Each level unlocks larger domains of autonomous action
 
+**Implementation Status (December 2025)**:
+- **Persistence Layer**: Suggestions and rules persist to Firestore with decision tracking
+- **Decision Capture**: Approve/reject actions stored with timestamps and rationale
+- **Analysis Audit**: Settings page shows per-account analysis breakdown for transparency
+- **Metrics Ready**: `suggestion_store.py` and `rule_store.py` track approval rates by method and action type
+- **Next Step**: Build trust metrics dashboard to visualize DATA's progress toward Level 2 autonomy
+
 ### Why This Model?
 
 A key insight from our foundational conversation:
@@ -182,8 +189,8 @@ Email management operates across three distinct layers, each with different goal
 | Layer | Purpose | Status | Trust Level |
 |-------|---------|--------|-------------|
 | **Rules** | Automated categorization via Gmail filters | Working (Apps Script) | N/A - User-defined |
-| **Suggestions** | Inbox hygiene + pattern learning | Needs persistence | Level 1 (suggest, await approval) |
-| **Attention** | Action-required items surfaced | Needs persistence + intelligence | Level 0-1 (surface, suggest) |
+| **Suggestions** | Inbox hygiene + pattern learning | **Persistent** (Firestore) | Level 1 (suggest, await approval) |
+| **Attention** | Action-required items surfaced | **Persistent** (Firestore) | Level 0-1 (surface, suggest) |
 
 **Rules** are the foundation—automated filters that categorize incoming mail without AI involvement. These are managed through Google Sheets and deployed via Apps Script.
 
@@ -202,6 +209,13 @@ Why this matters:
 - **UX continuity**: Navigate away and back—items remain
 
 This principle drives architecture decisions: attention items and suggestions are persisted to Firestore with TTL, not held only in React state.
+
+**Implementation Complete (December 2025)**:
+- `attention_store.py`: Attention items persist with dismiss/snooze status
+- `suggestion_store.py`: Action suggestions persist with approve/reject decisions
+- `rule_store.py`: Rule suggestions persist with decision tracking
+- `analysis_store.py`: Last analysis results persist for cross-machine audit visibility
+- All stores use ACCOUNT-based keying (church/personal) per `STORAGE_ARCHITECTURE.md`
 
 ### Role-Aware Detection
 
@@ -240,7 +254,7 @@ Level 3: Larger scope autonomy (future)
          "I've been managing your newsletter backlog weekly."
 ```
 
-**Current State**: DATA operates at Level 0-1 for email. Level 2+ requires demonstrated success in suggestions (tracked approval rate).
+**Current State (December 2025)**: DATA operates at Level 0-1 for email with full persistence and decision tracking. The foundation for Level 2+ is in place—approval rates are being tracked via `suggestion_store.py` and `rule_store.py`. Once approval rate consistently exceeds 90%, Level 2 autonomy can be considered.
 
 ### Storage Efficiency Principle
 
@@ -384,6 +398,7 @@ This isn't science fiction. It's the logical endpoint of the philosophy document
 
 | Version | Date | Summary |
 |---------|------|---------|
+| 1.2.0 | 2025-12-19 | Updated Trust Gradient and Email Management sections to reflect completed persistence layer, decision tracking, and analysis audit features |
 | 1.1.0 | 2025-12-15 | Added Email Management Philosophy section (three layers, persistence, role-awareness, trust gradient, storage efficiency) |
 | 1.0.0 | 2025-12-05 | Initial philosophy document from foundational session |
 

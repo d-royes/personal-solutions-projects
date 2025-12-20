@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-16
+> **Last Updated**: 2025-12-19
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -45,6 +45,9 @@ Earned autonomy through demonstrated understanding and tracked success.
 |-------|-------------|--------|-------------|
 | Smartsheet Comment on Email Send | Comments may not be posting reliably. | Open | 2025-12-01 |
 | E2E Flaky Tests (3) | Three Playwright tests fail intermittently. 31/34 tests pass. | Open | 2025-12-11 |
+| ~~Duplicate Suggestions Endpoint~~ | Two `/email/suggestions/{account}/pending` endpoints caused all suggestions to have `number: 1`, making approve clear all. | **Fixed** | 2025-12-19 |
+| ~~Stale Cache on Account Switch~~ | Cache only updated when response had items, causing stale data when switching to account with empty results. | **Fixed** | 2025-12-19 |
+| ~~Zombie Uvicorn Processes~~ | Orphaned uvicorn child processes held old code after restart. Documented fix in CLAUDE.md. | **Fixed** | 2025-12-19 |
 
 ---
 
@@ -55,11 +58,8 @@ Earned autonomy through demonstrated understanding and tracked success.
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
 | **Email Task Assistant Integration** | Complete integration of Email Tasks (Firestore) into the Assistant workflow. | - |
-| **F1: Attention Tab Testing** | Finish testing Attention tabs in Church and Personal accounts. Ensure Haiku analysis works consistently for both. | F1 Haiku Integration |
+| **F1: Attention Tab Testing** | Finish HITL testing of Attention tabs in Church and Personal accounts. Verify Haiku analysis consistency. | F1 Haiku Integration |
 | **F1: Analysis Engine Badges** | Get AI/Regex badges working and consistent across all attention items. Role badges should also be styled consistently. | F1 Haiku Integration |
-| **F1: New Rules Tab Persistence** | Add persistence to New Email Rules tab so suggestions survive page refresh. | F1 Haiku Integration |
-| **F1: Suggestions Tab Auto-Populate** | Suggestions tab should populate immediately after Analyze Inbox since all 3 results (attention, rules, actions) are returned together. Remove need for separate Suggestions button click. | F1 Haiku Integration |
-| **F1: Suggestions Persistence** | Add persistence to Suggestion entries so they survive page refresh (if not already implemented). | F1 Haiku Integration |
 
 ### High Priority
 
@@ -103,6 +103,11 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| **F1: Full Persistence Layer** | 2025-12-19 | Suggestions, rules, and analysis results persist across refresh/machines via Firestore |
+| **F1: Last Analysis Audit** | 2025-12-19 | Settings page shows analysis breakdown per account for auditing |
+| **F1: Dashboard UI Improvements** | 2025-12-19 | Clickable tiles, Suggestions tile (yellow), count badges on tabs |
+| **F1: Email Cache Persistence** | 2025-12-19 | Cache survives Task/Email mode switches (state lifted to App.tsx) |
+| **F1: Storage Key Architecture** | 2025-12-19 | ACCOUNT-based keying prevents data fragmentation across logins |
 | **F1: Haiku Intelligence Layer** | 2025-12-15 | AI-powered email analysis using Claude Haiku with privacy safeguards, usage limits, Settings UI |
 | **Workspace Context Selection** | 2025-12-14 | Multi-select workspace items for Plan generation and Email drafts |
 | **Email Rich Text Rendering** | 2025-12-14 | Email drafts render as HTML with proper formatting (bold, lists, paragraphs) |

@@ -162,6 +162,29 @@ CHURCH_GMAIL_REFRESH_TOKEN=...
 CHURCH_GMAIL_ADDRESS=you@church.org
 ```
 
+### Haiku Intelligence Layer (F1)
+
+DATA uses Claude Haiku for intelligent email analysis with privacy-safe content handling:
+
+- **Attention Detection**: AI identifies emails needing action beyond simple regex patterns
+- **Action Suggestions**: Recommends archive, label, star, or task creation with rationale
+- **Rule Suggestions**: Proposes new filter rules based on email patterns
+- **Privacy Controls**: Sensitive domains blocked, content masked before sending to AI
+- **Usage Limits**: Configurable daily (150) and weekly (300) Haiku API calls
+
+### Persistence Layer
+
+All email analysis results persist to Firestore for cross-machine access:
+
+| Store | Purpose | Location |
+|-------|---------|----------|
+| `attention_store.py` | Attention items with dismiss/snooze | `email_accounts/{account}/attention/` |
+| `suggestion_store.py` | Action suggestions with approve/reject | `email_accounts/{account}/suggestions/` |
+| `rule_store.py` | Rule suggestions with decision tracking | `email_accounts/{account}/rule_suggestions/` |
+| `analysis_store.py` | Last analysis audit results | `email_accounts/{account}/metadata/` |
+
+Storage uses ACCOUNT-based keying (church/personal) per `docs/STORAGE_ARCHITECTURE.md`.
+
 ## FastAPI Service
 
 The `api/main.py` module exposes the same capabilities over HTTP (used by the upcoming React dashboard). Run locally with:

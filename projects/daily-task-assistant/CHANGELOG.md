@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+#### F1: Complete Persistence Layer (2025-12-19)
+- **Suggestions persist across refresh**: Action suggestions saved to Firestore via `suggestion_store.py`
+- **Rules persist across refresh**: Rule suggestions saved to Firestore via `rule_store.py`
+- **Last Analysis Audit**: Settings page shows breakdown per account (emails fetched, tracked, dismissed, Haiku analyzed, suggestions/rules/attention generated)
+- **Cross-machine sync**: Analysis results persist to Firestore, visible from any machine
+- **Storage Key Architecture**: Documented GLOBAL vs ACCOUNT keying strategy in `docs/STORAGE_ARCHITECTURE.md`
+
+#### Email Dashboard UI Improvements (2025-12-19)
+- **Clickable dashboard tiles**: Click Unread, Rules, Suggestions, or Attention tiles to navigate to that tab
+- **Suggestions tile highlighted**: Yellow styling to emphasize importance for Trust Gradient
+- **Suggestions count badge**: Tab shows count like Rules and Attention tabs
+- **Email cache persistence**: Cache survives Task/Email mode switches (state lifted to App.tsx)
+
+### Fixed
+
+#### Persistence Bug Fixes (2025-12-19)
+- **Duplicate endpoint removed**: Two `/email/suggestions/{account}/pending` endpoints caused all suggestions to have same `number`, making approve clear all suggestions
+- **Stale cache on account switch**: Cache now always updates, even when response is empty (prevents showing stale data from other account)
+- **Zombie uvicorn processes**: Documented fix for orphaned child processes holding old code on Windows
+
 #### Workspace Context Selection (2025-12-14)
 - **Multi-select workspace items for Plan generation**: Check workspace cards to include as context when generating plans
 - **Multi-select workspace items for Email drafts**: Selected workspace content included in email draft generation
