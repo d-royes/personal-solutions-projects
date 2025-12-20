@@ -2446,6 +2446,18 @@ def delete_filter_rule(
     }
 
 
+def _confidence_level_to_float(confidence_value: str) -> float:
+    """Convert ConfidenceLevel enum value to float for storage.
+
+    Args:
+        confidence_value: The .value of a ConfidenceLevel enum ("high", "medium", "low")
+
+    Returns:
+        Float confidence score 0.0-1.0
+    """
+    return {"high": 0.9, "medium": 0.7, "low": 0.5}.get(confidence_value, 0.5)
+
+
 @app.get("/email/analyze/{account}")
 def analyze_inbox(
     account: Literal["church", "personal"],
@@ -2480,7 +2492,16 @@ def analyze_inbox(
         list_active_attention,
         get_dismissed_email_ids,
         purge_expired_records,
-        detect_attention_with_profile,
+        detect_attention_with_haiku,
+        get_haiku_usage_summary,
+        generate_rule_suggestions_with_haiku,
+        generate_action_suggestions_with_haiku,
+        create_suggestion,
+        create_rule_suggestion,
+        has_pending_rule_for_pattern,
+        list_pending_rules,
+        LastAnalysisRecord,
+        save_last_analysis,
     )
     from daily_task_assistant.memory.profile import get_or_create_profile
 
@@ -2493,15 +2514,15 @@ def analyze_inbox(
 
     # Purge expired records (opportunistic cleanup)
     try:
-        purge_expired_records(user)
+        purge_expired_records(account)
     except Exception as e:
         logger.warning(f"[analyze_inbox] Failed to purge expired records: {e}")
 
     # Get set of dismissed email IDs to filter out
-    dismissed_ids = get_dismissed_email_ids(user, account)
+    dismissed_ids = get_dismissed_email_ids(account)
 
     # Get already-active attention items from persistence
-    persisted_attention = list_active_attention(user, account)
+    persisted_attention = list_active_attention(account)
     persisted_email_ids = {r.email_id for r in persisted_attention}
 
     # Build account-specific query to scan beyond just inbox
@@ -2530,11 +2551,13 @@ def analyze_inbox(
     logger.info(f"[analyze_inbox] Query for {account}: {action_labels_query}")
 
     # Get recent messages for analysis
+    # Use format="full" to fetch email bodies for Haiku analysis of short-snippet emails
     try:
         messages = search_messages(
             gmail_config,
             query=action_labels_query,
             max_results=max_messages,
+            format="full",
         )
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
@@ -2561,29 +2584,93 @@ def analyze_inbox(
         # Continue without existing rules
         pass
 
-    # Load user profile for role-aware analysis
-    profile = get_or_create_profile(user)
+    # Load GLOBAL profile for role-aware analysis
+    profile = get_or_create_profile()
     logger.info(
         f"[analyze_inbox] Loaded profile with {len(profile.church_roles)} church roles, "
         f"{len(profile.personal_contexts)} personal contexts"
     )
 
-    # Analyze patterns on new messages
-    # Use EmailAnalyzer for rule suggestions
-    analyzer = EmailAnalyzer(email_address, existing_rules)
-    suggestions, _ = analyzer.analyze_messages(messages_to_analyze)
-
-    # Use profile-aware analysis for attention detection
-    new_attention_items = detect_attention_with_profile(
+    # Use Haiku-enhanced analysis for attention detection (with automatic fallback)
+    # This also returns haiku_results for use in rule/action suggestions
+    new_attention_items, haiku_results = detect_attention_with_haiku(
         messages=messages_to_analyze,
         email_account=account,
+        user_id=user,  # Required for usage tracking
         church_roles=profile.church_roles,
         personal_contexts=profile.personal_contexts,
         vip_senders=profile.vip_senders,
         church_attention_patterns=profile.church_attention_patterns,
         personal_attention_patterns=profile.personal_attention_patterns,
         not_actionable_patterns=profile.not_actionable_patterns,
-        fallback_to_regex=True,
+    )
+
+    # Log Haiku analysis results
+    haiku_analyzed = sum(1 for r in haiku_results.values() if r.analysis_method == "haiku")
+    logger.info(
+        f"[analyze_inbox] Haiku analyzed {haiku_analyzed}/{len(messages_to_analyze)} emails"
+    )
+
+    # Generate rule suggestions using Haiku results (with fallback to regex)
+    suggestions = generate_rule_suggestions_with_haiku(
+        messages=messages_to_analyze,
+        email_account=account,
+        haiku_results=haiku_results,
+        existing_rules=existing_rules,
+    )
+
+    # Persist rule suggestions (for Trust Gradient tracking)
+    # Skip duplicates (already pending or matches existing rule in Sheets)
+    persisted_rule_suggestions = []
+    for s in suggestions:
+        # Check for duplicate pending suggestions
+        if has_pending_rule_for_pattern(
+            account,
+            field=s.suggested_rule.field,
+            value=s.suggested_rule.value,
+        ):
+            logger.debug(f"[analyze_inbox] Skipping duplicate rule: {s.suggested_rule.value}")
+            continue
+
+        try:
+            # Convert FilterRule to dict for storage
+            rule_dict = {
+                "field": s.suggested_rule.field,
+                "operator": s.suggested_rule.operator,
+                "value": s.suggested_rule.value,
+                "action": s.suggested_rule.action,
+                "category": s.suggested_rule.category,
+                "email_account": s.suggested_rule.email_account,
+                "order": s.suggested_rule.order,
+            }
+
+            record = create_rule_suggestion(
+                account=account,
+                user_id=user,
+                suggestion_type=s.type.value,  # SuggestionType enum value
+                suggested_rule=rule_dict,
+                reason=s.reason,
+                examples=s.examples[:5],
+                email_count=s.email_count,
+                confidence=_confidence_level_to_float(s.confidence.value),
+                analysis_method="haiku" if any(
+                    haiku_results.get(ex, None) and haiku_results[ex].analysis_method == "haiku"
+                    for ex in s.examples[:5] if ex in haiku_results
+                ) else "regex",
+                category=s.suggested_rule.category,
+            )
+            # Build suggestion dict with ruleId for frontend
+            suggestion_dict = s.to_dict()
+            suggestion_dict["ruleId"] = record.rule_id
+            persisted_rule_suggestions.append(suggestion_dict)
+        except Exception as e:
+            logger.warning(f"[analyze_inbox] Failed to persist rule suggestion: {e}")
+            # Still include in response even if persistence fails
+            persisted_rule_suggestions.append(s.to_dict())
+
+    logger.info(
+        f"[analyze_inbox] Persisted {len(persisted_rule_suggestions)} rule suggestions "
+        f"(skipped {len(suggestions) - len(persisted_rule_suggestions)} duplicates)"
     )
 
     # Save new attention items to persistence
@@ -2607,7 +2694,7 @@ def analyze_inbox(
             analysis_method=item.analysis_method,
         )
         try:
-            save_attention(user, record)
+            save_attention(account, record)
         except Exception as e:
             logger.warning(f"[analyze_inbox] Failed to save attention record: {e}")
 
@@ -2621,15 +2708,99 @@ def analyze_inbox(
     urgency_order = {"high": 0, "medium": 1, "low": 2}
     all_attention.sort(key=lambda x: urgency_order.get(x.get("urgency", "low"), 2))
 
+    # Get current Haiku usage stats for response (GLOBAL - no user param)
+    haiku_usage = get_haiku_usage_summary()
+
+    # Generate action suggestions using Haiku results (with fallback to regex)
+    action_suggestions = generate_action_suggestions_with_haiku(
+        messages=messages_to_analyze,
+        email_account=account,
+        haiku_results=haiku_results,
+        available_labels=None,  # TODO: Fetch user labels if needed
+    )
+
+    # Persist action suggestions to storage (for Trust Gradient tracking)
+    # Build set of email IDs that were analyzed by Haiku
+    haiku_analyzed_ids = {
+        email_id for email_id, result in haiku_results.items()
+        if result.analysis_method == "haiku"
+    }
+
+    persisted_action_suggestions = []
+    for s in action_suggestions:
+        # Determine analysis method
+        analysis_method = "haiku" if s.email.id in haiku_analyzed_ids else "regex"
+
+        try:
+            record = create_suggestion(
+                account=account,
+                email_id=s.email.id,
+                user_id=user,
+                action=s.action.value,  # EmailActionType enum value
+                rationale=s.rationale,
+                confidence=_confidence_level_to_float(s.confidence.value),
+                label_name=s.label_name,
+                label_id=s.label_id,
+                task_title=s.task_title,
+                analysis_method=analysis_method,
+                # Email metadata for UI display after refresh
+                email_subject=s.email.subject,
+                email_from=s.email.from_address,
+                email_from_name=s.email.from_name,
+                email_to=s.email.to_address,
+                email_snippet=s.email.snippet,
+                email_date=s.email.date.isoformat() if s.email.date else None,
+                email_is_unread=s.email.is_unread,
+                email_is_important=s.email.is_important,
+                email_is_starred=s.email.is_starred,
+            )
+            # Build suggestion dict with suggestionId for frontend
+            suggestion_dict = s.to_dict()
+            suggestion_dict["suggestionId"] = record.suggestion_id
+            persisted_action_suggestions.append(suggestion_dict)
+        except Exception as e:
+            logger.warning(f"[analyze_inbox] Failed to persist action suggestion: {e}")
+            # Still include in response even if persistence fails
+            persisted_action_suggestions.append(s.to_dict())
+
+    logger.info(
+        f"[analyze_inbox] Persisted {len(persisted_action_suggestions)} action suggestions"
+    )
+
+    # Save last analysis result for auditing (persists across machines)
+    last_analysis = LastAnalysisRecord(
+        account=account,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        emails_fetched=len(messages),
+        emails_analyzed=len(messages_to_analyze),
+        already_tracked=len(persisted_email_ids),
+        dismissed=len(dismissed_ids),
+        suggestions_generated=len(persisted_action_suggestions),
+        rules_generated=len(persisted_rule_suggestions),
+        attention_items=len(all_attention),
+        haiku_analyzed=haiku_analyzed,
+        haiku_remaining_daily=haiku_usage.get("dailyRemaining") if haiku_usage else None,
+        haiku_remaining_weekly=haiku_usage.get("weeklyRemaining") if haiku_usage else None,
+    )
+    save_last_analysis(account, last_analysis)
+    logger.info(f"[analyze_inbox] Saved last analysis result for {account}")
+
     return {
         "account": account,
         "email": email_address,
+        # Analysis breakdown for auditing
+        "emailsFetched": len(messages),
+        "emailsDismissed": len(dismissed_ids),
+        "emailsAlreadyTracked": len(persisted_email_ids),
         "messagesAnalyzed": len(messages_to_analyze),
         "existingRulesCount": len(existing_rules),
-        "suggestions": [s.to_dict() for s in suggestions],  # Rule suggestions (New Rules tab)
+        "suggestions": persisted_rule_suggestions,  # Rule suggestions with IDs (New Rules tab)
+        "actionSuggestions": persisted_action_suggestions,  # Action suggestions with IDs (Suggestions tab)
         "attentionItems": all_attention,
         "persistedCount": len(persisted_attention),
         "newCount": len(new_attention_items),
+        "haikuAnalyzed": haiku_analyzed,
+        "haikuUsage": haiku_usage,
     }
 
 
@@ -2645,7 +2816,7 @@ def get_attention_items(
     """
     from daily_task_assistant.email import list_active_attention
 
-    attention_items = list_active_attention(user, account)
+    attention_items = list_active_attention(account)
 
     # Convert to API format and sort by urgency: high > medium > low
     api_items = [r.to_api_dict() for r in attention_items]
@@ -2656,6 +2827,46 @@ def get_attention_items(
         "account": account,
         "attentionItems": api_items,
         "count": len(api_items),
+    }
+
+
+@app.get("/email/last-analysis/{account}")
+def get_last_analysis_endpoint(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get the last analysis result for an account.
+
+    Returns the audit data from the most recent Analyze Inbox run.
+    Useful for checking if analysis needs to be re-run on another machine.
+    """
+    from daily_task_assistant.email import get_last_analysis
+
+    result = get_last_analysis(account)
+
+    if result is None:
+        return {
+            "account": account,
+            "lastAnalysis": None,
+        }
+
+    return {
+        "account": account,
+        "lastAnalysis": {
+            "timestamp": result.timestamp,
+            "emailsFetched": result.emails_fetched,
+            "emailsAnalyzed": result.emails_analyzed,
+            "alreadyTracked": result.already_tracked,
+            "dismissed": result.dismissed,
+            "suggestionsGenerated": result.suggestions_generated,
+            "rulesGenerated": result.rules_generated,
+            "attentionItems": result.attention_items,
+            "haikuAnalyzed": result.haiku_analyzed,
+            "haikuRemaining": {
+                "daily": result.haiku_remaining_daily,
+                "weekly": result.haiku_remaining_weekly,
+            } if result.haiku_remaining_daily is not None else None,
+        },
     }
 
 
@@ -2684,7 +2895,7 @@ def dismiss_attention_item(
     """
     from daily_task_assistant.email import dismiss_attention
 
-    success = dismiss_attention(user, email_id, request.reason)
+    success = dismiss_attention(account, email_id, request.reason)
 
     if not success:
         raise HTTPException(status_code=404, detail="Attention item not found")
@@ -2721,7 +2932,7 @@ def snooze_attention_item(
     """
     from daily_task_assistant.email import snooze_attention
 
-    success = snooze_attention(user, email_id, request.until)
+    success = snooze_attention(account, email_id, request.until)
 
     if not success:
         raise HTTPException(status_code=404, detail="Attention item not found")
@@ -2747,8 +2958,9 @@ class SuggestionDecisionRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-@app.post("/email/suggestions/{suggestion_id}/decide")
+@app.post("/email/suggestions/{account}/{suggestion_id}/decide")
 def decide_suggestion(
+    account: Literal["church", "personal"],
     suggestion_id: str,
     request: SuggestionDecisionRequest,
     user: str = Depends(get_current_user),
@@ -2758,17 +2970,19 @@ def decide_suggestion(
     This feedback is critical for the Trust Gradient system.
     Approvals increase DATA's confidence in similar suggestions.
     Rejections help DATA learn what NOT to suggest.
+
+    Note: Account is required in URL path (storage is by account, not user).
     """
     from daily_task_assistant.email import record_suggestion_decision, get_suggestion
 
-    # Record the decision
-    success = record_suggestion_decision(user, suggestion_id, request.approved)
+    # Record the decision (keyed by account, not user)
+    success = record_suggestion_decision(account, suggestion_id, request.approved)
 
     if not success:
         raise HTTPException(status_code=404, detail="Suggestion not found")
 
     # Get the updated suggestion for confirmation
-    suggestion = get_suggestion(user, suggestion_id)
+    suggestion = get_suggestion(account, suggestion_id)
 
     return {
         "success": True,
@@ -2778,29 +2992,9 @@ def decide_suggestion(
     }
 
 
-@app.get("/email/suggestions/pending")
-def get_pending_suggestions(
-    account: Optional[Literal["church", "personal"]] = Query(None, description="Filter by email account"),
-    user: str = Depends(get_current_user),
-) -> dict:
-    """Get all pending suggestions for the user.
-
-    Returns suggestions that haven't been approved or rejected yet.
-    Optional filter by email account.
-    """
-    from daily_task_assistant.email import list_pending_suggestions
-
-    suggestions = list_pending_suggestions(user, account)
-
-    return {
-        "account": account,
-        "suggestions": [s.to_api_dict() for s in suggestions],
-        "count": len(suggestions),
-    }
-
-
-@app.get("/email/suggestions/stats")
+@app.get("/email/suggestions/{account}/stats")
 def get_suggestion_stats(
+    account: Literal["church", "personal"],
     days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
     user: str = Depends(get_current_user),
 ) -> dict:
@@ -2808,10 +3002,11 @@ def get_suggestion_stats(
 
     Returns approval rates by action type and analysis method.
     This data helps track DATA's learning progress.
+    Account is required (storage is by account, not user).
     """
     from daily_task_assistant.email import get_approval_stats
 
-    stats = get_approval_stats(user, days)
+    stats = get_approval_stats(account, days)
 
     return {
         "days": days,
@@ -2836,15 +3031,260 @@ def get_rejection_patterns(
 
     Analyzes rejection history to find patterns that should be skipped
     in future suggestions. Use with add-pattern endpoint to teach DATA.
+    Note: Analysis is GLOBAL across both accounts.
     """
     from daily_task_assistant.memory import get_rejection_candidates
 
-    candidates = get_rejection_candidates(user, days, min_rejections)
+    candidates = get_rejection_candidates(days, min_rejections)
 
     return {
         "days": days,
         "minRejections": min_rejections,
         "candidates": candidates,
+    }
+
+
+# =============================================================================
+# Action Suggestion Endpoints
+# =============================================================================
+
+
+@app.get("/email/suggestions/{account}/pending")
+def get_pending_suggestions(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get all pending action suggestions for the specified account.
+
+    Returns action suggestions that haven't been approved or rejected yet.
+    These are suggestions with full email metadata for UI display after refresh.
+    """
+    from daily_task_assistant.email import list_pending_suggestions
+
+    suggestions = list_pending_suggestions(account)
+
+    # Convert to API format with numbering
+    api_suggestions = [
+        record.to_api_dict(number=idx + 1)
+        for idx, record in enumerate(suggestions)
+    ]
+
+    return {
+        "account": account,
+        "suggestions": api_suggestions,
+        "count": len(api_suggestions),
+    }
+
+
+# =============================================================================
+# Rule Suggestion Endpoints
+# =============================================================================
+
+
+@app.get("/email/rules/{account}/pending")
+def get_pending_rules(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get all pending rule suggestions for the specified account.
+
+    Returns rule suggestions that haven't been approved or rejected yet.
+    Account is required (storage is by account, not user).
+    """
+    from daily_task_assistant.email import list_pending_rules
+
+    rules = list_pending_rules(account)
+
+    return {
+        "account": account,
+        "rules": [r.to_api_dict() for r in rules],
+        "count": len(rules),
+    }
+
+
+class RuleDecisionRequest(BaseModel):
+    """Request body for deciding on a rule suggestion."""
+
+    approved: bool = Field(
+        description="True to approve the rule, False to reject"
+    )
+    rejection_reason: Optional[str] = Field(
+        None,
+        alias="rejectionReason",
+        description="Reason for rejection (optional, for learning)"
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@app.post("/email/rules/{account}/{rule_id}/decide")
+def decide_rule(
+    account: Literal["church", "personal"],
+    rule_id: str,
+    request: RuleDecisionRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Approve or reject a rule suggestion.
+
+    Records the decision for Trust Gradient tracking.
+    If approved, the rule can be added to Google Sheets.
+    """
+    from daily_task_assistant.email import decide_rule_suggestion, get_rule_suggestion
+
+    success = decide_rule_suggestion(
+        account=account,
+        rule_id=rule_id,
+        approved=request.approved,
+        rejection_reason=request.rejection_reason,
+    )
+
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Rule suggestion not found: {rule_id}")
+
+    # Get the updated record to return
+    updated = get_rule_suggestion(account, rule_id)
+    if updated:
+        return {
+            "status": "approved" if request.approved else "rejected",
+            "ruleId": rule_id,
+            "rule": updated.to_api_dict(),
+        }
+    else:
+        return {
+            "status": "approved" if request.approved else "rejected",
+            "ruleId": rule_id,
+        }
+
+
+@app.get("/email/rules/{account}/stats")
+def get_rule_stats(
+    account: Literal["church", "personal"],
+    days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get rule approval statistics for Trust Gradient.
+
+    Returns approval rates by analysis method and category.
+    This data helps track DATA's learning progress for rule suggestions.
+    """
+    from daily_task_assistant.email import get_rule_approval_stats
+
+    stats = get_rule_approval_stats(account, days)
+
+    return {
+        "account": account,
+        "days": days,
+        "total": stats["total"],
+        "approved": stats["approved"],
+        "rejected": stats["rejected"],
+        "pending": stats["pending"],
+        "approvalRate": stats["approvalRate"],
+        "byMethod": stats["byMethod"],
+        "byCategory": stats["byCategory"],
+    }
+
+
+@app.get("/email/trust-metrics")
+def get_trust_metrics(
+    days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get combined trust metrics for Trust Gradient tracking.
+
+    Returns aggregate approval rates across both accounts and both types
+    (action suggestions and rule suggestions). Used to track DATA's
+    progress toward higher autonomy levels.
+
+    Trust Levels:
+        Level 0: Surface attention items
+        Level 1: Suggest with rationale, receive vote (current)
+        Level 2: Small autonomous actions (requires 90%+ approval)
+        Level 3: Larger scope autonomy
+    """
+    from daily_task_assistant.email import get_approval_stats, get_rule_approval_stats
+
+    # Aggregate stats from both accounts
+    church_action_stats = get_approval_stats("church", days)
+    personal_action_stats = get_approval_stats("personal", days)
+    church_rule_stats = get_rule_approval_stats("church", days)
+    personal_rule_stats = get_rule_approval_stats("personal", days)
+
+    # Combine action suggestion stats
+    action_approved = church_action_stats["approved"] + personal_action_stats["approved"]
+    action_rejected = church_action_stats["rejected"] + personal_action_stats["rejected"]
+    action_total = action_approved + action_rejected
+
+    # Combine rule suggestion stats
+    rule_approved = church_rule_stats["approved"] + personal_rule_stats["approved"]
+    rule_rejected = church_rule_stats["rejected"] + personal_rule_stats["rejected"]
+    rule_total = rule_approved + rule_rejected
+
+    # Overall approval rate
+    total_decided = action_total + rule_total
+    total_approved = action_approved + rule_approved
+    overall_rate = total_approved / total_decided if total_decided > 0 else 0.0
+
+    # Aggregate by analysis method
+    by_method = {}
+    for stats in [church_action_stats, personal_action_stats]:
+        for method, data in stats.get("by_method", {}).items():
+            if method not in by_method:
+                by_method[method] = {"approved": 0, "rejected": 0, "total": 0}
+            by_method[method]["approved"] += data.get("approved", 0)
+            by_method[method]["rejected"] += data.get("rejected", 0)
+            by_method[method]["total"] += data.get("approved", 0) + data.get("rejected", 0)
+
+    for stats in [church_rule_stats, personal_rule_stats]:
+        for method, data in stats.get("byMethod", {}).items():
+            if method not in by_method:
+                by_method[method] = {"approved": 0, "rejected": 0, "total": 0}
+            by_method[method]["approved"] += data.get("approved", 0)
+            by_method[method]["rejected"] += data.get("rejected", 0)
+            by_method[method]["total"] += data.get("total", 0)
+
+    # Calculate rates for each method
+    for method_data in by_method.values():
+        decided = method_data["approved"] + method_data["rejected"]
+        method_data["rate"] = method_data["approved"] / decided if decided > 0 else 0.0
+
+    # Trust level calculation
+    # Level 2 requires 90%+ approval rate
+    trust_level = 1  # Current: Suggest with rationale
+    if overall_rate >= 0.90 and total_decided >= 20:
+        trust_level = 2  # Ready for small autonomous actions
+
+    progress_to_level_2 = min(1.0, overall_rate / 0.90)
+
+    # Generate recommendation
+    if trust_level == 2:
+        recommendation = "DATA has earned Level 2 trust. Consider enabling small autonomous actions."
+    elif overall_rate >= 0.85:
+        needed = 0.90 - overall_rate
+        recommendation = f"{needed * 100:.1f}% more approval rate needed for Level 2 autonomy"
+    elif total_decided < 20:
+        recommendation = f"{20 - total_decided} more decisions needed before trust level can increase"
+    else:
+        recommendation = "Continue voting on suggestions to help DATA learn your preferences"
+
+    return {
+        "days": days,
+        "overallApprovalRate": round(overall_rate, 4),
+        "totalDecided": total_decided,
+        "totalApproved": total_approved,
+        "actionSuggestions": {
+            "approved": action_approved,
+            "rejected": action_rejected,
+            "rate": action_approved / action_total if action_total > 0 else 0.0,
+        },
+        "ruleSuggestions": {
+            "approved": rule_approved,
+            "rejected": rule_rejected,
+            "rate": rule_approved / rule_total if rule_total > 0 else 0.0,
+        },
+        "byMethod": by_method,
+        "trustLevel": trust_level,
+        "progressToLevel2": round(progress_to_level_2, 4),
+        "recommendation": recommendation,
     }
 
 
@@ -2871,10 +3311,11 @@ def add_not_actionable(
     """Add a pattern to not-actionable list.
 
     This teaches DATA to skip emails matching this pattern in the future.
+    Profile is GLOBAL (shared across login identities).
     """
     from daily_task_assistant.memory import add_not_actionable_pattern
 
-    success = add_not_actionable_pattern(user, request.account, request.pattern)
+    success = add_not_actionable_pattern(request.account, request.pattern)
 
     if not success:
         # Pattern already exists
@@ -2901,10 +3342,11 @@ def remove_not_actionable(
     """Remove a pattern from not-actionable list.
 
     Allows user to re-enable attention for previously skipped patterns.
+    Profile is GLOBAL (shared across login identities).
     """
     from daily_task_assistant.memory import remove_not_actionable_pattern
 
-    success = remove_not_actionable_pattern(user, request.account, request.pattern)
+    success = remove_not_actionable_pattern(request.account, request.pattern)
 
     if not success:
         return {
@@ -3458,17 +3900,28 @@ def get_email_action_suggestions(
 
     persisted_suggestions = []
     for s in suggestions:
-        # Create a persistent record for this suggestion
+        # Create a persistent record for this suggestion (keyed by account, not user)
         record = create_suggestion(
-            user_id=user,
+            account=account,
             email_id=s.email.id,
-            email_account=account,
+            user_id=user,
             action=s.action.value,
             rationale=s.rationale,
             confidence=0.5 if s.confidence.value == "medium" else (0.8 if s.confidence.value == "high" else 0.3),
             label_name=s.label_name,
+            label_id=s.label_id,
             task_title=s.task_title,
             analysis_method="regex",  # Current implementation uses regex patterns
+            # Email metadata for UI display after refresh
+            email_subject=s.email.subject,
+            email_from=s.email.from_address,
+            email_from_name=s.email.from_name,
+            email_to=s.email.to_address,
+            email_snippet=s.email.snippet,
+            email_date=s.email.date.isoformat() if s.email.date else None,
+            email_is_unread=s.email.is_unread,
+            email_is_important=s.email.is_important,
+            email_is_starred=s.email.is_starred,
         )
         # Add suggestion_id to the response for tracking
         suggestion_dict = s.to_dict()
@@ -3914,163 +4367,181 @@ def delete_firestore_task(
 
 
 # --- Email Memory Endpoints (Phase C) ---
+# Note: All memory endpoints are now keyed by account (church/personal), not user login.
 
-@app.get("/email/memory/sender-profiles")
+@app.get("/email/{account}/memory/sender-profiles")
 def get_sender_profiles(
+    account: Literal["church", "personal"],
     vip_only: bool = Query(False, description="Only return VIP senders"),
     limit: int = Query(50, ge=1, le=200),
     user: str = Depends(get_current_user),
 ) -> dict:
-    """List sender profiles from email memory."""
+    """List sender profiles from email memory for the specified account."""
     from daily_task_assistant.email import list_sender_profiles
-    
-    profiles = list_sender_profiles(user, vip_only=vip_only, limit=limit)
-    
+
+    profiles = list_sender_profiles(account, vip_only=vip_only, limit=limit)
+
     return {
+        "account": account,
         "count": len(profiles),
         "profiles": [p.to_dict() for p in profiles],
     }
 
 
-@app.get("/email/memory/sender/{email}")
+@app.get("/email/{account}/memory/sender/{email}")
 def get_sender_profile_endpoint(
+    account: Literal["church", "personal"],
     email: str,
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Get a specific sender profile."""
+    """Get a specific sender profile for the specified account."""
     from daily_task_assistant.email import get_sender_profile
-    
-    profile = get_sender_profile(user, email)
+
+    profile = get_sender_profile(account, email)
     if not profile:
         raise HTTPException(status_code=404, detail="Sender profile not found")
-    
-    return {"profile": profile.to_dict()}
+
+    return {"account": account, "profile": profile.to_dict()}
 
 
-@app.post("/email/memory/seed")
+@app.post("/email/{account}/memory/seed")
 def seed_email_memory(
+    account: Literal["church", "personal"],
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Seed sender profiles from the memory graph.
-    
+    """Seed sender profiles from the memory graph for the specified account.
+
     Creates initial profiles for known contacts (family, work colleagues).
     Safe to call multiple times - will update existing profiles.
     """
     from daily_task_assistant.email import seed_sender_profiles_from_memory_graph
-    
-    count = seed_sender_profiles_from_memory_graph(user)
-    
+
+    count = seed_sender_profiles_from_memory_graph(account)
+
     return {
+        "account": account,
         "status": "seeded",
         "profilesCreated": count,
     }
 
 
-@app.get("/email/memory/category-patterns")
+@app.get("/email/{account}/memory/category-patterns")
 def get_category_patterns_endpoint(
+    account: Literal["church", "personal"],
     limit: int = Query(50, ge=1, le=200),
     user: str = Depends(get_current_user),
 ) -> dict:
-    """List learned category patterns."""
+    """List learned category patterns for the specified account."""
     from daily_task_assistant.email import get_category_patterns
-    
-    patterns = get_category_patterns(user, limit=limit)
-    
+
+    patterns = get_category_patterns(account, limit=limit)
+
     return {
+        "account": account,
         "count": len(patterns),
         "patterns": [p.to_dict() for p in patterns],
     }
 
 
-@app.post("/email/memory/category-approval")
+@app.post("/email/{account}/memory/category-approval")
 def record_category_approval_endpoint(
+    account: Literal["church", "personal"],
     pattern: str = Query(..., description="Domain or email address pattern"),
     pattern_type: str = Query(..., description="'domain' or 'sender'"),
     category: str = Query(..., description="Category/label to associate"),
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Record that a category suggestion was approved.
-    
+    """Record that a category suggestion was approved for the specified account.
+
     This reinforces the pattern for future suggestions.
     """
     from daily_task_assistant.email import record_category_approval
-    
-    updated = record_category_approval(user, pattern, pattern_type, category)
-    
+
+    updated = record_category_approval(account, pattern, pattern_type, category)
+
     return {
+        "account": account,
         "status": "recorded",
         "pattern": updated.to_dict(),
     }
 
 
-@app.post("/email/memory/category-dismissal")
+@app.post("/email/{account}/memory/category-dismissal")
 def record_category_dismissal_endpoint(
+    account: Literal["church", "personal"],
     pattern: str = Query(..., description="Domain or email address pattern"),
     pattern_type: str = Query(..., description="'domain' or 'sender'"),
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Record that a category suggestion was dismissed.
-    
+    """Record that a category suggestion was dismissed for the specified account.
+
     This decreases confidence in the pattern.
     """
     from daily_task_assistant.email import record_category_dismissal
-    
-    record_category_dismissal(user, pattern, pattern_type)
-    
-    return {"status": "recorded"}
+
+    record_category_dismissal(account, pattern, pattern_type)
+
+    return {"account": account, "status": "recorded"}
 
 
-@app.get("/email/memory/timing")
+@app.get("/email/{account}/memory/timing")
 def get_timing_patterns_endpoint(
+    account: Literal["church", "personal"],
     user: str = Depends(get_current_user),
 ) -> dict:
-    """Get email processing timing patterns."""
+    """Get email processing timing patterns for the specified account."""
     from daily_task_assistant.email import get_timing_patterns
-    
-    patterns = get_timing_patterns(user)
-    
+
+    patterns = get_timing_patterns(account)
+
     if not patterns:
         return {
+            "account": account,
             "patterns": None,
             "message": "No timing patterns recorded yet",
         }
-    
-    return {"patterns": patterns.to_dict()}
+
+    return {"account": account, "patterns": patterns.to_dict()}
 
 
-@app.get("/email/memory/response-warning")
+@app.get("/email/{account}/memory/response-warning")
 def check_response_warning(
+    account: Literal["church", "personal"],
     sender_email: str = Query(..., description="Sender's email address"),
     received_hours_ago: float = Query(..., description="Hours since email was received"),
     user: str = Depends(get_current_user),
 ) -> dict:
     """Check if David should be warned about a delayed response.
-    
+
     Compares current response time against average for that sender type.
+    Account is required (memory data is per-account).
     """
     from daily_task_assistant.email import (
         get_sender_profile,
         get_average_response_time,
     )
-    
-    profile = get_sender_profile(user, sender_email)
-    
+
+    profile = get_sender_profile(account, sender_email)
+
     if not profile:
         return {
+            "account": account,
             "warning": False,
             "message": "Unknown sender - no expectations set",
         }
-    
-    avg_time = get_average_response_time(user, profile.relationship)
-    
+
+    avg_time = get_average_response_time(account, profile.relationship)
+
     if avg_time is None:
         return {
+            "account": account,
             "warning": False,
             "message": f"No historical data for {profile.relationship} senders",
         }
-    
+
     if received_hours_ago > avg_time * 1.5:  # 50% over average
         return {
+            "account": account,
             "warning": True,
             "message": f"Email from {profile.name} has been waiting {received_hours_ago:.1f} hours. "
                       f"You typically respond to {profile.relationship} senders within {avg_time:.1f} hours.",
@@ -4079,11 +4550,98 @@ def check_response_warning(
             "senderName": profile.name,
             "senderRelationship": profile.relationship,
         }
-    
+
     return {
+        "account": account,
         "warning": False,
         "averageResponseTime": avg_time,
         "currentWaitTime": received_hours_ago,
+    }
+
+
+# --- Haiku Intelligence Layer endpoints ---
+
+class HaikuSettingsRequest(BaseModel):
+    """Request body for updating Haiku settings."""
+    enabled: Optional[bool] = Field(None, description="Enable/disable Haiku analysis")
+    daily_limit: Optional[int] = Field(None, ge=0, le=500, description="Daily analysis limit")
+    weekly_limit: Optional[int] = Field(None, ge=0, le=2000, description="Weekly analysis limit")
+
+
+@app.get("/email/haiku/settings")
+def get_haiku_settings(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get current Haiku analysis settings.
+
+    Settings are GLOBAL (shared across all login identities).
+    Returns the enabled flag and usage limits.
+    """
+    from daily_task_assistant.email import (
+        get_haiku_settings as get_settings,
+    )
+
+    # GLOBAL settings - no user parameter needed
+    settings = get_settings()
+    return {
+        "settings": settings.to_api_dict(),
+    }
+
+
+@app.put("/email/haiku/settings")
+def update_haiku_settings(
+    request: HaikuSettingsRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update Haiku analysis settings.
+
+    Settings are GLOBAL (shared across all login identities).
+    Allows toggling Haiku on/off and adjusting daily/weekly limits.
+    """
+    from daily_task_assistant.email import (
+        get_haiku_settings as get_settings,
+        save_haiku_settings as save_settings,
+        HaikuSettings,
+    )
+
+    # GLOBAL settings - no user parameter needed
+    current = get_settings()
+
+    # Update only provided fields
+    new_settings = HaikuSettings(
+        enabled=request.enabled if request.enabled is not None else current.enabled,
+        daily_limit=request.daily_limit if request.daily_limit is not None else current.daily_limit,
+        weekly_limit=request.weekly_limit if request.weekly_limit is not None else current.weekly_limit,
+    )
+
+    # Save GLOBAL settings
+    save_settings(new_settings)
+
+    return {
+        "status": "updated",
+        "settings": new_settings.to_api_dict(),
+    }
+
+
+@app.get("/email/haiku/usage")
+def get_haiku_usage(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get current Haiku usage statistics.
+
+    Usage is GLOBAL (shared across all login identities).
+    Returns daily/weekly counts, limits, and remaining capacity.
+    Includes flags indicating if user can still use Haiku.
+    """
+    from daily_task_assistant.email import (
+        get_haiku_usage_summary,
+    )
+
+    # GLOBAL usage - no user parameter needed
+    summary = get_haiku_usage_summary()
+
+    return {
+        "usage": summary,
     }
 
 
@@ -4604,12 +5162,14 @@ def get_profile_endpoint(
 ) -> dict:
     """Get the current user's profile.
 
+    Profile is GLOBAL (shared across all login identities).
     Returns the profile with church roles, personal contexts, VIP senders,
     and attention patterns for role-aware email management.
     """
     from daily_task_assistant.memory import get_or_create_profile
 
-    profile = get_or_create_profile(user)
+    # GLOBAL profile - no user parameter needed
+    profile = get_or_create_profile()
 
     return {
         "profile": {
@@ -4634,12 +5194,14 @@ def update_profile_endpoint(
 ) -> dict:
     """Update the current user's profile.
 
+    Profile is GLOBAL (shared across all login identities).
     Only provided fields are updated; omitted fields retain their current values.
     A versioned backup is created for audit purposes.
     """
     from daily_task_assistant.memory import get_or_create_profile, save_profile
 
-    profile = get_or_create_profile(user)
+    # GLOBAL profile - no user parameter needed
+    profile = get_or_create_profile()
 
     # Update only provided fields
     if request.church_roles is not None:

@@ -255,6 +255,70 @@ test.describe('Profile API - PUT /profile', () => {
   });
 });
 
+test.describe('Profile API - Cross-Login Access (GLOBAL Profile)', () => {
+  // Profile is GLOBAL - shared across all login identities
+  const PERSONAL_USER = 'david.a.royes@gmail.com';
+  const CHURCH_USER = 'davidroyes@southpointsda.org';
+
+  test('profile returns same data regardless of login identity', async ({ request }) => {
+    // Get profile as personal user
+    const response1 = await request.get(`${API_BASE}/profile`, {
+      headers: { 'X-User-Email': PERSONAL_USER }
+    });
+    expect(response1.ok()).toBeTruthy();
+    const data1 = await response1.json();
+
+    // Get profile as church user
+    const response2 = await request.get(`${API_BASE}/profile`, {
+      headers: { 'X-User-Email': CHURCH_USER }
+    });
+    expect(response2.ok()).toBeTruthy();
+    const data2 = await response2.json();
+
+    // Should be identical
+    expect(data1.profile.churchRoles).toEqual(data2.profile.churchRoles);
+    expect(data1.profile.personalContexts).toEqual(data2.profile.personalContexts);
+    expect(data1.profile.vipSenders).toEqual(data2.profile.vipSenders);
+  });
+
+  test('profile update visible from other login identity', async ({ request }) => {
+    // Get original profile
+    const originalResponse = await request.get(`${API_BASE}/profile`, {
+      headers: { 'X-User-Email': PERSONAL_USER }
+    });
+    const originalData = await originalResponse.json();
+
+    // Update as personal user
+    const testRole = 'E2E Cross-Login Test';
+    const newRoles = [...originalData.profile.churchRoles, testRole];
+
+    await request.put(`${API_BASE}/profile`, {
+      headers: {
+        'X-User-Email': PERSONAL_USER,
+        'Content-Type': 'application/json'
+      },
+      data: { churchRoles: newRoles }
+    });
+
+    // Read as church user - should see the update
+    const response = await request.get(`${API_BASE}/profile`, {
+      headers: { 'X-User-Email': CHURCH_USER }
+    });
+    expect(response.ok()).toBeTruthy();
+    const data = await response.json();
+    expect(data.profile.churchRoles).toContain(testRole);
+
+    // Clean up - restore original
+    await request.put(`${API_BASE}/profile`, {
+      headers: {
+        'X-User-Email': PERSONAL_USER,
+        'Content-Type': 'application/json'
+      },
+      data: { churchRoles: originalData.profile.churchRoles }
+    });
+  });
+});
+
 test.describe('Profile API - Camel Case Conversion', () => {
 
   test('API returns camelCase field names', async ({ request }) => {

@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-15
+> **Last Updated**: 2025-12-16
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -55,6 +55,11 @@ Earned autonomy through demonstrated understanding and tracked success.
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
 | **Email Task Assistant Integration** | Complete integration of Email Tasks (Firestore) into the Assistant workflow. | - |
+| **F1: Attention Tab Testing** | Finish testing Attention tabs in Church and Personal accounts. Ensure Haiku analysis works consistently for both. | F1 Haiku Integration |
+| **F1: Analysis Engine Badges** | Get AI/Regex badges working and consistent across all attention items. Role badges should also be styled consistently. | F1 Haiku Integration |
+| **F1: New Rules Tab Persistence** | Add persistence to New Email Rules tab so suggestions survive page refresh. | F1 Haiku Integration |
+| **F1: Suggestions Tab Auto-Populate** | Suggestions tab should populate immediately after Analyze Inbox since all 3 results (attention, rules, actions) are returned together. Remove need for separate Suggestions button click. | F1 Haiku Integration |
+| **F1: Suggestions Persistence** | Add persistence to Suggestion entries so they survive page refresh (if not already implemented). | F1 Haiku Integration |
 
 ### High Priority
 
@@ -68,7 +73,6 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
-| **F1: Haiku Intelligence Layer** | AI-powered email analysis using Claude Haiku for context-aware detection when profile matching is inconclusive. | [Email Management Plan - F1](../.claude/plans/rippling-discovering-whale.md#f1-haiku-intelligence-layer) |
 | **F2: Calendar Management Integration** | Complete the Assistant Trifecta (Email + Tasks + Calendar) with smart scheduling and meeting prep. | [Email Management Plan - F2](../.claude/plans/rippling-discovering-whale.md#f2-calendar-management-integration) |
 | **F3: Full Memory Architecture** | Complete DATA Memory Architecture: weekly reflections, knowledge base, session notes. | [Email Management Plan - F3](../.claude/plans/rippling-discovering-whale.md#f3-full-memory-architecture-phase-2-foundation) |
 | **F5: Smart Rule Suggestions** | AI-powered rule suggestions that understand context, not just patterns. Filter bad suggestions. | [Email Management Plan - F5](../.claude/plans/rippling-discovering-whale.md#f5-smart-rule-suggestions) |
@@ -78,6 +82,9 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
+| **F1a: User-Configurable Domain Blocklist** | Let users add/remove sensitive domains via Settings UI for Haiku privacy controls. | F1 Future Enhancement |
+| **F1b: Metadata-Only Mode** | For semi-sensitive senders, send only subject/sender to Haiku (not body). | F1 Future Enhancement |
+| **F1c: Privacy Audit Log** | Track what content was masked for transparency and debugging in Haiku analysis. | F1 Future Enhancement |
 | **F4: Microsoft Integration** | Support Outlook ecosystem (MS Graph API) for DATA Cloud multi-tenancy. | [Email Management Plan - F4](../.claude/plans/rippling-discovering-whale.md#f4-microsoft-integration) |
 | **F6: Bulk Email Actions** | Batch archive, label, dismiss operations with pattern recognition. | [Email Management Plan - F6](../.claude/plans/rippling-discovering-whale.md#f6-bulk-email-actions) |
 | **Email Management Settings Page** | Admin settings for attention scanning time window, labels, notifications. | - |
@@ -96,6 +103,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| **F1: Haiku Intelligence Layer** | 2025-12-15 | AI-powered email analysis using Claude Haiku with privacy safeguards, usage limits, Settings UI |
 | **Workspace Context Selection** | 2025-12-14 | Multi-select workspace items for Plan generation and Email drafts |
 | **Email Rich Text Rendering** | 2025-12-14 | Email drafts render as HTML with proper formatting (bold, lists, paragraphs) |
 | **Sanitize Test Conversations** | 2025-12-14 | Removed PII files from tracking, added to .gitignore |

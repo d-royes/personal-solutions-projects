@@ -209,8 +209,8 @@ test.describe('Profile-Aware Response Fields', () => {
       expect(item.confidence).toBeGreaterThanOrEqual(0);
       expect(item.confidence).toBeLessThanOrEqual(1);
 
-      // Validate analysisMethod is one of the valid values
-      expect(['regex', 'profile', 'vip']).toContain(item.analysisMethod);
+      // Validate analysisMethod is one of the valid values (includes 'haiku' for AI analysis)
+      expect(['regex', 'profile', 'vip', 'haiku']).toContain(item.analysisMethod);
     }
   });
 });

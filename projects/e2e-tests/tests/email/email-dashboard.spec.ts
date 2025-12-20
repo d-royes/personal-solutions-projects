@@ -2,12 +2,14 @@ import { test, expect } from '@playwright/test';
 
 /**
  * Email Dashboard Tests
- * 
+ *
  * Tests for DATA's email management features including:
  * - Account switching (Personal/Church)
  * - Rules management
  * - Suggestions and Attention tabs
  */
+
+const API_BASE = process.env.API_BASE || 'http://localhost:8000';
 
 test.describe('Email Dashboard', () => {
   
@@ -1313,7 +1315,7 @@ test.describe('Email Memory (Phase C)', () => {
   
   test('sender profiles API should be accessible', async ({ page }) => {
     // Test the API endpoint directly
-    const response = await page.request.get('/email/memory/sender-profiles', {
+    const response = await page.request.get(`${API_BASE}/email/personal/memory/sender-profiles`, {
       headers: {
         'X-User-Email': 'david.a.royes@gmail.com'
       }
@@ -1327,7 +1329,7 @@ test.describe('Email Memory (Phase C)', () => {
 
   test('category patterns API should be accessible', async ({ page }) => {
     // Test the API endpoint directly
-    const response = await page.request.get('/email/memory/category-patterns', {
+    const response = await page.request.get(`${API_BASE}/email/personal/memory/category-patterns`, {
       headers: {
         'X-User-Email': 'david.a.royes@gmail.com'
       }
@@ -1341,7 +1343,7 @@ test.describe('Email Memory (Phase C)', () => {
 
   test('timing patterns API should be accessible', async ({ page }) => {
     // Test the API endpoint directly
-    const response = await page.request.get('/email/memory/timing', {
+    const response = await page.request.get(`${API_BASE}/email/personal/memory/timing`, {
       headers: {
         'X-User-Email': 'david.a.royes@gmail.com'
       }
@@ -1355,7 +1357,7 @@ test.describe('Email Memory (Phase C)', () => {
 
   test('seed endpoint should create sender profiles', async ({ page }) => {
     // Seed the memory with known contacts
-    const response = await page.request.post('/email/memory/seed', {
+    const response = await page.request.post(`${API_BASE}/email/personal/memory/seed`, {
       headers: {
         'X-User-Email': 'david.a.royes@gmail.com'
       }
@@ -1369,7 +1371,7 @@ test.describe('Email Memory (Phase C)', () => {
 
   test('category approval should record pattern', async ({ page }) => {
     const response = await page.request.post(
-      '/email/memory/category-approval?pattern=amazon.com&pattern_type=domain&category=Transactional',
+      `${API_BASE}/email/personal/memory/category-approval?pattern=amazon.com&pattern_type=domain&category=Transactional`,
       {
         headers: {
           'X-User-Email': 'david.a.royes@gmail.com'
@@ -1394,7 +1396,7 @@ test.describe('Email Memory (Phase C)', () => {
     
     // Check for warning on a known sender
     const response = await page.request.get(
-      '/email/memory/response-warning?sender_email=laura.destella-whippy@pgatour.com&received_hours_ago=10',
+      `${API_BASE}/email/personal/memory/response-warning?sender_email=laura.destella-whippy@pgatour.com&received_hours_ago=10`,
       {
         headers: {
           'X-User-Email': 'david.a.royes@gmail.com'

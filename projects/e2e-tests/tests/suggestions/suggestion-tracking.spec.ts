@@ -15,9 +15,10 @@ const AUTH_HEADERS = {
 };
 
 test.describe('Suggestion Decision API', () => {
+  // Note: URL now includes account in path: /email/suggestions/{account}/{id}/decide
 
   test('decide endpoint requires authentication', async ({ request }) => {
-    const response = await request.post(`${API_BASE}/email/suggestions/test-id/decide`, {
+    const response = await request.post(`${API_BASE}/email/suggestions/church/test-id/decide`, {
       headers: {
         'Content-Type': 'application/json'
       },
@@ -29,7 +30,7 @@ test.describe('Suggestion Decision API', () => {
   });
 
   test('decide endpoint returns 404 for non-existent suggestion', async ({ request }) => {
-    const response = await request.post(`${API_BASE}/email/suggestions/non-existent-suggestion-id/decide`, {
+    const response = await request.post(`${API_BASE}/email/suggestions/church/non-existent-suggestion-id/decide`, {
       headers: {
         ...AUTH_HEADERS,
         'Content-Type': 'application/json'
@@ -42,7 +43,7 @@ test.describe('Suggestion Decision API', () => {
   });
 
   test('decide endpoint requires approved field', async ({ request }) => {
-    const response = await request.post(`${API_BASE}/email/suggestions/test-id/decide`, {
+    const response = await request.post(`${API_BASE}/email/suggestions/church/test-id/decide`, {
       headers: {
         ...AUTH_HEADERS,
         'Content-Type': 'application/json'
@@ -52,17 +53,31 @@ test.describe('Suggestion Decision API', () => {
     // Should return 422 for validation error
     expect(response.status()).toBe(422);
   });
+
+  test('decide endpoint validates account', async ({ request }) => {
+    const response = await request.post(`${API_BASE}/email/suggestions/invalid-account/test-id/decide`, {
+      headers: {
+        ...AUTH_HEADERS,
+        'Content-Type': 'application/json'
+      },
+      data: {
+        approved: true
+      }
+    });
+    expect(response.status()).toBe(422);
+  });
 });
 
 test.describe('Pending Suggestions API', () => {
+  // Note: URL now requires account in path: /email/suggestions/{account}/pending
 
   test('pending endpoint requires authentication', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/suggestions/pending`);
+    const response = await request.get(`${API_BASE}/email/suggestions/church/pending`);
     expect(response.status()).toBeGreaterThanOrEqual(400);
   });
 
-  test('pending endpoint returns list structure', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/suggestions/pending`, {
+  test('pending endpoint returns list structure for church', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/suggestions/church/pending`, {
       headers: AUTH_HEADERS
     });
     expect(response.ok()).toBeTruthy();
@@ -70,30 +85,41 @@ test.describe('Pending Suggestions API', () => {
     const data = await response.json();
     expect(data).toHaveProperty('suggestions');
     expect(data).toHaveProperty('count');
+    expect(data).toHaveProperty('account');
+    expect(data.account).toBe('church');
     expect(Array.isArray(data.suggestions)).toBeTruthy();
     expect(typeof data.count).toBe('number');
   });
 
-  test('pending endpoint filters by account', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/suggestions/pending?account=church`, {
+  test('pending endpoint returns list structure for personal', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/suggestions/personal/pending`, {
       headers: AUTH_HEADERS
     });
     expect(response.ok()).toBeTruthy();
 
     const data = await response.json();
-    expect(data.account).toBe('church');
+    expect(data).toHaveProperty('account');
+    expect(data.account).toBe('personal');
+  });
+
+  test('pending endpoint validates account', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/suggestions/invalid/pending`, {
+      headers: AUTH_HEADERS
+    });
+    expect(response.status()).toBe(422);
   });
 });
 
 test.describe('Suggestion Statistics API', () => {
+  // Note: URL now requires account in path: /email/suggestions/{account}/stats
 
   test('stats endpoint requires authentication', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/suggestions/stats`);
+    const response = await request.get(`${API_BASE}/email/suggestions/church/stats`);
     expect(response.status()).toBeGreaterThanOrEqual(400);
   });
 
   test('stats endpoint returns correct structure', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/suggestions/stats`, {
+    const response = await request.get(`${API_BASE}/email/suggestions/church/stats`, {
       headers: AUTH_HEADERS
     });
     expect(response.ok()).toBeTruthy();
@@ -117,7 +143,7 @@ test.describe('Suggestion Statistics API', () => {
   });
 
   test('stats endpoint accepts days parameter', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/suggestions/stats?days=7`, {
+    const response = await request.get(`${API_BASE}/email/suggestions/church/stats?days=7`, {
       headers: AUTH_HEADERS
     });
     expect(response.ok()).toBeTruthy();
@@ -128,16 +154,23 @@ test.describe('Suggestion Statistics API', () => {
 
   test('stats endpoint validates days parameter range', async ({ request }) => {
     // Days too low
-    const response1 = await request.get(`${API_BASE}/email/suggestions/stats?days=0`, {
+    const response1 = await request.get(`${API_BASE}/email/suggestions/church/stats?days=0`, {
       headers: AUTH_HEADERS
     });
     expect(response1.status()).toBe(422);
 
     // Days too high
-    const response2 = await request.get(`${API_BASE}/email/suggestions/stats?days=500`, {
+    const response2 = await request.get(`${API_BASE}/email/suggestions/church/stats?days=500`, {
       headers: AUTH_HEADERS
     });
     expect(response2.status()).toBe(422);
+  });
+
+  test('stats endpoint validates account', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/suggestions/invalid/stats`, {
+      headers: AUTH_HEADERS
+    });
+    expect(response.status()).toBe(422);
   });
 });
 
@@ -254,7 +287,7 @@ test.describe('Profile Pattern Management API', () => {
 test.describe('Suggestion API Response Format', () => {
 
   test('suggestions endpoint returns camelCase field names', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/suggestions/stats`, {
+    const response = await request.get(`${API_BASE}/email/suggestions/church/stats`, {
       headers: AUTH_HEADERS
     });
     expect(response.ok()).toBeTruthy();
@@ -272,7 +305,7 @@ test.describe('Suggestion API Response Format', () => {
   });
 
   test('pending suggestions include required fields', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/email/suggestions/pending`, {
+    const response = await request.get(`${API_BASE}/email/suggestions/church/pending`, {
       headers: AUTH_HEADERS
     });
     expect(response.ok()).toBeTruthy();
@@ -289,5 +322,29 @@ test.describe('Suggestion API Response Format', () => {
       expect(suggestion).toHaveProperty('confidence');
       expect(suggestion).toHaveProperty('status');
     }
+  });
+});
+
+test.describe('Cross-Login Suggestion Access', () => {
+  // Verify suggestions are accessible regardless of login identity
+  const PERSONAL_USER = 'david.a.royes@gmail.com';
+  const CHURCH_USER = 'davidroyes@southpointsda.org';
+
+  test('church suggestions visible from personal login', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/suggestions/church/pending`, {
+      headers: { 'X-User-Email': PERSONAL_USER }
+    });
+    expect(response.ok()).toBeTruthy();
+    const data = await response.json();
+    expect(data.account).toBe('church');
+  });
+
+  test('personal suggestions visible from church login', async ({ request }) => {
+    const response = await request.get(`${API_BASE}/email/suggestions/personal/pending`, {
+      headers: { 'X-User-Email': CHURCH_USER }
+    });
+    expect(response.ok()).toBeTruthy();
+    const data = await response.json();
+    expect(data.account).toBe('personal');
   });
 });

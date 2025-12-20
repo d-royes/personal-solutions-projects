@@ -4,8 +4,14 @@ This module provides the SuggestionRecord dataclass and Firestore CRUD operation
 for storing action suggestions with approval tracking. This enables learning
 from David's decisions and feeds the Trust Gradient system.
 
+IMPORTANT: Suggestions are stored by EMAIL ACCOUNT (not login identity).
+David has multiple login emails but data is keyed by "church" or "personal".
+
 Firestore Structure:
-    users/{user_id}/email_suggestions/{suggestion_id} -> SuggestionRecord document
+    email_accounts/{account}/suggestions/{suggestion_id} -> SuggestionRecord document
+
+File Storage (dev mode):
+    suggestion_store/{account}/{suggestion_id}.json
 
 Environment Variables:
     DTA_SUGGESTION_FORCE_FILE: Set to "1" to use local file storage (dev mode)
@@ -62,11 +68,6 @@ def _generate_id() -> str:
     return str(uuid.uuid4())
 
 
-def _sanitize_user_id(user_id: str) -> str:
-    """Sanitize user ID for use as filename."""
-    return user_id.replace("@", "_at_").replace(".", "_")
-
-
 @dataclass
 class SuggestionRecord:
     """Persistent suggestion with approval tracking.
@@ -90,6 +91,18 @@ class SuggestionRecord:
         analysis_method: "regex", "haiku", or "profile_match"
         created_at: When suggestion was created
         expires_at: TTL expiration time
+
+        Email metadata (for UI display without re-fetching):
+        email_subject: Email subject line
+        email_from: Email sender address
+        email_from_name: Email sender display name
+        email_to: Email recipient address
+        email_snippet: Email preview snippet
+        email_date: Email received date (ISO format)
+        email_is_unread: Whether email is unread
+        email_is_important: Whether email is marked important
+        email_is_starred: Whether email is starred
+        label_id: Gmail label ID for LABEL action
     """
     # Identity
     suggestion_id: str
@@ -103,6 +116,18 @@ class SuggestionRecord:
     confidence: float = 0.5
     label_name: Optional[str] = None
     task_title: Optional[str] = None
+    label_id: Optional[str] = None
+
+    # Email metadata for UI display
+    email_subject: Optional[str] = None
+    email_from: Optional[str] = None
+    email_from_name: Optional[str] = None
+    email_to: Optional[str] = None
+    email_snippet: Optional[str] = None
+    email_date: Optional[str] = None
+    email_is_unread: bool = False
+    email_is_important: bool = False
+    email_is_starred: bool = False
 
     # Status
     status: SuggestionStatus = "pending"
@@ -139,6 +164,16 @@ class SuggestionRecord:
             "confidence": self.confidence,
             "label_name": self.label_name,
             "task_title": self.task_title,
+            "label_id": self.label_id,
+            "email_subject": self.email_subject,
+            "email_from": self.email_from,
+            "email_from_name": self.email_from_name,
+            "email_to": self.email_to,
+            "email_snippet": self.email_snippet,
+            "email_date": self.email_date,
+            "email_is_unread": self.email_is_unread,
+            "email_is_important": self.email_is_important,
+            "email_is_starred": self.email_is_starred,
             "status": self.status,
             "decided_at": dt_to_str(self.decided_at),
             "analysis_method": self.analysis_method,
@@ -146,24 +181,45 @@ class SuggestionRecord:
             "expires_at": dt_to_str(self.expires_at),
         }
 
-    def to_api_dict(self) -> Dict[str, Any]:
-        """Convert to API-friendly dict (camelCase for JavaScript)."""
-        def dt_to_str(dt: Optional[datetime]) -> Optional[str]:
-            return dt.isoformat() if dt else None
+    def to_api_dict(self, number: int = 1) -> Dict[str, Any]:
+        """Convert to API-friendly dict matching EmailActionSuggestion interface.
+
+        Args:
+            number: Display number for the suggestion (1-indexed)
+
+        Returns:
+            Dict compatible with frontend EmailActionSuggestion interface
+        """
+        # Convert confidence float to level string
+        if self.confidence >= 0.8:
+            confidence_level = "high"
+        elif self.confidence >= 0.6:
+            confidence_level = "medium"
+        else:
+            confidence_level = "low"
 
         return {
-            "suggestionId": self.suggestion_id,
+            "number": number,
             "emailId": self.email_id,
-            "emailAccount": self.email_account,
+            "from": self.email_from or "",
+            "fromName": self.email_from_name or "",
+            "to": self.email_to or "",
+            "subject": self.email_subject or "",
+            "snippet": self.email_snippet or "",
+            "date": self.email_date or "",
+            "isUnread": self.email_is_unread,
+            "isImportant": self.email_is_important,
+            "isStarred": self.email_is_starred,
             "action": self.action,
             "rationale": self.rationale,
-            "confidence": self.confidence,
+            "labelId": self.label_id,
             "labelName": self.label_name,
             "taskTitle": self.task_title,
+            "confidence": confidence_level,
+            # Extra fields for internal tracking
+            "suggestionId": self.suggestion_id,
             "status": self.status,
-            "decidedAt": dt_to_str(self.decided_at),
             "analysisMethod": self.analysis_method,
-            "createdAt": dt_to_str(self.created_at),
         }
 
     @classmethod
@@ -184,6 +240,16 @@ class SuggestionRecord:
             confidence=data.get("confidence", 0.5),
             label_name=data.get("label_name"),
             task_title=data.get("task_title"),
+            label_id=data.get("label_id"),
+            email_subject=data.get("email_subject"),
+            email_from=data.get("email_from"),
+            email_from_name=data.get("email_from_name"),
+            email_to=data.get("email_to"),
+            email_snippet=data.get("email_snippet"),
+            email_date=data.get("email_date"),
+            email_is_unread=data.get("email_is_unread", False),
+            email_is_important=data.get("email_is_important", False),
+            email_is_starred=data.get("email_is_starred", False),
             status=data.get("status", "pending"),
             decided_at=str_to_dt(data.get("decided_at")),
             analysis_method=data.get("analysis_method", "regex"),
@@ -196,22 +262,22 @@ class SuggestionRecord:
 # CRUD Operations
 # =============================================================================
 
-def save_suggestion(user_id: str, record: SuggestionRecord) -> None:
+def save_suggestion(account: str, record: SuggestionRecord) -> None:
     """Save a suggestion record to storage.
 
     Args:
-        user_id: User identifier (email address)
+        account: Email account ("church" or "personal")
         record: SuggestionRecord to save
     """
     if _force_file_fallback():
-        _save_suggestion_file(user_id, record)
+        _save_suggestion_file(account, record)
     else:
-        _save_suggestion_firestore(user_id, record)
+        _save_suggestion_firestore(account, record)
 
 
-def _save_suggestion_file(user_id: str, record: SuggestionRecord) -> None:
+def _save_suggestion_file(account: str, record: SuggestionRecord) -> None:
     """Save suggestion record to file storage."""
-    store_dir = _suggestion_dir() / _sanitize_user_id(user_id)
+    store_dir = _suggestion_dir() / account
     store_dir.mkdir(parents=True, exist_ok=True)
 
     file_path = store_dir / f"{record.suggestion_id}.json"
@@ -219,35 +285,40 @@ def _save_suggestion_file(user_id: str, record: SuggestionRecord) -> None:
         json.dump(record.to_dict(), f, indent=2)
 
 
-def _save_suggestion_firestore(user_id: str, record: SuggestionRecord) -> None:
+def _save_suggestion_firestore(account: str, record: SuggestionRecord) -> None:
     """Save suggestion record to Firestore."""
     db = get_firestore_client()
     if db is None:
-        _save_suggestion_file(user_id, record)
+        _save_suggestion_file(account, record)
         return
 
-    doc_ref = db.collection("users").document(user_id).collection("email_suggestions").document(record.suggestion_id)
+    doc_ref = (
+        db.collection("email_accounts")
+        .document(account)
+        .collection("suggestions")
+        .document(record.suggestion_id)
+    )
     doc_ref.set(record.to_dict())
 
 
-def get_suggestion(user_id: str, suggestion_id: str) -> Optional[SuggestionRecord]:
+def get_suggestion(account: str, suggestion_id: str) -> Optional[SuggestionRecord]:
     """Get a single suggestion record.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         suggestion_id: Suggestion UUID
 
     Returns:
         SuggestionRecord if found, None otherwise
     """
     if _force_file_fallback():
-        return _get_suggestion_file(user_id, suggestion_id)
-    return _get_suggestion_firestore(user_id, suggestion_id)
+        return _get_suggestion_file(account, suggestion_id)
+    return _get_suggestion_firestore(account, suggestion_id)
 
 
-def _get_suggestion_file(user_id: str, suggestion_id: str) -> Optional[SuggestionRecord]:
+def _get_suggestion_file(account: str, suggestion_id: str) -> Optional[SuggestionRecord]:
     """Get suggestion record from file storage."""
-    file_path = _suggestion_dir() / _sanitize_user_id(user_id) / f"{suggestion_id}.json"
+    file_path = _suggestion_dir() / account / f"{suggestion_id}.json"
     if not file_path.exists():
         return None
 
@@ -259,18 +330,23 @@ def _get_suggestion_file(user_id: str, suggestion_id: str) -> Optional[Suggestio
     # Check expiration
     if record.is_expired() and record.status == "pending":
         record.status = "expired"
-        save_suggestion(user_id, record)
+        save_suggestion(account, record)
 
     return record
 
 
-def _get_suggestion_firestore(user_id: str, suggestion_id: str) -> Optional[SuggestionRecord]:
+def _get_suggestion_firestore(account: str, suggestion_id: str) -> Optional[SuggestionRecord]:
     """Get suggestion record from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _get_suggestion_file(user_id, suggestion_id)
+        return _get_suggestion_file(account, suggestion_id)
 
-    doc_ref = db.collection("users").document(user_id).collection("email_suggestions").document(suggestion_id)
+    doc_ref = (
+        db.collection("email_accounts")
+        .document(account)
+        .collection("suggestions")
+        .document(suggestion_id)
+    )
     doc = doc_ref.get()
 
     if not doc.exists:
@@ -281,35 +357,28 @@ def _get_suggestion_firestore(user_id: str, suggestion_id: str) -> Optional[Sugg
     # Check expiration
     if record.is_expired() and record.status == "pending":
         record.status = "expired"
-        save_suggestion(user_id, record)
+        save_suggestion(account, record)
 
     return record
 
 
-def list_pending_suggestions(
-    user_id: str,
-    account: Optional[str] = None,
-) -> List[SuggestionRecord]:
-    """List all pending suggestions for a user.
+def list_pending_suggestions(account: str) -> List[SuggestionRecord]:
+    """List all pending suggestions for an account.
 
     Args:
-        user_id: User identifier
-        account: Optional filter by email account
+        account: Email account ("church" or "personal")
 
     Returns:
         List of pending SuggestionRecords
     """
     if _force_file_fallback():
-        return _list_pending_suggestions_file(user_id, account)
-    return _list_pending_suggestions_firestore(user_id, account)
+        return _list_pending_suggestions_file(account)
+    return _list_pending_suggestions_firestore(account)
 
 
-def _list_pending_suggestions_file(
-    user_id: str,
-    account: Optional[str] = None,
-) -> List[SuggestionRecord]:
+def _list_pending_suggestions_file(account: str) -> List[SuggestionRecord]:
     """List pending suggestions from file storage."""
-    store_dir = _suggestion_dir() / _sanitize_user_id(user_id)
+    store_dir = _suggestion_dir() / account
     if not store_dir.exists():
         return []
 
@@ -327,11 +396,7 @@ def _list_pending_suggestions_file(
         # Check expiration
         if record.is_expired():
             record.status = "expired"
-            save_suggestion(user_id, record)
-            continue
-
-        # Filter by account
-        if account and record.email_account != account:
+            save_suggestion(account, record)
             continue
 
         records.append(record)
@@ -341,20 +406,18 @@ def _list_pending_suggestions_file(
     return records
 
 
-def _list_pending_suggestions_firestore(
-    user_id: str,
-    account: Optional[str] = None,
-) -> List[SuggestionRecord]:
+def _list_pending_suggestions_firestore(account: str) -> List[SuggestionRecord]:
     """List pending suggestions from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _list_pending_suggestions_file(user_id, account)
+        return _list_pending_suggestions_file(account)
 
-    collection_ref = db.collection("users").document(user_id).collection("email_suggestions")
+    collection_ref = (
+        db.collection("email_accounts")
+        .document(account)
+        .collection("suggestions")
+    )
     query = collection_ref.where("status", "==", "pending")
-
-    if account:
-        query = query.where("email_account", "==", account)
 
     records = []
     for doc in query.stream():
@@ -363,7 +426,7 @@ def _list_pending_suggestions_firestore(
         # Check expiration
         if record.is_expired():
             record.status = "expired"
-            save_suggestion(user_id, record)
+            save_suggestion(account, record)
             continue
 
         records.append(record)
@@ -374,7 +437,7 @@ def _list_pending_suggestions_firestore(
 
 
 def record_suggestion_decision(
-    user_id: str,
+    account: str,
     suggestion_id: str,
     approved: bool,
 ) -> bool:
@@ -384,47 +447,68 @@ def record_suggestion_decision(
     Approvals increase trust, rejections decrease it.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         suggestion_id: Suggestion UUID
         approved: Whether user approved the suggestion
 
     Returns:
         True if decision recorded, False if suggestion not found
     """
-    record = get_suggestion(user_id, suggestion_id)
+    record = get_suggestion(account, suggestion_id)
     if record is None:
         return False
 
     record.status = "approved" if approved else "rejected"
     record.decided_at = _now()
 
-    save_suggestion(user_id, record)
+    save_suggestion(account, record)
     return True
 
 
 def create_suggestion(
-    user_id: str,
+    account: str,
     email_id: str,
-    email_account: str,
+    user_id: str,
     action: SuggestionAction,
     rationale: str,
     confidence: float = 0.5,
     label_name: Optional[str] = None,
+    label_id: Optional[str] = None,
     task_title: Optional[str] = None,
     analysis_method: AnalysisMethod = "regex",
+    # Email metadata for UI display
+    email_subject: Optional[str] = None,
+    email_from: Optional[str] = None,
+    email_from_name: Optional[str] = None,
+    email_to: Optional[str] = None,
+    email_snippet: Optional[str] = None,
+    email_date: Optional[str] = None,
+    email_is_unread: bool = False,
+    email_is_important: bool = False,
+    email_is_starred: bool = False,
 ) -> SuggestionRecord:
     """Create and save a new suggestion.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         email_id: Gmail message ID
-        email_account: "church" or "personal"
+        user_id: User identifier (for audit trail)
         action: Suggested action type
         rationale: Why this action is suggested
         confidence: Confidence score 0.0-1.0
         label_name: Target label for LABEL action
+        label_id: Gmail label ID for LABEL action
         task_title: Task title for CREATE_TASK action
         analysis_method: How suggestion was generated
+        email_subject: Email subject line (for UI display)
+        email_from: Email sender address
+        email_from_name: Email sender display name
+        email_to: Email recipient address
+        email_snippet: Email preview snippet
+        email_date: Email received date (ISO format)
+        email_is_unread: Whether email is unread
+        email_is_important: Whether email is marked important
+        email_is_starred: Whether email is starred
 
     Returns:
         The created SuggestionRecord
@@ -432,38 +516,48 @@ def create_suggestion(
     record = SuggestionRecord(
         suggestion_id=_generate_id(),
         email_id=email_id,
-        email_account=email_account,
+        email_account=account,
         user_id=user_id,
         action=action,
         rationale=rationale,
         confidence=confidence,
         label_name=label_name,
+        label_id=label_id,
         task_title=task_title,
         analysis_method=analysis_method,
+        email_subject=email_subject,
+        email_from=email_from,
+        email_from_name=email_from_name,
+        email_to=email_to,
+        email_snippet=email_snippet,
+        email_date=email_date,
+        email_is_unread=email_is_unread,
+        email_is_important=email_is_important,
+        email_is_starred=email_is_starred,
     )
 
-    save_suggestion(user_id, record)
+    save_suggestion(account, record)
     return record
 
 
-def get_approval_stats(user_id: str, days: int = 30) -> Dict[str, Any]:
+def get_approval_stats(account: str, days: int = 30) -> Dict[str, Any]:
     """Get suggestion approval statistics for Trust Gradient.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         days: How many days to look back
 
     Returns:
         Dict with approval stats
     """
     if _force_file_fallback():
-        return _get_approval_stats_file(user_id, days)
-    return _get_approval_stats_firestore(user_id, days)
+        return _get_approval_stats_file(account, days)
+    return _get_approval_stats_firestore(account, days)
 
 
-def _get_approval_stats_file(user_id: str, days: int = 30) -> Dict[str, Any]:
+def _get_approval_stats_file(account: str, days: int = 30) -> Dict[str, Any]:
     """Get approval stats from file storage."""
-    store_dir = _suggestion_dir() / _sanitize_user_id(user_id)
+    store_dir = _suggestion_dir() / account
     if not store_dir.exists():
         return _empty_stats()
 
@@ -513,13 +607,17 @@ def _get_approval_stats_file(user_id: str, days: int = 30) -> Dict[str, Any]:
     return stats
 
 
-def _get_approval_stats_firestore(user_id: str, days: int = 30) -> Dict[str, Any]:
+def _get_approval_stats_firestore(account: str, days: int = 30) -> Dict[str, Any]:
     """Get approval stats from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _get_approval_stats_file(user_id, days)
+        return _get_approval_stats_file(account, days)
 
-    collection_ref = db.collection("users").document(user_id).collection("email_suggestions")
+    collection_ref = (
+        db.collection("email_accounts")
+        .document(account)
+        .collection("suggestions")
+    )
     cutoff = (_now() - timedelta(days=days)).isoformat()
 
     stats = {
@@ -575,24 +673,24 @@ def _empty_stats() -> Dict[str, Any]:
     }
 
 
-def purge_old_suggestions(user_id: str, days: int = 30) -> int:
+def purge_old_suggestions(account: str, days: int = 30) -> int:
     """Purge suggestions older than specified days.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         days: Age threshold in days
 
     Returns:
         Count of suggestions purged
     """
     if _force_file_fallback():
-        return _purge_old_suggestions_file(user_id, days)
-    return _purge_old_suggestions_firestore(user_id, days)
+        return _purge_old_suggestions_file(account, days)
+    return _purge_old_suggestions_firestore(account, days)
 
 
-def _purge_old_suggestions_file(user_id: str, days: int = 30) -> int:
+def _purge_old_suggestions_file(account: str, days: int = 30) -> int:
     """Purge old suggestions from file storage."""
-    store_dir = _suggestion_dir() / _sanitize_user_id(user_id)
+    store_dir = _suggestion_dir() / account
     if not store_dir.exists():
         return 0
 
@@ -617,13 +715,17 @@ def _purge_old_suggestions_file(user_id: str, days: int = 30) -> int:
     return count
 
 
-def _purge_old_suggestions_firestore(user_id: str, days: int = 30) -> int:
+def _purge_old_suggestions_firestore(account: str, days: int = 30) -> int:
     """Purge old suggestions from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _purge_old_suggestions_file(user_id, days)
+        return _purge_old_suggestions_file(account, days)
 
-    collection_ref = db.collection("users").document(user_id).collection("email_suggestions")
+    collection_ref = (
+        db.collection("email_accounts")
+        .document(account)
+        .collection("suggestions")
+    )
     cutoff = (_now() - timedelta(days=days)).isoformat()
 
     count = 0
