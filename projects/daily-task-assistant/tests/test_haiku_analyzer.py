@@ -152,7 +152,8 @@ class TestContentMasking:
 
     def test_masks_api_keys(self):
         """API keys and tokens should be masked."""
-        result = sanitize_content("api_key: sk_live_abcdefghijklmnopqrstuvwxyz")
+        # Using clearly fake test pattern to avoid GitHub secret scanning false positives
+        result = sanitize_content("api_key: sk_test_FAKEKEYFORTESTING123456")
         assert "[API-KEY-REDACTED]" in result.sanitized_content
 
     def test_masks_bearer_tokens(self):
@@ -484,60 +485,52 @@ class TestHaikuUsageStorage:
             yield tmp_path
 
     def test_save_and_get_settings(self, temp_storage):
-        """Should save and retrieve settings."""
-        user_id = "test@example.com"
+        """Should save and retrieve settings (GLOBAL - no user_id)."""
         original = HaikuSettings(enabled=False, daily_limit=100)
 
-        save_settings(user_id, original)
-        restored = get_settings(user_id)
+        save_settings(original)
+        restored = get_settings()
 
         assert restored.enabled == original.enabled
         assert restored.daily_limit == original.daily_limit
 
     def test_save_and_get_usage(self, temp_storage):
-        """Should save and retrieve usage."""
-        user_id = "test@example.com"
+        """Should save and retrieve usage (GLOBAL - no user_id)."""
         usage = HaikuUsage(daily_count=5, weekly_count=20)
 
-        save_usage(user_id, usage)
-        restored = get_usage(user_id)
+        save_usage(usage)
+        restored = get_usage()
 
         assert restored.daily_count == 5
         assert restored.weekly_count == 20
 
     def test_increment_usage(self, temp_storage):
-        """Should increment and persist usage."""
-        user_id = "test@example.com"
-
-        usage = increment_usage(user_id)
+        """Should increment and persist usage (GLOBAL - no user_id)."""
+        usage = increment_usage()
         assert usage.daily_count == 1
         assert usage.weekly_count == 1
 
-        usage = increment_usage(user_id)
+        usage = increment_usage()
         assert usage.daily_count == 2
         assert usage.weekly_count == 2
 
     def test_can_use_haiku(self, temp_storage):
-        """Should check combined settings and usage."""
-        user_id = "test@example.com"
-
+        """Should check combined settings and usage (GLOBAL - no user_id)."""
         # Should be able to use with defaults
-        assert can_use_haiku(user_id) is True
+        assert can_use_haiku() is True
 
         # Disable Haiku
         settings = HaikuSettings(enabled=False)
-        save_settings(user_id, settings)
-        assert can_use_haiku(user_id) is False
+        save_settings(settings)
+        assert can_use_haiku() is False
 
     def test_get_usage_summary(self, temp_storage):
-        """Should return complete summary."""
-        user_id = "test@example.com"
-
+        """Should return complete summary (GLOBAL - no user_id)."""
         # Set some usage
         usage = HaikuUsage(daily_count=10, weekly_count=30)
-        save_usage(user_id, usage)
+        save_usage(usage)
 
-        summary = get_usage_summary(user_id)
+        summary = get_usage_summary()
 
         assert summary["dailyCount"] == 10
         assert summary["weeklyCount"] == 30
@@ -546,12 +539,10 @@ class TestHaikuUsageStorage:
         assert "dailyRemaining" in summary
         assert "weeklyRemaining" in summary
 
-    def test_defaults_for_new_user(self, temp_storage):
-        """Should return defaults for users without stored data."""
-        user_id = "newuser@example.com"
-
-        settings = get_settings(user_id)
-        usage = get_usage(user_id)
+    def test_defaults_when_no_stored_data(self, temp_storage):
+        """Should return defaults when no stored data exists (GLOBAL)."""
+        settings = get_settings()
+        usage = get_usage()
 
         assert settings.enabled is True
         assert settings.daily_limit == DEFAULT_DAILY_LIMIT

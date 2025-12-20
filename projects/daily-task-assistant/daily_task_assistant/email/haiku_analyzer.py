@@ -281,6 +281,11 @@ GUIDELINES:
 - Suggest label for: emails that fit a category/project but need to stay visible
 - Suggest star for: important items David should revisit
 - Only suggest rules for recurring patterns (would apply to future similar emails)
+
+IMPORTANT - SHORT EMAIL HANDLING:
+- If preview is very short, empty, or looks like a signature (e.g., "Get Outlook for iOS"),
+  focus on the SUBJECT LINE for context clues
+- Email signatures don't indicate actionable content - look at subject and sender instead
 """
 
 DEFAULT_ROLES_CONTEXT = """

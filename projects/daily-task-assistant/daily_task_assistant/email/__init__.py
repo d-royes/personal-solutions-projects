@@ -90,6 +90,18 @@ from .haiku_analyzer import (
     analyze_email_with_haiku,
 )
 
+from .rule_store import (
+    RuleSuggestionRecord,
+    save_rule_suggestion,
+    get_rule_suggestion,
+    list_pending_rules,
+    decide_rule_suggestion,
+    create_rule_suggestion,
+    get_rule_approval_stats,
+    purge_expired_rules,
+    has_pending_rule_for_pattern,
+)
+
 from .haiku_usage import (
     # Dataclasses
     HaikuSettings,
@@ -104,6 +116,12 @@ from .haiku_usage import (
     # Combined operations
     can_use_haiku,
     get_usage_summary as get_haiku_usage_summary,
+)
+
+from .analysis_store import (
+    LastAnalysisRecord,
+    save_last_analysis,
+    get_last_analysis,
 )
 
 __all__ = [
@@ -194,5 +212,19 @@ __all__ = [
     "increment_haiku_usage",
     "can_use_haiku",
     "get_haiku_usage_summary",
+    # Rule Store
+    "RuleSuggestionRecord",
+    "save_rule_suggestion",
+    "get_rule_suggestion",
+    "list_pending_rules",
+    "decide_rule_suggestion",
+    "create_rule_suggestion",
+    "get_rule_approval_stats",
+    "purge_expired_rules",
+    "has_pending_rule_for_pattern",
+    # Analysis Store
+    "LastAnalysisRecord",
+    "save_last_analysis",
+    "get_last_analysis",
 ]
 

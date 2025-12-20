@@ -33,6 +33,9 @@ import {
   dismissAttentionItem,
   snoozeAttentionItem,
   getAttentionItems,
+  getPendingRules,
+  getPendingActionSuggestions,
+  getLastAnalysis,
   type EmailPendingAction,
   type EmailActionSuggestion,
   type GmailLabel,
@@ -43,10 +46,56 @@ import {
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 import { HaikuSettingsPanel } from './HaikuSettingsPanel'
 
+// Last analysis result for auditing
+export interface LastAnalysisResult {
+  timestamp: Date
+  emailsFetched: number
+  emailsAnalyzed: number
+  alreadyTracked: number
+  dismissed: number
+  suggestionsGenerated: number
+  rulesGenerated: number
+  attentionItems: number
+  haikuAnalyzed: number
+  haikuRemaining: { daily: number; weekly: number } | null
+}
+
+// Per-account cache structure - exported for App.tsx to manage
+export interface AccountCache {
+  inbox: InboxSummary | null
+  rules: FilterRule[]
+  suggestions: RuleSuggestion[]  // Rule suggestions (New Rules tab)
+  attentionItems: AttentionItem[]
+  actionSuggestions: EmailActionSuggestion[]  // Email action suggestions (Suggestions tab)
+  availableLabels: GmailLabel[]
+  emailTaskLinks: Record<string, EmailTaskInfo>  // email_id -> task info
+  loaded: boolean
+  lastAnalysis: LastAnalysisResult | null  // Last analysis result for auditing
+}
+
+export const emptyEmailCache = (): AccountCache => ({
+  inbox: null,
+  rules: [],
+  suggestions: [],
+  attentionItems: [],
+  actionSuggestions: [],
+  availableLabels: [],
+  emailTaskLinks: {},
+  loaded: false,
+  lastAnalysis: null,
+})
+
+export type EmailCacheState = Record<EmailAccount, AccountCache>
+
 interface EmailDashboardProps {
   authConfig: AuthConfig
   apiBase: string
   onBack: () => void
+  // Optional lifted state for persistence across mode switches
+  cache?: EmailCacheState
+  setCache?: React.Dispatch<React.SetStateAction<EmailCacheState>>
+  selectedAccount?: EmailAccount
+  setSelectedAccount?: React.Dispatch<React.SetStateAction<EmailAccount>>
 }
 
 type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention' | 'settings'
@@ -81,45 +130,35 @@ const OPERATORS = [
   { value: 'Equals', label: 'Equals' },
 ]
 
-// Per-account cache structure
-interface AccountCache {
-  inbox: InboxSummary | null
-  rules: FilterRule[]
-  suggestions: RuleSuggestion[]  // Rule suggestions (New Rules tab)
-  attentionItems: AttentionItem[]
-  actionSuggestions: EmailActionSuggestion[]  // Email action suggestions (Suggestions tab)
-  availableLabels: GmailLabel[]
-  emailTaskLinks: Record<string, EmailTaskInfo>  // email_id -> task info
-  loaded: boolean
-}
+export function EmailDashboard({
+  authConfig,
+  apiBase,
+  onBack,
+  cache: externalCache,
+  setCache: externalSetCache,
+  selectedAccount: externalSelectedAccount,
+  setSelectedAccount: externalSetSelectedAccount,
+}: EmailDashboardProps) {
+  // Account selection - use external state if provided, otherwise local
+  const [localSelectedAccount, localSetSelectedAccount] = useState<EmailAccount>('personal')
+  const selectedAccount = externalSelectedAccount ?? localSelectedAccount
+  const setSelectedAccount = externalSetSelectedAccount ?? localSetSelectedAccount
 
-const emptyCache = (): AccountCache => ({
-  inbox: null,
-  rules: [],
-  suggestions: [],
-  attentionItems: [],
-  actionSuggestions: [],
-  availableLabels: [],
-  emailTaskLinks: {},
-  loaded: false,
-})
-
-export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardProps) {
-  // Account selection
-  const [selectedAccount, setSelectedAccount] = useState<EmailAccount>('personal')
   const [activeTab, setActiveTab] = useState<TabView>('dashboard')
-  
+
   // Two-panel layout state
   const [emailPanelCollapsed, setEmailPanelCollapsed] = useState(false)
   const [assistPanelCollapsed, setAssistPanelCollapsed] = useState(true) // Start collapsed until Phase 4
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null)
-  
-  // Per-account data cache
-  const [cache, setCache] = useState<Record<EmailAccount, AccountCache>>({
-    personal: emptyCache(),
-    church: emptyCache(),
+
+  // Per-account data cache - use external state if provided, otherwise local
+  const [localCache, localSetCache] = useState<EmailCacheState>({
+    personal: emptyEmailCache(),
+    church: emptyEmailCache(),
   })
-  
+  const cache = externalCache ?? localCache
+  const setCache = externalSetCache ?? localSetCache
+
   // Derived state from cache for current account
   const inboxSummary = cache[selectedAccount].inbox
   const rules = cache[selectedAccount].rules
@@ -266,12 +305,90 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         }
       }
       
+      // Merge new rule suggestions with existing ones (don't replace)
+      const existingRules = cache[selectedAccount].suggestions
+      const newRules = response.suggestions as RuleSuggestion[]
+
+      // Deduplicate by ruleId or by pattern (field + operator + value)
+      const existingPatterns = new Set(existingRules.map(r =>
+        r.ruleId || `${r.suggestedRule.field}:${r.suggestedRule.operator}:${r.suggestedRule.value}`
+      ))
+      const mergedRules = [
+        ...existingRules,
+        ...newRules.filter(r => {
+          const pattern = r.ruleId || `${r.suggestedRule.field}:${r.suggestedRule.operator}:${r.suggestedRule.value}`
+          return !existingPatterns.has(pattern)
+        })
+      ]
+
+      // Merge new action suggestions with existing ones
+      const existingActions = cache[selectedAccount].actionSuggestions
+      const newActions = (response.actionSuggestions || []) as EmailActionSuggestion[]
+
+      // Deduplicate by suggestionId or emailId
+      const existingEmailIds = new Set(existingActions.map(s =>
+        (s as unknown as { suggestionId?: string }).suggestionId || s.emailId
+      ))
+      const mergedActions = [
+        ...existingActions,
+        ...newActions.filter(s => {
+          const id = (s as unknown as { suggestionId?: string }).suggestionId || s.emailId
+          return !existingEmailIds.has(id)
+        })
+      ]
+      // Re-number action suggestions
+      const renumberedActions = mergedActions.map((s, idx) => ({ ...s, number: idx + 1 }))
+
       updateCache({
-        suggestions: response.suggestions,
+        suggestions: mergedRules,  // Rule suggestions for "New Rules" tab (MERGED)
+        actionSuggestions: renumberedActions,  // Action suggestions for "Suggestions" tab (MERGED)
         attentionItems: response.attentionItems,
         emailTaskLinks: taskLinks,
       })
       setLastAttentionSync(new Date())  // Update sync timestamp
+
+      // Reload persisted data to ensure cache is in sync with storage
+      // This catches any suggestions that were persisted but not in the response
+      const suggestionsResponse = await getPendingActionSuggestions(selectedAccount, authConfig, apiBase)
+      updateCache({ actionSuggestions: suggestionsResponse.suggestions || [] })
+
+      const rulesResponse = await getPendingRules(selectedAccount, authConfig, apiBase)
+      const ruleSuggestions: RuleSuggestion[] = rulesResponse.rules.map(r => ({
+        type: r.suggestionType as 'new_label' | 'deletion' | 'attention',
+        suggestedRule: {
+          emailAccount: r.suggestedRule.emailAccount || selectedAccount,
+          order: r.suggestedRule.order || 1,
+          category: r.suggestedRule.category,
+          field: r.suggestedRule.field,
+          operator: r.suggestedRule.operator,
+          value: r.suggestedRule.value,
+          action: r.suggestedRule.action,
+        },
+        confidence: r.confidence >= 0.8 ? 'high' : r.confidence >= 0.6 ? 'medium' : 'low',
+        reason: r.reason,
+        examples: r.examples,
+        emailCount: r.emailCount,
+        ruleId: r.ruleId,
+      }))
+      updateCache({ suggestions: ruleSuggestions })
+
+      // Save last analysis result for auditing (Settings page)
+      const lastAnalysisResult: LastAnalysisResult = {
+        timestamp: new Date(),
+        emailsFetched: response.emailsFetched || 0,
+        emailsAnalyzed: response.messagesAnalyzed || 0,
+        alreadyTracked: response.emailsAlreadyTracked || 0,
+        dismissed: response.emailsDismissed || 0,
+        suggestionsGenerated: (response.actionSuggestions?.length || 0),
+        rulesGenerated: (response.suggestions?.length || 0),
+        attentionItems: response.attentionItems?.length || 0,
+        haikuAnalyzed: response.haikuAnalyzed || 0,
+        haikuRemaining: response.haikuUsage ? {
+          daily: response.haikuUsage.dailyRemaining,
+          weekly: response.haikuUsage.weeklyRemaining,
+        } : null,
+      }
+      updateCache({ lastAnalysis: lastAnalysisResult })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed')
     } finally {
@@ -339,6 +456,89 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
   // Suppress unused warning - available for future explicit label loading
   void loadLabels
 
+  // Load persisted rule suggestions from storage (without re-analyzing)
+  const loadPersistedRules = useCallback(async () => {
+    try {
+      const rulesResponse = await getPendingRules(selectedAccount, authConfig, apiBase)
+
+      // Convert API response to RuleSuggestion format
+      const ruleSuggestions: RuleSuggestion[] = rulesResponse.rules.map(r => ({
+        type: r.suggestionType as 'new_label' | 'deletion' | 'attention',
+        suggestedRule: {
+          emailAccount: r.suggestedRule.emailAccount || selectedAccount,
+          order: r.suggestedRule.order || 1,
+          category: r.suggestedRule.category,
+          field: r.suggestedRule.field,
+          operator: r.suggestedRule.operator,
+          value: r.suggestedRule.value,
+          action: r.suggestedRule.action,
+        },
+        confidence: r.confidence >= 0.8 ? 'high' : r.confidence >= 0.6 ? 'medium' : 'low',
+        reason: r.reason,
+        examples: r.examples,
+        emailCount: r.emailCount,
+        ruleId: r.ruleId,
+      }))
+
+      // Always update cache - even if empty - to clear stale data from other accounts
+      updateCache({ suggestions: ruleSuggestions })
+    } catch (err) {
+      // Silent fail - persisted rules are optional
+      console.warn('Failed to load persisted rules:', err)
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache])
+
+  // Load persisted action suggestions from storage (Suggestions tab)
+  const loadPersistedActionSuggestions = useCallback(async () => {
+    try {
+      const response = await getPendingActionSuggestions(selectedAccount, authConfig, apiBase)
+
+      // Always update cache - even if empty - to clear stale data from other accounts
+      updateCache({ actionSuggestions: response.suggestions || [] })
+    } catch (err) {
+      // Silent fail - persisted suggestions are optional
+      console.warn('Failed to load persisted action suggestions:', err)
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache])
+
+  // Load last analysis result from server (for cross-machine sync)
+  const loadLastAnalysis = useCallback(async (account: EmailAccount) => {
+    try {
+      const response = await getLastAnalysis(account, authConfig, apiBase)
+      if (response.lastAnalysis) {
+        const lastAnalysis: LastAnalysisResult = {
+          timestamp: new Date(response.lastAnalysis.timestamp),
+          emailsFetched: response.lastAnalysis.emailsFetched,
+          emailsAnalyzed: response.lastAnalysis.emailsAnalyzed,
+          alreadyTracked: response.lastAnalysis.alreadyTracked,
+          dismissed: response.lastAnalysis.dismissed,
+          suggestionsGenerated: response.lastAnalysis.suggestionsGenerated,
+          rulesGenerated: response.lastAnalysis.rulesGenerated,
+          attentionItems: response.lastAnalysis.attentionItems,
+          haikuAnalyzed: response.lastAnalysis.haikuAnalyzed,
+          haikuRemaining: response.lastAnalysis.haikuRemaining,
+        }
+        // Update the specific account's cache
+        setCache(prev => ({
+          ...prev,
+          [account]: {
+            ...prev[account],
+            lastAnalysis,
+          },
+        }))
+      }
+    } catch (err) {
+      // Silent fail - last analysis is optional
+      console.warn(`Failed to load last analysis for ${account}:`, err)
+    }
+  }, [authConfig, apiBase, setCache])
+
+  // Load last analysis for both accounts on initial mount (cross-machine sync)
+  useEffect(() => {
+    loadLastAnalysis('personal')
+    loadLastAnalysis('church')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Dismiss an attention item
   const handleDismiss = useCallback(async (emailId: string, reason: DismissReason) => {
     try {
@@ -405,6 +605,8 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
     loadRules()
     loadLabels()  // Load labels for name lookup
     loadPersistedAttention()  // Load persisted attention items on account change
+    loadPersistedRules()  // Load persisted rule suggestions on account change
+    loadPersistedActionSuggestions()  // Load persisted action suggestions on account change
   }, [selectedAccount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle adding a new rule
@@ -1335,7 +1537,7 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
                 className={activeTab === 'suggestions' ? 'active' : ''}
                 onClick={() => setActiveTab('suggestions')}
               >
-                Suggestions
+                Suggestions {actionSuggestions.length > 0 && `(${actionSuggestions.length})`}
               </button>
               <button
                 className={activeTab === 'attention' ? 'active' : ''}
@@ -1362,19 +1564,19 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         {activeTab === 'dashboard' && (
           <div className="dashboard-view">
             <div className="stats-grid">
-              <div className="stat-card">
+              <div className="stat-card clickable" onClick={() => setActiveTab('dashboard')} title="View Dashboard">
                 <div className="stat-value">{inboxSummary?.totalUnread?.toLocaleString() ?? '—'}</div>
                 <div className="stat-label">Unread</div>
               </div>
-              <div className="stat-card important">
-                <div className="stat-value">{inboxSummary?.unreadImportant?.toLocaleString() ?? '—'}</div>
-                <div className="stat-label">Important</div>
-              </div>
-              <div className="stat-card">
+              <div className="stat-card clickable" onClick={() => setActiveTab('rules')} title="View Active Rules">
                 <div className="stat-value">{rules.length}</div>
                 <div className="stat-label">Active Rules</div>
               </div>
-              <div className="stat-card warning">
+              <div className="stat-card important clickable" onClick={() => setActiveTab('suggestions')} title="View Suggestions">
+                <div className="stat-value">{actionSuggestions.length || '—'}</div>
+                <div className="stat-label">Suggestions</div>
+              </div>
+              <div className="stat-card warning clickable" onClick={() => setActiveTab('attention')} title="View Attention Items">
                 <div className="stat-value">{attentionItems.length || '—'}</div>
                 <div className="stat-label">Need Attention</div>
               </div>
@@ -2086,6 +2288,69 @@ export function EmailDashboard({ authConfig, apiBase, onBack }: EmailDashboardPr
         {/* Settings Tab */}
         {activeTab === 'settings' && (
           <div className="settings-view">
+            {/* Last Analysis Section */}
+            <div className="settings-section">
+              <h3>Last Analysis Results</h3>
+              <div className="last-analysis-grid">
+                {(['personal', 'church'] as const).map(account => {
+                  const analysis = cache[account].lastAnalysis
+                  return (
+                    <div key={account} className="analysis-card">
+                      <h4>{account.charAt(0).toUpperCase() + account.slice(1)} Account</h4>
+                      {analysis ? (
+                        <div className="analysis-details">
+                          <div className="analysis-timestamp">
+                            {new Date(analysis.timestamp).toLocaleString()}
+                          </div>
+                          <table className="analysis-table">
+                            <tbody>
+                              <tr>
+                                <td>Emails Fetched</td>
+                                <td className="value">{analysis.emailsFetched}</td>
+                              </tr>
+                              <tr>
+                                <td>Already Tracked</td>
+                                <td className="value">{analysis.alreadyTracked}</td>
+                              </tr>
+                              <tr>
+                                <td>Dismissed (not actionable)</td>
+                                <td className="value">{analysis.dismissed}</td>
+                              </tr>
+                              <tr>
+                                <td>Analyzed by Haiku</td>
+                                <td className="value">{analysis.haikuAnalyzed}</td>
+                              </tr>
+                              <tr className="highlight">
+                                <td>Suggestions Generated</td>
+                                <td className="value">{analysis.suggestionsGenerated}</td>
+                              </tr>
+                              <tr className="highlight">
+                                <td>Rules Generated</td>
+                                <td className="value">{analysis.rulesGenerated}</td>
+                              </tr>
+                              <tr className="highlight">
+                                <td>Attention Items</td>
+                                <td className="value">{analysis.attentionItems}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                          {analysis.haikuRemaining && (
+                            <div className="haiku-remaining">
+                              Haiku Remaining: {analysis.haikuRemaining.daily}/day, {analysis.haikuRemaining.weekly}/week
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="no-analysis">
+                          No analysis run yet
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
             <HaikuSettingsPanel authConfig={authConfig} apiBase={apiBase} />
           </div>
         )}

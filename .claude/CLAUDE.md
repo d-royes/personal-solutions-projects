@@ -96,12 +96,45 @@ cd projects/daily-task-assistant/scripts
 When restarting the backend from Claude Code (bash shell), the PowerShell script runs in a new window. For Claude Code to start the backend in the same shell, use:
 ```bash
 cd "C:\Users\david\psp-cli\projects\daily-task-assistant" && \
+  set -a && source .env && set +a && \
   export DTA_DEV_AUTH_BYPASS="1" && \
   export PYTHONPATH="." && \
   export GOOGLE_APPLICATION_CREDENTIALS="C:\Users\david\.gcp\daily-task-assistant-church-4c371ea55362.json" && \
   python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 Run this as a background task to keep the server running while working.
+
+**Important**: The `set -a && source .env && set +a` loads Gmail credentials and other env vars from .env. Without this, Gmail endpoints will fail with "Missing Gmail env vars" errors.
+
+**Preferred**: Use `reset-backend.ps1` instead - it handles .env loading, zombie process cleanup, and starts in a new window.
+
+### Troubleshooting: Zombie Uvicorn Processes on Windows
+
+**Symptom**: Server restart doesn't pick up new code changes. New API endpoints return 404 even though they're in the code. `netstat` shows processes on port 8000 that `Stop-Process` cannot find.
+
+**Root Cause**: When uvicorn is killed, orphaned child processes can survive and continue serving old code while holding the port open. The parent PID shows in `netstat` but is already dead.
+
+**Solution** (Source: https://rolisz.ro/2024/fastapi-server-stuck-on-windows/):
+
+```powershell
+# 1. Get orphaned PIDs from netstat
+netstat -ano | findstr :8000
+# Shows: LISTENING  29360, 71188, 57352
+
+# 2. Find child processes of those dead parents
+Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -in (29360, 71188, 57352) } | Select-Object ProcessId, Name, ParentProcessId
+
+# 3. Kill the orphaned children
+Stop-Process -Id PID1, PID2, PID3 -Force
+
+# 4. Verify port is free
+Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
+# Should return nothing
+
+# 5. Restart server normally
+```
+
+**Prevention**: Always use `stop-dev.ps1` which should handle child processes. If issues persist, use the manual steps above.
 
 ### Running Unit Tests
 ```powershell
@@ -157,6 +190,35 @@ The `.env` file in `projects/daily-task-assistant/` contains:
 ### Authentication
 - Production: Google OAuth with ID token verification
 - Dev: Set `DTA_DEV_AUTH_BYPASS=1` and use `X-User-Email` header
+
+## Storage Key Architecture (CRITICAL)
+
+**David has TWO login identities but is ONE user:**
+- `david.a.royes@gmail.com` (personal Gmail)
+- `davidroyes@southpointsda.org` (church Gmail)
+
+**NEVER key storage by login email.** This causes data fragmentation and allows bypassing limits.
+
+### Storage Categories
+
+| Category | Key Strategy | Firestore Path | File Path |
+|----------|--------------|----------------|-----------|
+| **GLOBAL** | Fixed `"david"` | `global/david/{collection}` | `{store}/global/` |
+| **ACCOUNT** | `"church"` or `"personal"` | `email_accounts/{account}/...` | `{store}/{account}/` |
+
+### What Goes Where
+
+| Module | Category | Why |
+|--------|----------|-----|
+| `profile.py` | GLOBAL | User preferences shared across logins |
+| `haiku_usage.py` | GLOBAL | Usage limits must be global (can't bypass by switching login) |
+| `attention_store.py` | ACCOUNT | Email attention is per-account (church vs personal inbox) |
+| `suggestion_store.py` | ACCOUNT | Suggestions are per-account |
+| `memory.py` | ACCOUNT | Email patterns are per-account |
+
+### Reference Implementation
+See `attention_store.py` for the correct ACCOUNT-based pattern.
+See `docs/STORAGE_ARCHITECTURE.md` for full details.
 
 ## Boundaries
 
@@ -229,6 +291,7 @@ Claude Code should never ask David to run commands unless there is a critical re
 - `DATA_PREFERENCES.md` - DATA's behavioral guidelines
 - `docs/DATA_CLOUD_VISION.md` - Product roadmap
 - `docs/Gap_Analysis_Conversation_Review.md` - UX improvement ideas
+- `docs/STORAGE_ARCHITECTURE.md` - **CRITICAL** storage key patterns (GLOBAL vs ACCOUNT)
 
 ## Resources
 

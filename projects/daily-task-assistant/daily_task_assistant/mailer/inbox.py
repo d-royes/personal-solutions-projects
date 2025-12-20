@@ -63,9 +63,16 @@ class EmailMessage:
         return "STARRED" in self.labels
     
     def age_hours(self) -> float:
-        """Return age of message in hours."""
+        """Return age of message in hours.
+
+        Handles both timezone-aware and naive datetimes safely.
+        """
         now = datetime.now(timezone.utc)
-        delta = now - self.date
+        msg_date = self.date
+        # Handle offset-naive datetimes (assume UTC if no timezone)
+        if msg_date.tzinfo is None:
+            msg_date = msg_date.replace(tzinfo=timezone.utc)
+        delta = now - msg_date
         return delta.total_seconds() / 3600
 
 
@@ -350,17 +357,19 @@ def search_messages(
     query: str,
     *,
     max_results: int = 20,
+    format: Literal["minimal", "metadata", "full"] = "metadata",
 ) -> List[EmailMessage]:
     """Search messages using Gmail query syntax.
-    
+
     Args:
         account: Gmail account configuration.
         query: Gmail search query (e.g., "subject:urgent after:2025/01/01").
         max_results: Maximum results to return.
-        
+        format: Response format - 'metadata' (default) or 'full' for body content.
+
     Returns:
         List of matching EmailMessage objects.
-        
+
     Examples:
         - "is:unread from:boss@company.com"
         - "subject:urgent OR subject:asap"
@@ -368,15 +377,15 @@ def search_messages(
         - "in:inbox is:important"
     """
     message_refs = list_messages(account, max_results=max_results, query=query)
-    
+
     messages = []
     for ref in message_refs:
         try:
-            msg = get_message(account, ref["id"])
+            msg = get_message(account, ref["id"], format=format)
             messages.append(msg)
         except GmailError:
             continue
-    
+
     return messages
 
 
@@ -452,22 +461,37 @@ def _parse_email_address(raw: str) -> tuple[str, str]:
 
 
 def _parse_email_date(date_str: str) -> datetime:
-    """Parse email date string to datetime."""
+    """Parse email date string to datetime.
+
+    Always returns a timezone-aware datetime (UTC if no timezone in source).
+    """
     from email.utils import parsedate_to_datetime
+    result = None
+
     try:
-        return parsedate_to_datetime(date_str)
+        result = parsedate_to_datetime(date_str)
     except Exception:
         # Fallback: try common formats
         for fmt in [
             "%a, %d %b %Y %H:%M:%S %z",
             "%d %b %Y %H:%M:%S %z",
             "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%d %H:%M:%S",  # No timezone - will be made aware below
         ]:
             try:
-                return datetime.strptime(date_str, fmt)
+                result = datetime.strptime(date_str, fmt)
+                break
             except ValueError:
                 continue
+
+    if result is None:
         return datetime.now(timezone.utc)
+
+    # Ensure result is timezone-aware (assume UTC if naive)
+    if result.tzinfo is None:
+        result = result.replace(tzinfo=timezone.utc)
+
+    return result
 
 
 def _extract_body_and_attachments(

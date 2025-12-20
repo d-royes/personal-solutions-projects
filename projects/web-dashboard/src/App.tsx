@@ -5,7 +5,7 @@ import { AssistPanel } from './components/AssistPanel'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import { RebalancingEditor } from './components/RebalancingEditor'
-import { EmailDashboard } from './components/EmailDashboard'
+import { EmailDashboard, emptyEmailCache, type EmailCacheState } from './components/EmailDashboard'
 import { ProfileSettings } from './components/ProfileSettings'
 import {
   clearGlobalHistory,
@@ -119,6 +119,13 @@ function App() {
   const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
   const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
+
+  // Email dashboard state - lifted up to persist across mode switches
+  const [emailCache, setEmailCache] = useState<EmailCacheState>({
+    personal: emptyEmailCache(),
+    church: emptyEmailCache(),
+  })
+  const [emailSelectedAccount, setEmailSelectedAccount] = useState<'personal' | 'church'>('personal')
 
   // Global Mode state
   const [globalPerspective, setGlobalPerspective] = useState<Perspective>('personal')
@@ -1149,6 +1156,10 @@ function App() {
             authConfig={authConfig}
             apiBase={apiBase}
             onBack={() => setAppMode('tasks')}
+            cache={emailCache}
+            setCache={setEmailCache}
+            selectedAccount={emailSelectedAccount}
+            setSelectedAccount={setEmailSelectedAccount}
           />
         ) : (
           <>

@@ -121,8 +121,8 @@ test.describe('Profile-Aware Attention Analysis', () => {
       expect(item.confidence).toBeGreaterThanOrEqual(0);
       expect(item.confidence).toBeLessThanOrEqual(1);
 
-      // Analysis method should be one of the valid values
-      expect(['regex', 'profile', 'vip']).toContain(item.analysisMethod);
+      // Analysis method should be one of the valid values (includes 'haiku' for AI analysis)
+      expect(['regex', 'profile', 'vip', 'haiku']).toContain(item.analysisMethod);
     }
   });
 
@@ -170,9 +170,9 @@ test.describe('Profile-Aware Attention Analysis', () => {
 
     const data = await response.json();
 
-    // Check all items have valid analysis method
+    // Check all items have valid analysis method (includes 'haiku' for AI analysis)
     for (const item of data.attentionItems) {
-      expect(['regex', 'profile', 'vip']).toContain(item.analysisMethod);
+      expect(['regex', 'profile', 'vip', 'haiku']).toContain(item.analysisMethod);
     }
   });
 

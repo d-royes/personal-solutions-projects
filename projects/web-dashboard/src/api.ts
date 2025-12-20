@@ -1552,6 +1552,41 @@ export async function getAttentionItems(
   return resp.json()
 }
 
+// Response type for last analysis endpoint
+export interface LastAnalysisApiResponse {
+  account: string
+  lastAnalysis: {
+    timestamp: string
+    emailsFetched: number
+    emailsAnalyzed: number
+    alreadyTracked: number
+    dismissed: number
+    suggestionsGenerated: number
+    rulesGenerated: number
+    attentionItems: number
+    haikuAnalyzed: number
+    haikuRemaining: { daily: number; weekly: number } | null
+  } | null
+}
+
+export async function getLastAnalysis(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<LastAnalysisApiResponse> {
+  const url = new URL(`/email/last-analysis/${account}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Failed to get last analysis: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 export async function dismissAttentionItem(
   account: EmailAccount,
   emailId: string,
@@ -2115,6 +2150,35 @@ export async function getEmailActionSuggestions(
   return resp.json()
 }
 
+export interface PendingActionSuggestionsResponse {
+  account: string
+  suggestions: EmailActionSuggestion[]
+  count: number
+}
+
+/**
+ * Get persisted pending action suggestions for the specified account.
+ *
+ * These are suggestions that were saved during Analyze Inbox and can be
+ * displayed after page refresh without re-analyzing.
+ */
+export async function getPendingActionSuggestions(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PendingActionSuggestionsResponse> {
+  const url = new URL(`/email/suggestions/${account}/pending`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get pending suggestions failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 
 // =============================================================================
 // Email Full Message and Reply API Functions
@@ -2356,14 +2420,16 @@ export async function updateProfile(
 /**
  * Record a decision (approve/reject) on a suggestion.
  * This feedback is critical for the Trust Gradient learning system.
+ * Account is now required (storage is by account, not user).
  */
 export async function decideSuggestion(
+  account: EmailAccount,
   suggestionId: string,
   approved: boolean,
   auth: AuthConfig,
   baseUrl: string = defaultBase,
 ): Promise<SuggestionDecisionResponse> {
-  const url = new URL(`/email/suggestions/${suggestionId}/decide`, baseUrl)
+  const url = new URL(`/email/suggestions/${account}/${suggestionId}/decide`, baseUrl)
 
   const resp = await fetch(url, {
     method: 'POST',
@@ -2381,18 +2447,15 @@ export async function decideSuggestion(
 }
 
 /**
- * Get all pending suggestions for the user.
- * Optional filter by email account.
+ * Get all pending suggestions for the specified account.
+ * Account is now required (storage is by account, not user).
  */
 export async function getPendingSuggestions(
+  account: EmailAccount,
   auth: AuthConfig,
   baseUrl: string = defaultBase,
-  account?: EmailAccount,
 ): Promise<PendingSuggestionsResponse> {
-  const url = new URL('/email/suggestions/pending', baseUrl)
-  if (account) {
-    url.searchParams.set('account', account)
-  }
+  const url = new URL(`/email/suggestions/${account}/pending`, baseUrl)
 
   const resp = await fetch(url, {
     headers: buildHeaders(auth),
@@ -2406,13 +2469,15 @@ export async function getPendingSuggestions(
 
 /**
  * Get suggestion approval statistics for Trust Gradient tracking.
+ * Account is now required (storage is by account, not user).
  */
 export async function getSuggestionStats(
+  account: EmailAccount,
   auth: AuthConfig,
   baseUrl: string = defaultBase,
   days: number = 30,
 ): Promise<SuggestionStats> {
-  const url = new URL('/email/suggestions/stats', baseUrl)
+  const url = new URL(`/email/suggestions/${account}/stats`, baseUrl)
   url.searchParams.set('days', String(days))
 
   const resp = await fetch(url, {
@@ -2497,6 +2562,96 @@ export async function removeNotActionablePattern(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Remove pattern failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Rule Suggestion API
+// =============================================================================
+
+export interface RuleSuggestionRecord {
+  ruleId: string
+  emailAccount: string
+  suggestionType: string
+  suggestedRule: {
+    field: string
+    operator: string
+    value: string
+    action: string
+    category: string
+    emailAccount?: string
+    order?: number
+  }
+  reason: string
+  examples: string[]
+  emailCount: number
+  confidence: number
+  analysisMethod: string
+  category: string
+  status: string
+  decidedAt?: string
+  rejectionReason?: string
+  createdAt: string
+}
+
+export interface PendingRulesResponse {
+  account: string
+  rules: RuleSuggestionRecord[]
+  count: number
+}
+
+export interface RuleDecisionResponse {
+  status: 'approved' | 'rejected'
+  ruleId: string
+  rule?: RuleSuggestionRecord
+}
+
+/**
+ * Get all pending rule suggestions for the specified account.
+ */
+export async function getPendingRules(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PendingRulesResponse> {
+  const url = new URL(`/email/rules/${account}/pending`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get pending rules failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Decide (approve/reject) a rule suggestion.
+ */
+export async function decideRuleSuggestion(
+  account: EmailAccount,
+  ruleId: string,
+  approved: boolean,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  rejectionReason?: string,
+): Promise<RuleDecisionResponse> {
+  const url = new URL(`/email/rules/${account}/${ruleId}/decide`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildHeaders(auth),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ approved, rejectionReason }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Decide rule failed: ${resp.statusText}`)
   }
   return resp.json()
 }

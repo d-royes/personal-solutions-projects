@@ -3970,6 +3970,97 @@ button:not(:disabled):hover {
   color: rgba(248, 113, 113, 0.95);
 }
 
+.stat-card.clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Settings - Last Analysis Section */
+.settings-section {
+  margin-bottom: 2rem;
+}
+
+.settings-section h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.95);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.last-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.analysis-card {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.analysis-card h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.95);
+  margin-bottom: 0.75rem;
+  text-transform: capitalize;
+}
+
+.analysis-timestamp {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+  margin-bottom: 0.75rem;
+}
+
+.analysis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.analysis-table td {
+  padding: 0.35rem 0;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.analysis-table td.value {
+  text-align: right;
+  font-weight: 500;
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.analysis-table tr.highlight td {
+  color: rgba(99, 102, 241, 0.95);
+  font-weight: 600;
+}
+
+.analysis-table tr.highlight td.value {
+  color: rgba(129, 140, 248, 0.95);
+}
+
+.haiku-remaining {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.no-analysis {
+  color: rgba(148, 163, 184, 0.6);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
 /* Action buttons - uses global .action-btn styles from line ~1251 */
 .email-dashboard .action-buttons {
   display: flex;

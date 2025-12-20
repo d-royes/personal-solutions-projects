@@ -4,9 +4,17 @@ This module provides usage tracking and settings management for the
 Haiku Intelligence Layer. Tracks daily/weekly API call counts and
 provides settings for enabling/disabling Haiku and setting limits.
 
+IMPORTANT: Settings and usage are GLOBAL (not per-login-identity).
+David has multiple login emails but ONE shared settings/usage state.
+This prevents bypassing daily limits by switching login identities.
+
 Firestore Structure:
-    users/{user_id}/haiku_usage/current -> usage counters
-    users/{user_id}/settings/haiku -> user settings
+    global/david/haiku_usage/current -> usage counters
+    global/david/settings/haiku -> user settings
+
+File Storage (dev mode):
+    haiku_usage/global_settings.json
+    haiku_usage/global_usage.json
 
 Environment Variables:
     DTA_HAIKU_FORCE_FILE: Set to "1" to use local file storage (dev mode)
@@ -28,6 +36,9 @@ from ..firestore import get_firestore_client
 # Configuration
 # =============================================================================
 
+# Global user identifier (settings/usage are shared across all login identities)
+GLOBAL_USER_ID = "david"
+
 DEFAULT_DAILY_LIMIT = 50
 DEFAULT_WEEKLY_LIMIT = 200
 
@@ -46,11 +57,6 @@ def _storage_dir() -> Path:
 def _now() -> datetime:
     """Return current UTC datetime."""
     return datetime.now(timezone.utc)
-
-
-def _sanitize_user_id(user_id: str) -> str:
-    """Sanitize user ID for use as filename."""
-    return user_id.replace("@", "_at_").replace(".", "_")
 
 
 def _get_daily_reset_time() -> datetime:
@@ -247,23 +253,22 @@ class HaikuUsage:
 # Settings CRUD
 # =============================================================================
 
-def get_settings(user_id: str) -> HaikuSettings:
-    """Get user's Haiku settings.
+def get_settings() -> HaikuSettings:
+    """Get GLOBAL Haiku settings.
 
-    Args:
-        user_id: User identifier (email address)
+    Settings are shared across all login identities.
 
     Returns:
         HaikuSettings (defaults if not found)
     """
     if _force_file_fallback():
-        return _get_settings_file(user_id)
-    return _get_settings_firestore(user_id)
+        return _get_settings_file()
+    return _get_settings_firestore()
 
 
-def _get_settings_file(user_id: str) -> HaikuSettings:
+def _get_settings_file() -> HaikuSettings:
     """Get settings from file storage."""
-    file_path = _storage_dir() / f"{_sanitize_user_id(user_id)}_settings.json"
+    file_path = _storage_dir() / "global_settings.json"
 
     if not file_path.exists():
         return HaikuSettings()
@@ -276,13 +281,18 @@ def _get_settings_file(user_id: str) -> HaikuSettings:
         return HaikuSettings()
 
 
-def _get_settings_firestore(user_id: str) -> HaikuSettings:
+def _get_settings_firestore() -> HaikuSettings:
     """Get settings from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _get_settings_file(user_id)
+        return _get_settings_file()
 
-    doc_ref = db.collection("users").document(user_id).collection("settings").document("haiku")
+    doc_ref = (
+        db.collection("global")
+        .document(GLOBAL_USER_ID)
+        .collection("settings")
+        .document("haiku")
+    )
     doc = doc_ref.get()
 
     if not doc.exists:
@@ -291,39 +301,45 @@ def _get_settings_firestore(user_id: str) -> HaikuSettings:
     return HaikuSettings.from_dict(doc.to_dict())
 
 
-def save_settings(user_id: str, settings: HaikuSettings) -> None:
-    """Save user's Haiku settings.
+def save_settings(settings: HaikuSettings) -> None:
+    """Save GLOBAL Haiku settings.
+
+    Settings are shared across all login identities.
 
     Args:
-        user_id: User identifier
         settings: HaikuSettings to save
     """
     settings.updated_at = _now()
 
     if _force_file_fallback():
-        _save_settings_file(user_id, settings)
+        _save_settings_file(settings)
     else:
-        _save_settings_firestore(user_id, settings)
+        _save_settings_firestore(settings)
 
 
-def _save_settings_file(user_id: str, settings: HaikuSettings) -> None:
+def _save_settings_file(settings: HaikuSettings) -> None:
     """Save settings to file storage."""
     storage_dir = _storage_dir()
     storage_dir.mkdir(parents=True, exist_ok=True)
 
-    file_path = storage_dir / f"{_sanitize_user_id(user_id)}_settings.json"
+    file_path = storage_dir / "global_settings.json"
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(settings.to_dict(), f, indent=2)
 
 
-def _save_settings_firestore(user_id: str, settings: HaikuSettings) -> None:
+def _save_settings_firestore(settings: HaikuSettings) -> None:
     """Save settings to Firestore."""
     db = get_firestore_client()
     if db is None:
-        _save_settings_file(user_id, settings)
+        _save_settings_file(settings)
         return
 
-    doc_ref = db.collection("users").document(user_id).collection("settings").document("haiku")
+    doc_ref = (
+        db.collection("global")
+        .document(GLOBAL_USER_ID)
+        .collection("settings")
+        .document("haiku")
+    )
     doc_ref.set(settings.to_dict())
 
 
@@ -331,23 +347,23 @@ def _save_settings_firestore(user_id: str, settings: HaikuSettings) -> None:
 # Usage CRUD
 # =============================================================================
 
-def get_usage(user_id: str) -> HaikuUsage:
-    """Get current Haiku usage counters.
+def get_usage() -> HaikuUsage:
+    """Get GLOBAL Haiku usage counters.
 
-    Args:
-        user_id: User identifier
+    Usage is shared across all login identities to prevent
+    bypassing limits by switching accounts.
 
     Returns:
         HaikuUsage (fresh counters if not found)
     """
     if _force_file_fallback():
-        return _get_usage_file(user_id)
-    return _get_usage_firestore(user_id)
+        return _get_usage_file()
+    return _get_usage_firestore()
 
 
-def _get_usage_file(user_id: str) -> HaikuUsage:
+def _get_usage_file() -> HaikuUsage:
     """Get usage from file storage."""
-    file_path = _storage_dir() / f"{_sanitize_user_id(user_id)}_usage.json"
+    file_path = _storage_dir() / "global_usage.json"
 
     if not file_path.exists():
         return HaikuUsage()
@@ -358,19 +374,24 @@ def _get_usage_file(user_id: str) -> HaikuUsage:
         usage = HaikuUsage.from_dict(data)
         # Reset expired counters
         if usage.reset_if_expired():
-            _save_usage_file(user_id, usage)
+            _save_usage_file(usage)
         return usage
     except (json.JSONDecodeError, KeyError):
         return HaikuUsage()
 
 
-def _get_usage_firestore(user_id: str) -> HaikuUsage:
+def _get_usage_firestore() -> HaikuUsage:
     """Get usage from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _get_usage_file(user_id)
+        return _get_usage_file()
 
-    doc_ref = db.collection("users").document(user_id).collection("haiku_usage").document("current")
+    doc_ref = (
+        db.collection("global")
+        .document(GLOBAL_USER_ID)
+        .collection("haiku_usage")
+        .document("current")
+    )
     doc = doc_ref.get()
 
     if not doc.exists:
@@ -379,56 +400,57 @@ def _get_usage_firestore(user_id: str) -> HaikuUsage:
     usage = HaikuUsage.from_dict(doc.to_dict())
     # Reset expired counters
     if usage.reset_if_expired():
-        _save_usage_firestore(user_id, usage)
+        _save_usage_firestore(usage)
     return usage
 
 
-def save_usage(user_id: str, usage: HaikuUsage) -> None:
-    """Save Haiku usage counters.
+def save_usage(usage: HaikuUsage) -> None:
+    """Save GLOBAL Haiku usage counters.
 
     Args:
-        user_id: User identifier
         usage: HaikuUsage to save
     """
     if _force_file_fallback():
-        _save_usage_file(user_id, usage)
+        _save_usage_file(usage)
     else:
-        _save_usage_firestore(user_id, usage)
+        _save_usage_firestore(usage)
 
 
-def _save_usage_file(user_id: str, usage: HaikuUsage) -> None:
+def _save_usage_file(usage: HaikuUsage) -> None:
     """Save usage to file storage."""
     storage_dir = _storage_dir()
     storage_dir.mkdir(parents=True, exist_ok=True)
 
-    file_path = storage_dir / f"{_sanitize_user_id(user_id)}_usage.json"
+    file_path = storage_dir / "global_usage.json"
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(usage.to_dict(), f, indent=2)
 
 
-def _save_usage_firestore(user_id: str, usage: HaikuUsage) -> None:
+def _save_usage_firestore(usage: HaikuUsage) -> None:
     """Save usage to Firestore."""
     db = get_firestore_client()
     if db is None:
-        _save_usage_file(user_id, usage)
+        _save_usage_file(usage)
         return
 
-    doc_ref = db.collection("users").document(user_id).collection("haiku_usage").document("current")
+    doc_ref = (
+        db.collection("global")
+        .document(GLOBAL_USER_ID)
+        .collection("haiku_usage")
+        .document("current")
+    )
     doc_ref.set(usage.to_dict())
 
 
-def increment_usage(user_id: str) -> HaikuUsage:
-    """Increment usage counters and save.
-
-    Args:
-        user_id: User identifier
+def increment_usage() -> HaikuUsage:
+    """Increment GLOBAL usage counters and save.
 
     Returns:
         Updated HaikuUsage
     """
-    usage = get_usage(user_id)
+    usage = get_usage()
     usage.increment()
-    save_usage(user_id, usage)
+    save_usage(usage)
     return usage
 
 
@@ -436,34 +458,29 @@ def increment_usage(user_id: str) -> HaikuUsage:
 # Combined Operations
 # =============================================================================
 
-def can_use_haiku(user_id: str) -> bool:
-    """Check if Haiku analysis is available for this user.
+def can_use_haiku() -> bool:
+    """Check if Haiku analysis is available.
 
-    Checks both settings (enabled) and usage limits.
-
-    Args:
-        user_id: User identifier
+    Checks both settings (enabled) and GLOBAL usage limits.
+    This is shared across all login identities.
 
     Returns:
         True if Haiku can be used
     """
-    settings = get_settings(user_id)
+    settings = get_settings()
     if not settings.enabled:
         return False
 
-    usage = get_usage(user_id)
+    usage = get_usage()
     return usage.can_analyze(settings)
 
 
-def get_usage_summary(user_id: str) -> Dict[str, Any]:
-    """Get a complete usage summary for the API.
-
-    Args:
-        user_id: User identifier
+def get_usage_summary() -> Dict[str, Any]:
+    """Get a complete GLOBAL usage summary for the API.
 
     Returns:
         Dictionary with settings and usage data for API response
     """
-    settings = get_settings(user_id)
-    usage = get_usage(user_id)
+    settings = get_settings()
+    usage = get_usage()
     return usage.to_api_dict(settings)

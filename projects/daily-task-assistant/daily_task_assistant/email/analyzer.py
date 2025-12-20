@@ -1242,20 +1242,28 @@ def analyze_email_with_haiku_safe(
         HaikuAnalysisResult if successful, None if error or skipped.
     """
     try:
+        # For short snippets (< 250 chars), include body if available
+        # This handles emails where snippet is just a signature
+        body_to_send = None
+        snippet_len = len(email.snippet) if email.snippet else 0
+        if snippet_len < 250 and email.body:
+            # Use body for short snippets (likely signature-only previews)
+            body_to_send = email.body
+
         result = analyze_email_with_haiku(
             sender_email=email.from_address,
             sender_name=email.from_name or "",
             subject=email.subject,
             snippet=email.snippet,
             date=email.date.isoformat() if email.date else "",
-            body=None,  # Use snippet only to reduce costs
+            body=body_to_send,
             roles_context=roles_context,
             available_labels=available_labels,
         )
 
-        # Increment usage only on successful analysis (not skipped)
+        # Increment usage only on successful analysis (GLOBAL - no user param)
         if result.analysis_method == "haiku":
-            increment_haiku_usage(user_id)
+            increment_haiku_usage()
 
         return result
 
@@ -1320,10 +1328,10 @@ def detect_attention_with_haiku(
     account_vips = vip_senders.get(email_account, [])
     account_not_actionable = not_actionable_patterns.get(email_account, [])
 
-    # Check if Haiku is available
-    haiku_available = can_use_haiku(user_id)
+    # Check if Haiku is available (GLOBAL - not per-user)
+    haiku_available = can_use_haiku()
     if not haiku_available:
-        logger.info(f"Haiku not available for {user_id}, using profile/regex only")
+        logger.info("Haiku not available, using profile/regex only")
 
     for msg in messages:
         # Skip already processed in this batch
@@ -1367,7 +1375,7 @@ def detect_attention_with_haiku(
         # 4. Try Haiku analysis if available
         if haiku_available:
             # Re-check availability (may have hit limit during batch)
-            if can_use_haiku(user_id):
+            if can_use_haiku():
                 haiku_result = analyze_email_with_haiku_safe(
                     email=msg,
                     user_id=user_id,
@@ -1426,18 +1434,16 @@ def detect_attention_with_haiku(
     return attention_items, haiku_results
 
 
-def get_haiku_usage_for_user(user_id: str) -> Dict:
-    """Get Haiku usage summary for a user.
+def get_haiku_usage_for_user() -> Dict:
+    """Get GLOBAL Haiku usage summary.
 
     Convenience function for API endpoints.
-
-    Args:
-        user_id: User identifier.
+    Usage is shared across all login identities.
 
     Returns:
         Dict with usage stats (dailyCount, weeklyCount, limits, etc.)
     """
-    return get_haiku_usage_summary(user_id)
+    return get_haiku_usage_summary()
 
 
 def _haiku_action_to_suggestion(

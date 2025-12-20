@@ -105,6 +105,7 @@ export interface RuleSuggestion {
   reason: string
   examples: string[]
   emailCount: number
+  ruleId?: string  // Set when loaded from persistence
 }
 
 export interface AttentionItem {
@@ -179,10 +180,29 @@ export interface FilterRulesResponse {
 export interface AnalyzeInboxResponse {
   account: string
   email: string
+  // Analysis breakdown for auditing
+  emailsFetched: number
+  emailsDismissed: number
+  emailsAlreadyTracked: number
   messagesAnalyzed: number
   existingRulesCount: number
   suggestions: RuleSuggestion[]
+  actionSuggestions?: unknown[]  // Action suggestions for Suggestions tab (typed in api.ts)
   attentionItems: AttentionItem[]
+  haikuAnalyzed?: number  // Count of emails analyzed by Haiku
+  haikuUsage?: HaikuUsage  // Current Haiku usage stats
+}
+
+// Haiku usage tracking
+export interface HaikuUsage {
+  dailyCount: number
+  weeklyCount: number
+  dailyLimit: number
+  weeklyLimit: number
+  dailyRemaining: number
+  weeklyRemaining: number
+  enabled: boolean
+  canAnalyze: boolean
 }
 
 // App mode for navigation

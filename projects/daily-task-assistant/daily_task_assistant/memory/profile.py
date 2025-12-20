@@ -4,9 +4,15 @@ This module provides the DavidProfile dataclass and Firestore CRUD operations
 for storing and retrieving user profile data. The profile enables role-aware
 email detection by understanding David's church roles and personal contexts.
 
+IMPORTANT: Profile is GLOBAL (not per-login-identity).
+David has multiple login emails but ONE profile shared across all logins.
+
 Firestore Structure:
-    users/{user_id}/profile/current  -> DavidProfile document
-    users/{user_id}/profile/versions/{version} -> Historical versions (audit)
+    global/david/profile/current  -> DavidProfile document
+    global/david/profile/v_{timestamp} -> Historical versions (audit)
+
+File Storage (dev mode):
+    profile_store/global/profile.json
 
 Environment Variables:
     DTA_PROFILE_FORCE_FILE: Set to "1" to use local file storage (dev mode)
@@ -24,10 +30,14 @@ from typing import Any, Dict, List, Optional
 from ..firestore import get_firestore_client
 
 
+# Global user identifier (profile is shared across all login identities)
+GLOBAL_USER_ID = "david"
+
+
 # Configuration helpers
 def _profile_collection() -> str:
     """Return the Firestore collection path for profiles."""
-    return os.getenv("DTA_PROFILE_COLLECTION", "users")
+    return os.getenv("DTA_PROFILE_COLLECTION", "global")
 
 
 def _force_file_fallback() -> bool:
@@ -103,15 +113,17 @@ class DavidProfile:
         return cls(**data)
 
 
-def get_default_profile(user_id: str) -> DavidProfile:
+def get_default_profile() -> DavidProfile:
     """Return the default David profile with initial seed data.
 
     This provides a starting point for David's profile with his known
     church roles and personal contexts. The profile is designed to be
     editable via the UI as life circumstances change.
+
+    Note: Profile is GLOBAL - shared across all login identities.
     """
     return DavidProfile(
-        user_id=user_id,
+        user_id=GLOBAL_USER_ID,
 
         # Church Roles
         church_roles=[
@@ -159,6 +171,10 @@ def get_default_profile(user_id: str) -> DavidProfile:
                 "check request",
                 "deposit",
                 "bank statement",
+                "time record",  # Payroll time records from staff
+                "timesheet",
+                "payroll",
+                "expense report",
             ],
             "Procurement Lead": [
                 "pending purchase",
@@ -269,23 +285,22 @@ def get_default_profile(user_id: str) -> DavidProfile:
 
 # Firestore CRUD Operations
 
-def get_profile(user_id: str) -> Optional[DavidProfile]:
-    """Retrieve the profile for a user from Firestore.
+def get_profile() -> Optional[DavidProfile]:
+    """Retrieve the global profile from storage.
 
-    Args:
-        user_id: The user's unique identifier (email)
+    Profile is GLOBAL - shared across all login identities.
 
     Returns:
         DavidProfile if found, None otherwise
     """
     if _force_file_fallback():
-        return _read_file_profile(user_id)
+        return _read_file_profile()
 
     try:
         client = get_firestore_client()
         doc_ref = (
             client.collection(_profile_collection())
-            .document(user_id)
+            .document(GLOBAL_USER_ID)
             .collection("profile")
             .document("current")
         )
@@ -297,13 +312,14 @@ def get_profile(user_id: str) -> Optional[DavidProfile]:
 
     except Exception as exc:
         print(f"[Profile] Firestore read failed, falling back to file: {exc}")
-        return _read_file_profile(user_id)
+        return _read_file_profile()
 
 
 def save_profile(profile: DavidProfile) -> bool:
-    """Save or update a user's profile in Firestore.
+    """Save or update the global profile in storage.
 
     Also creates a versioned backup for audit purposes.
+    Profile is GLOBAL - shared across all login identities.
 
     Args:
         profile: The DavidProfile to save
@@ -319,19 +335,20 @@ def save_profile(profile: DavidProfile) -> bool:
 
     try:
         client = get_firestore_client()
-        user_ref = client.collection(_profile_collection()).document(profile.user_id)
+        # Use GLOBAL path, not profile.user_id
+        global_ref = client.collection(_profile_collection()).document(GLOBAL_USER_ID)
 
         # Save current profile
-        current_ref = user_ref.collection("profile").document("current")
+        current_ref = global_ref.collection("profile").document("current")
         current_ref.set(profile.to_dict())
 
         # Save versioned backup
         version_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        version_ref = user_ref.collection("profile").document(f"v_{version_id}")
+        version_ref = global_ref.collection("profile").document(f"v_{version_id}")
         version_ref.set(profile.to_dict())
 
         # Clean up old versions (keep last 5)
-        _cleanup_old_versions(user_ref, keep=5)
+        _cleanup_old_versions(global_ref, keep=5)
 
         return True
 
@@ -340,18 +357,17 @@ def save_profile(profile: DavidProfile) -> bool:
         return _write_file_profile(profile)
 
 
-def get_or_create_profile(user_id: str) -> DavidProfile:
-    """Get existing profile or create default for new users.
+def get_or_create_profile() -> DavidProfile:
+    """Get existing profile or create default if none exists.
 
-    Args:
-        user_id: The user's unique identifier (email)
+    Profile is GLOBAL - shared across all login identities.
 
     Returns:
         Existing profile or newly created default profile
     """
-    profile = get_profile(user_id)
+    profile = get_profile()
     if profile is None:
-        profile = get_default_profile(user_id)
+        profile = get_default_profile()
         save_profile(profile)
     return profile
 
@@ -385,17 +401,16 @@ def _cleanup_old_versions(user_ref, keep: int = 5) -> None:
 
 # File-based fallback for development
 
-def _profile_file(user_id: str) -> Path:
-    """Return the file path for a user's profile."""
-    directory = _profile_dir()
+def _profile_file() -> Path:
+    """Return the file path for the global profile."""
+    directory = _profile_dir() / "global"
     directory.mkdir(parents=True, exist_ok=True)
-    safe_id = user_id.replace("@", "_at_").replace(".", "_")
-    return directory / f"{safe_id}.json"
+    return directory / "profile.json"
 
 
-def _read_file_profile(user_id: str) -> Optional[DavidProfile]:
+def _read_file_profile() -> Optional[DavidProfile]:
     """Read profile from local JSON file."""
-    path = _profile_file(user_id)
+    path = _profile_file()
     if not path.exists():
         return None
 
@@ -409,7 +424,7 @@ def _read_file_profile(user_id: str) -> Optional[DavidProfile]:
 
 def _write_file_profile(profile: DavidProfile) -> bool:
     """Write profile to local JSON file."""
-    path = _profile_file(profile.user_id)
+    path = _profile_file()
 
     try:
         path.write_text(
@@ -426,7 +441,6 @@ def _write_file_profile(profile: DavidProfile) -> bool:
 
 
 def add_not_actionable_pattern(
-    user_id: str,
     account: str,
     pattern: str,
 ) -> bool:
@@ -436,14 +450,13 @@ def add_not_actionable_pattern(
     This teaches DATA to skip similar emails in the future.
 
     Args:
-        user_id: User identifier
         account: Email account ("church" or "personal")
         pattern: The pattern to mark as not actionable
 
     Returns:
         True if pattern was added, False if it already exists or failed
     """
-    profile = get_or_create_profile(user_id)
+    profile = get_or_create_profile()
 
     # Get or initialize the account's not-actionable list
     patterns = profile.not_actionable_patterns.get(account, [])
@@ -461,7 +474,6 @@ def add_not_actionable_pattern(
 
 
 def remove_not_actionable_pattern(
-    user_id: str,
     account: str,
     pattern: str,
 ) -> bool:
@@ -470,14 +482,13 @@ def remove_not_actionable_pattern(
     Called when user explicitly wants to receive attention for this pattern again.
 
     Args:
-        user_id: User identifier
         account: Email account ("church" or "personal")
         pattern: The pattern to remove
 
     Returns:
         True if pattern was removed, False if not found
     """
-    profile = get_profile(user_id)
+    profile = get_profile()
     if profile is None:
         return False
 
@@ -496,7 +507,6 @@ def remove_not_actionable_pattern(
 
 
 def get_rejection_candidates(
-    user_id: str,
     days: int = 30,
     min_rejections: int = 3,
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -505,8 +515,10 @@ def get_rejection_candidates(
     Returns patterns that have been rejected multiple times, suggesting
     they should be added to the not-actionable list.
 
+    Note: This is a GLOBAL analysis function that queries suggestions
+    from BOTH accounts (church and personal) to inform the global profile.
+
     Args:
-        user_id: User identifier
         days: Days to look back
         min_rejections: Minimum rejections to suggest as pattern
 
@@ -517,7 +529,6 @@ def get_rejection_candidates(
     from ..email.suggestion_store import (
         _force_file_fallback as _suggestion_force_file,
         _suggestion_dir,
-        _sanitize_user_id,
         SuggestionRecord,
         _now,
     )
@@ -532,6 +543,9 @@ def get_rejection_candidates(
         "personal": Counter(),
     }
 
+    # Query both accounts
+    accounts = ["church", "personal"]
+
     # Try Firestore first (if not forcing file fallback)
     used_firestore = False
     if not _suggestion_force_file():
@@ -539,35 +553,42 @@ def get_rejection_candidates(
             from ..firestore import get_firestore_client
             db = get_firestore_client()
             if db:
-                collection = db.collection("users").document(user_id).collection("email_suggestions")
-                query = collection.where("status", "==", "rejected").where("created_at", ">=", cutoff.isoformat())
+                for account in accounts:
+                    # Use account-based path (matches Phase 2.1 structure)
+                    collection = (
+                        db.collection("email_accounts")
+                        .document(account)
+                        .collection("suggestions")
+                    )
+                    query = collection.where(
+                        "status", "==", "rejected"
+                    ).where("created_at", ">=", cutoff.isoformat())
 
-                for doc in query.stream():
-                    data = doc.to_dict()
-                    account = data.get("email_account", "personal")
-                    pattern_key = data.get("rationale", "").lower()[:50]
-                    rejections[account][pattern_key] += 1
+                    for doc in query.stream():
+                        data = doc.to_dict()
+                        pattern_key = data.get("rationale", "").lower()[:50]
+                        rejections[account][pattern_key] += 1
                 used_firestore = True
         except Exception:
             # Fall back to file-based storage
             pass
 
-    # File-based: read all suggestions (if Firestore wasn't used)
+    # File-based: read suggestions from both accounts (if Firestore wasn't used)
     if not used_firestore:
-        store_dir = _suggestion_dir() / _sanitize_user_id(user_id)
-        if store_dir.exists():
-            for file_path in store_dir.glob("*.json"):
-                with open(file_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+        for account in accounts:
+            store_dir = _suggestion_dir() / account
+            if store_dir.exists():
+                for file_path in store_dir.glob("*.json"):
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
 
-                record = SuggestionRecord.from_dict(data)
+                    record = SuggestionRecord.from_dict(data)
 
-                # Only count recent rejections
-                if record.status == "rejected" and record.created_at >= cutoff:
-                    account = record.email_account
-                    # Use rationale as the pattern identifier
-                    pattern_key = record.rationale.lower()[:50]  # Truncate long rationales
-                    rejections[account][pattern_key] += 1
+                    # Only count recent rejections
+                    if record.status == "rejected" and record.created_at >= cutoff:
+                        # Use rationale as the pattern identifier
+                        pattern_key = record.rationale.lower()[:50]
+                        rejections[account][pattern_key] += 1
 
     # Build candidate list
     candidates = {

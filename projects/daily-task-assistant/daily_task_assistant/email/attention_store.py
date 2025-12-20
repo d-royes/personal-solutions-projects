@@ -4,8 +4,14 @@ This module provides the AttentionRecord dataclass and Firestore CRUD operations
 for storing attention items that require David's action. Persistence ensures
 that dismissed items stay dismissed and analysis results don't require re-computation.
 
+Storage is keyed by email ACCOUNT (church/personal), not user ID, so the same
+data is accessible regardless of which user identity is used to log in.
+
 Firestore Structure:
-    users/{user_id}/email_attention/{email_id} -> AttentionRecord document
+    email_accounts/{account}/attention/{email_id} -> AttentionRecord document
+
+File Storage Structure:
+    attention_store/{account}/{email_id}.json
 
 Environment Variables:
     DTA_ATTENTION_FORCE_FILE: Set to "1" to use local file storage (dev mode)
@@ -255,22 +261,22 @@ class AttentionRecord:
 # CRUD Operations
 # =============================================================================
 
-def save_attention(user_id: str, record: AttentionRecord) -> None:
+def save_attention(account: str, record: AttentionRecord) -> None:
     """Save an attention record to storage.
 
     Args:
-        user_id: User identifier (email address)
+        account: Email account ("church" or "personal")
         record: AttentionRecord to save
     """
     if _force_file_fallback():
-        _save_attention_file(user_id, record)
+        _save_attention_file(account, record)
     else:
-        _save_attention_firestore(user_id, record)
+        _save_attention_firestore(account, record)
 
 
-def _save_attention_file(user_id: str, record: AttentionRecord) -> None:
+def _save_attention_file(account: str, record: AttentionRecord) -> None:
     """Save attention record to file storage."""
-    store_dir = _attention_dir() / _sanitize_user_id(user_id)
+    store_dir = _attention_dir() / account
     store_dir.mkdir(parents=True, exist_ok=True)
 
     file_path = store_dir / f"{record.email_id}.json"
@@ -278,36 +284,36 @@ def _save_attention_file(user_id: str, record: AttentionRecord) -> None:
         json.dump(record.to_dict(), f, indent=2)
 
 
-def _save_attention_firestore(user_id: str, record: AttentionRecord) -> None:
+def _save_attention_firestore(account: str, record: AttentionRecord) -> None:
     """Save attention record to Firestore."""
     db = get_firestore_client()
     if db is None:
         # Fall back to file storage if Firestore unavailable
-        _save_attention_file(user_id, record)
+        _save_attention_file(account, record)
         return
 
-    doc_ref = db.collection("users").document(user_id).collection("email_attention").document(record.email_id)
+    doc_ref = db.collection("email_accounts").document(account).collection("attention").document(record.email_id)
     doc_ref.set(record.to_dict())
 
 
-def get_attention(user_id: str, email_id: str) -> Optional[AttentionRecord]:
+def get_attention(account: str, email_id: str) -> Optional[AttentionRecord]:
     """Get a single attention record.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         email_id: Gmail message ID
 
     Returns:
         AttentionRecord if found, None otherwise
     """
     if _force_file_fallback():
-        return _get_attention_file(user_id, email_id)
-    return _get_attention_firestore(user_id, email_id)
+        return _get_attention_file(account, email_id)
+    return _get_attention_firestore(account, email_id)
 
 
-def _get_attention_file(user_id: str, email_id: str) -> Optional[AttentionRecord]:
+def _get_attention_file(account: str, email_id: str) -> Optional[AttentionRecord]:
     """Get attention record from file storage."""
-    file_path = _attention_dir() / _sanitize_user_id(user_id) / f"{email_id}.json"
+    file_path = _attention_dir() / account / f"{email_id}.json"
     if not file_path.exists():
         return None
 
@@ -324,13 +330,13 @@ def _get_attention_file(user_id: str, email_id: str) -> Optional[AttentionRecord
     return record
 
 
-def _get_attention_firestore(user_id: str, email_id: str) -> Optional[AttentionRecord]:
+def _get_attention_firestore(account: str, email_id: str) -> Optional[AttentionRecord]:
     """Get attention record from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _get_attention_file(user_id, email_id)
+        return _get_attention_file(account, email_id)
 
-    doc_ref = db.collection("users").document(user_id).collection("email_attention").document(email_id)
+    doc_ref = db.collection("email_accounts").document(account).collection("attention").document(email_id)
     doc = doc_ref.get()
 
     if not doc.exists:
@@ -347,29 +353,26 @@ def _get_attention_firestore(user_id: str, email_id: str) -> Optional[AttentionR
 
 
 def list_active_attention(
-    user_id: str,
-    account: Optional[str] = None,
+    account: str,
 ) -> List[AttentionRecord]:
-    """List all active attention items for a user.
+    """List all active attention items for an email account.
 
     Args:
-        user_id: User identifier
-        account: Optional filter by email account ("church" or "personal")
+        account: Email account ("church" or "personal")
 
     Returns:
         List of active AttentionRecords
     """
     if _force_file_fallback():
-        return _list_active_attention_file(user_id, account)
-    return _list_active_attention_firestore(user_id, account)
+        return _list_active_attention_file(account)
+    return _list_active_attention_firestore(account)
 
 
 def _list_active_attention_file(
-    user_id: str,
-    account: Optional[str] = None,
+    account: str,
 ) -> List[AttentionRecord]:
     """List active attention records from file storage."""
-    store_dir = _attention_dir() / _sanitize_user_id(user_id)
+    store_dir = _attention_dir() / account
     if not store_dir.exists():
         return []
 
@@ -392,15 +395,11 @@ def _list_active_attention_file(
                 if _now() >= record.snoozed_until:
                     record.status = "active"
                     record.snoozed_until = None
-                    save_attention(user_id, record)
+                    save_attention(account, record)
                 else:
                     continue
             else:
                 continue
-
-        # Filter by account if specified
-        if account and record.email_account != account:
-            continue
 
         records.append(record)
 
@@ -410,20 +409,17 @@ def _list_active_attention_file(
 
 
 def _list_active_attention_firestore(
-    user_id: str,
-    account: Optional[str] = None,
+    account: str,
 ) -> List[AttentionRecord]:
     """List active attention records from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _list_active_attention_file(user_id, account)
+        return _list_active_attention_file(account)
 
-    collection_ref = db.collection("users").document(user_id).collection("email_attention")
+    collection_ref = db.collection("email_accounts").document(account).collection("attention")
 
     # Query for active items
     query = collection_ref.where("status", "==", "active")
-    if account:
-        query = query.where("email_account", "==", account)
 
     records = []
     for doc in query.stream():
@@ -444,45 +440,43 @@ def _list_active_attention_firestore(
         if record.snoozed_until and _now() >= record.snoozed_until:
             record.status = "active"
             record.snoozed_until = None
-            save_attention(user_id, record)
-
-            if account is None or record.email_account == account:
-                records.append(record)
+            save_attention(account, record)
+            records.append(record)
 
     # Sort by date descending
     records.sort(key=lambda r: r.date, reverse=True)
     return records
 
 
-def is_already_analyzed(user_id: str, email_id: str) -> bool:
+def is_already_analyzed(account: str, email_id: str) -> bool:
     """Check if an email has already been analyzed.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         email_id: Gmail message ID
 
     Returns:
         True if email has a stored attention record
     """
-    return get_attention(user_id, email_id) is not None
+    return get_attention(account, email_id) is not None
 
 
 def dismiss_attention(
-    user_id: str,
+    account: str,
     email_id: str,
     reason: DismissReason,
 ) -> bool:
     """Dismiss an attention item.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         email_id: Gmail message ID
         reason: Why the item is being dismissed
 
     Returns:
         True if successfully dismissed, False if not found
     """
-    record = get_attention(user_id, email_id)
+    record = get_attention(account, email_id)
     if record is None:
         return False
 
@@ -491,79 +485,79 @@ def dismiss_attention(
     record.dismissed_reason = reason
     record._update_expiration()
 
-    save_attention(user_id, record)
+    save_attention(account, record)
     return True
 
 
 def snooze_attention(
-    user_id: str,
+    account: str,
     email_id: str,
     until: datetime,
 ) -> bool:
     """Snooze an attention item until a specific time.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         email_id: Gmail message ID
         until: When to resurface the item
 
     Returns:
         True if successfully snoozed, False if not found
     """
-    record = get_attention(user_id, email_id)
+    record = get_attention(account, email_id)
     if record is None:
         return False
 
     record.status = "snoozed"
     record.snoozed_until = until
 
-    save_attention(user_id, record)
+    save_attention(account, record)
     return True
 
 
 def link_task(
-    user_id: str,
+    account: str,
     email_id: str,
     task_id: str,
 ) -> bool:
     """Link an attention item to a created task.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
         email_id: Gmail message ID
         task_id: ID of the created task
 
     Returns:
         True if successfully linked, False if not found
     """
-    record = get_attention(user_id, email_id)
+    record = get_attention(account, email_id)
     if record is None:
         return False
 
     record.status = "task_created"
     record.linked_task_id = task_id
 
-    save_attention(user_id, record)
+    save_attention(account, record)
     return True
 
 
-def purge_expired_records(user_id: str) -> int:
-    """Purge expired attention records for a user.
+def purge_expired_records(account: str) -> int:
+    """Purge expired attention records for an email account.
 
     Args:
-        user_id: User identifier
+        account: Email account ("church" or "personal")
 
     Returns:
         Count of records purged
     """
     if _force_file_fallback():
-        return _purge_expired_file(user_id)
-    return _purge_expired_firestore(user_id)
+        return _purge_expired_file(account)
+    return _purge_expired_firestore(account)
 
 
-def _purge_expired_file(user_id: str) -> int:
+def _purge_expired_file(account: str) -> int:
     """Purge expired records from file storage."""
-    store_dir = _attention_dir() / _sanitize_user_id(user_id)
+    store_dir = _attention_dir() / account
     if not store_dir.exists():
         return 0
 
@@ -580,13 +574,13 @@ def _purge_expired_file(user_id: str) -> int:
     return count
 
 
-def _purge_expired_firestore(user_id: str) -> int:
+def _purge_expired_firestore(account: str) -> int:
     """Purge expired records from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _purge_expired_file(user_id)
+        return _purge_expired_file(account)
 
-    collection_ref = db.collection("users").document(user_id).collection("email_attention")
+    collection_ref = db.collection("email_accounts").document(account).collection("attention")
     now_str = _now().isoformat()
 
     # Query for expired items
@@ -600,24 +594,23 @@ def _purge_expired_firestore(user_id: str) -> int:
     return count
 
 
-def get_dismissed_email_ids(user_id: str, account: Optional[str] = None) -> set:
+def get_dismissed_email_ids(account: str) -> set:
     """Get set of dismissed email IDs for quick filtering.
 
     Args:
-        user_id: User identifier
-        account: Optional filter by email account
+        account: Email account ("church" or "personal")
 
     Returns:
         Set of email IDs that have been dismissed
     """
     if _force_file_fallback():
-        return _get_dismissed_email_ids_file(user_id, account)
-    return _get_dismissed_email_ids_firestore(user_id, account)
+        return _get_dismissed_email_ids_file(account)
+    return _get_dismissed_email_ids_firestore(account)
 
 
-def _get_dismissed_email_ids_file(user_id: str, account: Optional[str] = None) -> set:
+def _get_dismissed_email_ids_file(account: str) -> set:
     """Get dismissed email IDs from file storage."""
-    store_dir = _attention_dir() / _sanitize_user_id(user_id)
+    store_dir = _attention_dir() / account
     if not store_dir.exists():
         return set()
 
@@ -627,23 +620,19 @@ def _get_dismissed_email_ids_file(user_id: str, account: Optional[str] = None) -
             data = json.load(f)
 
         if data.get("status") == "dismissed":
-            if account is None or data.get("email_account") == account:
-                dismissed_ids.add(data["email_id"])
+            dismissed_ids.add(data["email_id"])
 
     return dismissed_ids
 
 
-def _get_dismissed_email_ids_firestore(user_id: str, account: Optional[str] = None) -> set:
+def _get_dismissed_email_ids_firestore(account: str) -> set:
     """Get dismissed email IDs from Firestore."""
     db = get_firestore_client()
     if db is None:
-        return _get_dismissed_email_ids_file(user_id, account)
+        return _get_dismissed_email_ids_file(account)
 
-    collection_ref = db.collection("users").document(user_id).collection("email_attention")
+    collection_ref = db.collection("email_accounts").document(account).collection("attention")
     query = collection_ref.where("status", "==", "dismissed")
-
-    if account:
-        query = query.where("email_account", "==", account)
 
     dismissed_ids = set()
     for doc in query.stream():
