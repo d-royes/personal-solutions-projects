@@ -280,7 +280,25 @@ GUIDELINES:
 - Suggest archive for: newsletters already read, confirmations, receipts, FYI items
 - Suggest label for: emails that fit a category/project but need to stay visible
 - Suggest star for: important items David should revisit
-- Only suggest rules for recurring patterns (would apply to future similar emails)
+
+RULE SUGGESTION GUIDELINES:
+- Only suggest rules when you identify a CLEAR pattern worth automating
+- Do NOT suggest rules just because an email exists - there must be a recurring pattern
+- The label_name MUST be one of the available labels listed above (exact match required)
+- If no appropriate label exists, set should_suggest=false
+
+WHEN TO SUGGEST RULES (pattern_type + label_name):
+- "Promotional": Marketing emails, sales offers, discount codes, newsletters selling products
+- "Transactional": Receipts, order confirmations, shipping notifications, account statements
+- "Junk": Spam-like content, unwanted solicitations, low-value automated emails
+- "Personal": Business relationships, vendors David works with, service providers, personal contacts
+- "Admin": Administrative matters, HR, compliance, organizational communications
+
+PATTERN RECOGNITION:
+- New vendor/service relationship: Multiple emails establishing business contact → "Personal"
+- Recurring newsletters: Same sender, promotional content → "Promotional"
+- Automated notifications: Order/shipping/account updates → "Transactional"
+- Unwanted recurring emails: Spam patterns, unsubscribe candidates → "Junk"
 
 IMPORTANT - SHORT EMAIL HANDLING:
 - If preview is very short, empty, or looks like a signature (e.g., "Get Outlook for iOS"),
@@ -305,10 +323,16 @@ PERSONAL:
 """
 
 DEFAULT_LABELS = """
-Work: Atlassian, Zendesk, Stakeholder, Vendor, Team
-Church: Treasury, Elder, IT, Maintenance, Events
-Personal: Family, Shopping, Projects, Subscriptions
-Categories: Transactional, Promotional, Newsletter, Important
+AVAILABLE LABELS (use exact names):
+- "1 Week Hold": Emails to review within a week, not urgent but worth keeping visible
+- "Admin": Administrative matters, HR, compliance, organizational communications
+- "Junk": Low-value emails, spam-like content, unsubscribe candidates
+- "Personal": Business relationships, vendors, service providers, personal contacts
+- "Promotional": Marketing emails, sales offers, newsletters selling products
+- "Transactional": Receipts, confirmations, shipping notifications, account statements
+- "Ministry Comms": (Church only) Church ministry communications
+- "Risk Management Forms": (Church only) Insurance and risk-related documents
+- "Unknown": Emails that don't fit other categories but need tracking
 """
 
 

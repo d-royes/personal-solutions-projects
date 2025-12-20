@@ -1719,6 +1719,7 @@ def _haiku_rule_to_suggestion(
     # NO DEFAULT - if there's no clear category match, don't suggest a rule
     # DATA should only suggest rules when there's a clear pattern, not out of obligation
     label_to_category = {
+        # Core labels (both accounts)
         "promotional": FilterCategory.PROMOTIONAL.value,
         "transactional": FilterCategory.TRANSACTIONAL.value,
         "junk": FilterCategory.JUNK.value,
@@ -1727,6 +1728,10 @@ def _haiku_rule_to_suggestion(
         "1 week hold": FilterCategory.ONE_WEEK_HOLD.value,
         "1_week_hold": FilterCategory.ONE_WEEK_HOLD.value,
         "one week hold": FilterCategory.ONE_WEEK_HOLD.value,
+        # Church-specific labels
+        "ministry comms": "Ministry Comms",
+        "risk management forms": "Risk Management Forms",
+        "unknown": "Unknown",
     }
 
     category = None

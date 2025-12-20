@@ -76,6 +76,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 | **F2: Calendar Management Integration** | Complete the Assistant Trifecta (Email + Tasks + Calendar) with smart scheduling and meeting prep. | [Email Management Plan - F2](../.claude/plans/rippling-discovering-whale.md#f2-calendar-management-integration) |
 | **F3: Full Memory Architecture** | Complete DATA Memory Architecture: weekly reflections, knowledge base, session notes. | [Email Management Plan - F3](../.claude/plans/rippling-discovering-whale.md#f3-full-memory-architecture-phase-2-foundation) |
 | **F5: Smart Rule Suggestions** | AI-powered rule suggestions that understand context, not just patterns. Filter bad suggestions. | [Email Management Plan - F5](../.claude/plans/rippling-discovering-whale.md#f5-smart-rule-suggestions) |
+| **F7: Parallel Haiku Prompts** | Split unified prompt into 3 focused parallel prompts (attention, action, rules). Trade efficiency for quality. See details below. | Backlog 2025-12-20 |
 | Bulk Task Prioritization | Analyze all open tasks and propose realistic due date distribution. | [Gap_Analysis_Conversation_Review.md](docs/Gap_Analysis_Conversation_Review.md) |
 
 ### Low Priority
@@ -119,6 +120,54 @@ Earned autonomy through demonstrated understanding and tracked success.
 | Dev to Staging to Prod Environments | 2025-12-03 | Full CI/CD pipeline |
 | Auth Persistence | 2025-12-02 | Login survives page refresh |
 | Email Allowlist Security | 2025-12-02 | Only authorized emails can access |
+
+---
+
+## Feature Details
+
+### F7: Parallel Haiku Prompts
+
+**Added**: 2025-12-20
+**Status**: Under Consideration
+**Rationale**: Current unified prompt asks Haiku to analyze attention, action, AND rule suggestions in one call. This may sacrifice quality for efficiency.
+
+**Current Approach (Unified)**:
+```
+Email → Haiku → { attention, action, rule }
+- 1 API call per email
+- Single prompt juggling 3 objectives
+- Shallow guidance per task
+```
+
+**Proposed Approach (Parallel)**:
+```
+Email → Haiku (attention prompt)  ─┐
+Email → Haiku (action prompt)     ─┼→ Combine results
+Email → Haiku (rule prompt)       ─┘
+- 3 API calls per email (run via asyncio)
+- Each prompt laser-focused with deep context
+- ~3x cost, but similar latency (parallel)
+```
+
+**Trade-offs**:
+
+| Factor | Unified | Parallel |
+|--------|---------|----------|
+| API calls/email | 1 | 3 |
+| Cost | Lower | ~3x |
+| Latency | Lower | Similar (parallel) |
+| Prompt depth | Shallow | Deep |
+| Quality | Compromised | Focused |
+
+**Hybrid Option**: Keep attention+action unified (simpler tasks), separate rules into focused prompt (2 calls).
+
+**Decision Criteria**: Monitor cost and quality over 2-3 weeks with improved unified prompt, then evaluate if parallel approach is warranted.
+
+**Rule Prompt Benefits** (if separated):
+- Full label definitions with examples
+- Relationship detection guidance
+- Pattern recognition criteria
+- Account-specific context
 
 ---
 
