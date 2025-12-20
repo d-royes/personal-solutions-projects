@@ -599,7 +599,7 @@ button:not(:disabled):hover {
 .menu-view {
   flex: 1;
   padding: 1.5rem;
-  overflow: hidden;
+  overflow-y: auto;
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.35);
 }
 
@@ -3970,6 +3970,97 @@ button:not(:disabled):hover {
   color: rgba(248, 113, 113, 0.95);
 }
 
+.stat-card.clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Settings - Last Analysis Section */
+.settings-section {
+  margin-bottom: 2rem;
+}
+
+.settings-section h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.95);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.last-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.analysis-card {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.analysis-card h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.95);
+  margin-bottom: 0.75rem;
+  text-transform: capitalize;
+}
+
+.analysis-timestamp {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+  margin-bottom: 0.75rem;
+}
+
+.analysis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.analysis-table td {
+  padding: 0.35rem 0;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.analysis-table td.value {
+  text-align: right;
+  font-weight: 500;
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.analysis-table tr.highlight td {
+  color: rgba(99, 102, 241, 0.95);
+  font-weight: 600;
+}
+
+.analysis-table tr.highlight td.value {
+  color: rgba(129, 140, 248, 0.95);
+}
+
+.haiku-remaining {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.no-analysis {
+  color: rgba(148, 163, 184, 0.6);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
 /* Action buttons - uses global .action-btn styles from line ~1251 */
 .email-dashboard .action-buttons {
   display: flex;
@@ -4839,6 +4930,29 @@ button:not(:disabled):hover {
   color: rgba(165, 180, 252, 0.9);
 }
 
+/* Analysis engine badge - shows AI vs Regex */
+.analysis-engine-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: help;
+}
+
+.analysis-engine-badge.ai {
+  background: rgba(6, 182, 212, 0.2);
+  color: rgba(103, 232, 249, 0.95);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+.analysis-engine-badge.regex {
+  background: rgba(100, 116, 139, 0.15);
+  color: rgba(148, 163, 184, 0.85);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+}
+
 /* Email label badges in attention items */
 .email-label-badge {
   padding: 0.1rem 0.35rem;
@@ -4851,6 +4965,184 @@ button:not(:disabled):hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Role badge (profile-aware analysis) */
+.role-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: help;
+}
+
+.role-badge.vip {
+  background: rgba(168, 85, 247, 0.2);
+  color: rgba(216, 180, 254, 0.95);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.role-badge.profile {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgba(134, 239, 172, 0.95);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.role-badge.regex {
+  background: rgba(100, 116, 139, 0.2);
+  color: rgba(148, 163, 184, 0.9);
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.role-badge.haiku {
+  background: rgba(100, 116, 139, 0.1);
+  color: rgba(148, 163, 184, 0.9);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+/* Attention view header with sync timestamp */
+.attention-view-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+}
+
+.last-sync {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.7);
+  font-style: italic;
+}
+
+/* Attention card actions (dismiss/snooze) */
+.attention-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Compact task buttons for inline display */
+.create-task-btn.compact,
+.task-exists-btn.compact {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.create-task-btn.compact {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  color: rgba(134, 239, 172, 0.95);
+}
+
+.create-task-btn.compact:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.task-exists-btn.compact {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: rgba(165, 180, 252, 0.95);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.task-exists-btn.compact:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.dismiss-dropdown,
+.snooze-dropdown {
+  position: relative;
+}
+
+.dismiss-btn,
+.snooze-btn {
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dismiss-btn {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: rgba(248, 113, 113, 0.9);
+}
+
+.dismiss-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.snooze-btn {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  color: rgba(253, 224, 71, 0.9);
+}
+
+.snooze-btn:hover {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.dismiss-menu,
+.snooze-menu {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  min-width: 140px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dismiss-menu.show,
+.snooze-menu.show {
+  display: block;
+}
+
+.dismiss-menu button,
+.snooze-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.dismiss-menu button:hover,
+.snooze-menu button:hover {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.dismiss-menu button:first-child,
+.snooze-menu button:first-child {
+  border-radius: 5px 5px 0 0;
+}
+
+.dismiss-menu button:last-child,
+.snooze-menu button:last-child {
+  border-radius: 0 0 5px 5px;
 }
 
 .attention-date {

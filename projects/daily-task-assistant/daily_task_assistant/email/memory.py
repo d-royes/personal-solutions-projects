@@ -3,11 +3,20 @@
 This module provides persistent memory for email patterns and preferences,
 enabling DATA to learn from David's email management decisions.
 
+IMPORTANT: Email memory is stored by EMAIL ACCOUNT (not login identity).
+David has multiple login emails but data is keyed by "church" or "personal".
+
 Architecture:
-- Firestore path: users/{user_id}/email_memory/
+- Firestore path: email_accounts/{account}/email_memory/
   - category_patterns/{hash} - Domain/sender to category mappings
   - sender_profiles/{hash} - Sender relationship and importance
   - timing_patterns - Processing timing data
+
+File Storage (dev mode):
+- email_memory/{account}/category_patterns.jsonl
+- email_memory/{account}/sender_profiles.jsonl
+- email_memory/{account}/timing_patterns.json
+- email_memory/{account}/response_times.jsonl
 
 Storage follows Firestore + file fallback pattern.
 """
@@ -278,18 +287,24 @@ def _hash_pattern(pattern: str) -> str:
 # =============================================================================
 
 def record_category_approval(
-    user_id: str,
+    account: str,
     pattern: str,
     pattern_type: str,
     category: str,
 ) -> CategoryPattern:
     """Record that David approved a category suggestion.
-    
+
     This reinforces the pattern, increasing confidence.
+
+    Args:
+        account: Email account ("church" or "personal")
+        pattern: The pattern string
+        pattern_type: Type of pattern (domain or sender)
+        category: Category to apply
     """
-    existing = get_category_pattern(user_id, pattern, pattern_type)
+    existing = get_category_pattern(account, pattern, pattern_type)
     now = datetime.now(timezone.utc)
-    
+
     if existing:
         # Update existing pattern
         existing.approved_count += 1
@@ -297,7 +312,7 @@ def record_category_approval(
         # Increase confidence (cap at 0.99)
         existing.confidence = min(0.99, existing.confidence + 0.05)
         existing.last_updated = now
-        _save_category_pattern(user_id, existing)
+        _save_category_pattern(account, existing)
         return existing
     else:
         # Create new pattern
@@ -311,102 +326,122 @@ def record_category_approval(
             approved_count=1,
             dismissed_count=0,
         )
-        _save_category_pattern(user_id, new_pattern)
+        _save_category_pattern(account, new_pattern)
         return new_pattern
 
 
 def record_category_dismissal(
-    user_id: str,
+    account: str,
     pattern: str,
     pattern_type: str,
 ) -> None:
     """Record that David dismissed a category suggestion.
-    
+
     This decreases confidence in the pattern.
+
+    Args:
+        account: Email account ("church" or "personal")
+        pattern: The pattern string
+        pattern_type: Type of pattern
     """
-    existing = get_category_pattern(user_id, pattern, pattern_type)
-    
+    existing = get_category_pattern(account, pattern, pattern_type)
+
     if existing:
         existing.dismissed_count += 1
         # Decrease confidence (minimum 0.1)
         existing.confidence = max(0.1, existing.confidence - 0.1)
         existing.last_updated = datetime.now(timezone.utc)
-        _save_category_pattern(user_id, existing)
+        _save_category_pattern(account, existing)
 
 
 def get_category_pattern(
-    user_id: str,
+    account: str,
     pattern: str,
     pattern_type: str,
 ) -> Optional[CategoryPattern]:
-    """Get a category pattern if it exists."""
+    """Get a category pattern if it exists.
+
+    Args:
+        account: Email account ("church" or "personal")
+        pattern: The pattern string
+        pattern_type: Type of pattern
+    """
     pattern_hash = _hash_pattern(f"{pattern_type}:{pattern}")
-    
+
     db = _get_firestore_client()
     if db is not None:
-        return _get_pattern_from_firestore(db, user_id, pattern_hash)
-    return _get_pattern_from_file(user_id, pattern_hash)
+        return _get_pattern_from_firestore(db, account, pattern_hash)
+    return _get_pattern_from_file(account, pattern_hash)
 
 
 def get_category_patterns(
-    user_id: str,
+    account: str,
     limit: int = 100,
 ) -> List[CategoryPattern]:
-    """Get all category patterns for a user."""
+    """Get all category patterns for an account.
+
+    Args:
+        account: Email account ("church" or "personal")
+        limit: Maximum number of patterns to return
+    """
     db = _get_firestore_client()
     if db is not None:
-        return _list_patterns_from_firestore(db, user_id, limit)
-    return _list_patterns_from_file(user_id, limit)
+        return _list_patterns_from_firestore(db, account, limit)
+    return _list_patterns_from_file(account, limit)
 
 
 def suggest_category_for_email(
-    user_id: str,
+    account: str,
     from_address: str,
 ) -> Optional[CategoryPattern]:
     """Suggest a category based on learned patterns.
-    
+
     Checks both sender-level and domain-level patterns.
+
+    Args:
+        account: Email account ("church" or "personal")
+        from_address: Sender email address
     """
     # First try sender-level pattern (more specific)
     sender_pattern = get_category_pattern(
-        user_id, from_address.lower(), PatternType.SENDER.value
+        account, from_address.lower(), PatternType.SENDER.value
     )
     if sender_pattern and sender_pattern.confidence > 0.5:
         return sender_pattern
-    
+
     # Fall back to domain-level pattern
     if "@" in from_address:
         domain = from_address.split("@")[1].lower()
         domain_pattern = get_category_pattern(
-            user_id, domain, PatternType.DOMAIN.value
+            account, domain, PatternType.DOMAIN.value
         )
         if domain_pattern and domain_pattern.confidence > 0.5:
             return domain_pattern
-    
+
     return None
 
 
-def _save_category_pattern(user_id: str, pattern: CategoryPattern) -> None:
+def _save_category_pattern(account: str, pattern: CategoryPattern) -> None:
     """Save a category pattern."""
     pattern_hash = _hash_pattern(f"{pattern.pattern_type}:{pattern.pattern}")
-    
+
     db = _get_firestore_client()
     if db is not None:
         try:
-            _save_pattern_to_firestore(db, user_id, pattern_hash, pattern)
+            _save_pattern_to_firestore(db, account, pattern_hash, pattern)
         except Exception as e:
             print(f"[EmailMemory] Firestore save failed, falling back: {e}")
-            _save_pattern_to_file(user_id, pattern_hash, pattern)
+            _save_pattern_to_file(account, pattern_hash, pattern)
     else:
-        _save_pattern_to_file(user_id, pattern_hash, pattern)
+        _save_pattern_to_file(account, pattern_hash, pattern)
 
 
 # Firestore operations
-def _save_pattern_to_firestore(db, user_id: str, pattern_hash: str, pattern: CategoryPattern) -> None:
+def _save_pattern_to_firestore(db, account: str, pattern_hash: str, pattern: CategoryPattern) -> None:
     """Save pattern to Firestore."""
     doc_ref = (
-        db.collection("users")
-        .document(user_id)
+        db.collection("email_accounts")
+        .document(account)
         .collection("email_memory")
         .document("category_patterns")
         .collection("patterns")
@@ -415,58 +450,56 @@ def _save_pattern_to_firestore(db, user_id: str, pattern_hash: str, pattern: Cat
     doc_ref.set(pattern.to_dict())
 
 
-def _get_pattern_from_firestore(db, user_id: str, pattern_hash: str) -> Optional[CategoryPattern]:
+def _get_pattern_from_firestore(db, account: str, pattern_hash: str) -> Optional[CategoryPattern]:
     """Get pattern from Firestore."""
     doc_ref = (
-        db.collection("users")
-        .document(user_id)
+        db.collection("email_accounts")
+        .document(account)
         .collection("email_memory")
         .document("category_patterns")
         .collection("patterns")
         .document(pattern_hash)
     )
     doc = doc_ref.get()
-    
+
     if doc.exists:
         return CategoryPattern.from_dict(doc.to_dict())
     return None
 
 
-def _list_patterns_from_firestore(db, user_id: str, limit: int) -> List[CategoryPattern]:
+def _list_patterns_from_firestore(db, account: str, limit: int) -> List[CategoryPattern]:
     """List patterns from Firestore."""
     collection = (
-        db.collection("users")
-        .document(user_id)
+        db.collection("email_accounts")
+        .document(account)
         .collection("email_memory")
         .document("category_patterns")
         .collection("patterns")
     )
     query = collection.order_by("confidence", direction="DESCENDING").limit(limit)
-    
+
     patterns = []
     for doc in query.stream():
         try:
             patterns.append(CategoryPattern.from_dict(doc.to_dict()))
         except Exception:
             continue
-    
+
     return patterns
 
 
 # File operations
-def _get_patterns_file(user_id: str) -> Path:
+def _get_patterns_file(account: str) -> Path:
     """Get the file path for category patterns."""
-    memory_dir = _get_memory_dir()
+    memory_dir = _get_memory_dir() / account
     memory_dir.mkdir(parents=True, exist_ok=True)
-    
-    safe_id = user_id.replace("@", "_at_").replace(".", "_")
-    return memory_dir / f"{safe_id}_category_patterns.jsonl"
+    return memory_dir / "category_patterns.jsonl"
 
 
-def _save_pattern_to_file(user_id: str, pattern_hash: str, pattern: CategoryPattern) -> None:
+def _save_pattern_to_file(account: str, pattern_hash: str, pattern: CategoryPattern) -> None:
     """Save pattern to file."""
-    file_path = _get_patterns_file(user_id)
-    
+    file_path = _get_patterns_file(account)
+
     # Read existing patterns
     patterns = {}
     if file_path.exists():
@@ -477,25 +510,25 @@ def _save_pattern_to_file(user_id: str, pattern_hash: str, pattern: CategoryPatt
                     patterns[data.get("_hash", "")] = data
                 except Exception:
                     continue
-    
+
     # Upsert
     pattern_data = pattern.to_dict()
     pattern_data["_hash"] = pattern_hash
     patterns[pattern_hash] = pattern_data
-    
+
     # Write all
     with file_path.open("w", encoding="utf-8") as f:
         for data in patterns.values():
             f.write(json.dumps(data) + "\n")
 
 
-def _get_pattern_from_file(user_id: str, pattern_hash: str) -> Optional[CategoryPattern]:
+def _get_pattern_from_file(account: str, pattern_hash: str) -> Optional[CategoryPattern]:
     """Get pattern from file."""
-    file_path = _get_patterns_file(user_id)
-    
+    file_path = _get_patterns_file(account)
+
     if not file_path.exists():
         return None
-    
+
     with file_path.open("r", encoding="utf-8") as f:
         for line in f:
             try:
@@ -504,17 +537,17 @@ def _get_pattern_from_file(user_id: str, pattern_hash: str) -> Optional[Category
                     return CategoryPattern.from_dict(data)
             except Exception:
                 continue
-    
+
     return None
 
 
-def _list_patterns_from_file(user_id: str, limit: int) -> List[CategoryPattern]:
+def _list_patterns_from_file(account: str, limit: int) -> List[CategoryPattern]:
     """List patterns from file."""
-    file_path = _get_patterns_file(user_id)
-    
+    file_path = _get_patterns_file(account)
+
     if not file_path.exists():
         return []
-    
+
     patterns = []
     with file_path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -523,7 +556,7 @@ def _list_patterns_from_file(user_id: str, limit: int) -> List[CategoryPattern]:
                 patterns.append(CategoryPattern.from_dict(data))
             except Exception:
                 continue
-    
+
     # Sort by confidence descending
     patterns.sort(key=lambda p: p.confidence, reverse=True)
     return patterns[:limit]
@@ -533,62 +566,83 @@ def _list_patterns_from_file(user_id: str, limit: int) -> List[CategoryPattern]:
 # Sender Profile Operations
 # =============================================================================
 
-def get_sender_profile(user_id: str, email: str) -> Optional[SenderProfile]:
-    """Get a sender profile if it exists."""
+def get_sender_profile(account: str, email: str) -> Optional[SenderProfile]:
+    """Get a sender profile if it exists.
+
+    Args:
+        account: Email account ("church" or "personal")
+        email: Sender email address
+    """
     email_hash = _hash_pattern(email.lower())
-    
+
     db = _get_firestore_client()
     if db is not None:
-        return _get_profile_from_firestore(db, user_id, email_hash)
-    return _get_profile_from_file(user_id, email_hash)
+        return _get_profile_from_firestore(db, account, email_hash)
+    return _get_profile_from_file(account, email_hash)
 
 
-def save_sender_profile(user_id: str, profile: SenderProfile) -> None:
-    """Save or update a sender profile."""
+def save_sender_profile(account: str, profile: SenderProfile) -> None:
+    """Save or update a sender profile.
+
+    Args:
+        account: Email account ("church" or "personal")
+        profile: SenderProfile to save
+    """
     email_hash = _hash_pattern(profile.email.lower())
     profile.last_updated = datetime.now(timezone.utc)
-    
+
     db = _get_firestore_client()
     if db is not None:
         try:
-            _save_profile_to_firestore(db, user_id, email_hash, profile)
+            _save_profile_to_firestore(db, account, email_hash, profile)
         except Exception as e:
             print(f"[EmailMemory] Firestore save failed, falling back: {e}")
-            _save_profile_to_file(user_id, email_hash, profile)
+            _save_profile_to_file(account, email_hash, profile)
     else:
-        _save_profile_to_file(user_id, email_hash, profile)
+        _save_profile_to_file(account, email_hash, profile)
 
 
 def list_sender_profiles(
-    user_id: str,
+    account: str,
     vip_only: bool = False,
     limit: int = 100,
 ) -> List[SenderProfile]:
-    """List sender profiles."""
+    """List sender profiles.
+
+    Args:
+        account: Email account ("church" or "personal")
+        vip_only: Only return VIP profiles
+        limit: Maximum number of profiles to return
+    """
     db = _get_firestore_client()
     if db is not None:
-        profiles = _list_profiles_from_firestore(db, user_id, limit)
+        profiles = _list_profiles_from_firestore(db, account, limit)
     else:
-        profiles = _list_profiles_from_file(user_id, limit)
-    
+        profiles = _list_profiles_from_file(account, limit)
+
     if vip_only:
         profiles = [p for p in profiles if p.vip]
-    
+
     return profiles
 
 
-def is_vip_sender(user_id: str, email: str) -> bool:
-    """Check if an email address belongs to a VIP sender."""
-    profile = get_sender_profile(user_id, email)
+def is_vip_sender(account: str, email: str) -> bool:
+    """Check if an email address belongs to a VIP sender.
+
+    Args:
+        account: Email account ("church" or "personal")
+        email: Sender email address
+    """
+    profile = get_sender_profile(account, email)
     return profile.vip if profile else False
 
 
 # Firestore profile operations
-def _save_profile_to_firestore(db, user_id: str, email_hash: str, profile: SenderProfile) -> None:
+def _save_profile_to_firestore(db, account: str, email_hash: str, profile: SenderProfile) -> None:
     """Save profile to Firestore."""
     doc_ref = (
-        db.collection("users")
-        .document(user_id)
+        db.collection("email_accounts")
+        .document(account)
         .collection("email_memory")
         .document("sender_profiles")
         .collection("profiles")
@@ -597,58 +651,56 @@ def _save_profile_to_firestore(db, user_id: str, email_hash: str, profile: Sende
     doc_ref.set(profile.to_dict())
 
 
-def _get_profile_from_firestore(db, user_id: str, email_hash: str) -> Optional[SenderProfile]:
+def _get_profile_from_firestore(db, account: str, email_hash: str) -> Optional[SenderProfile]:
     """Get profile from Firestore."""
     doc_ref = (
-        db.collection("users")
-        .document(user_id)
+        db.collection("email_accounts")
+        .document(account)
         .collection("email_memory")
         .document("sender_profiles")
         .collection("profiles")
         .document(email_hash)
     )
     doc = doc_ref.get()
-    
+
     if doc.exists:
         return SenderProfile.from_dict(doc.to_dict())
     return None
 
 
-def _list_profiles_from_firestore(db, user_id: str, limit: int) -> List[SenderProfile]:
+def _list_profiles_from_firestore(db, account: str, limit: int) -> List[SenderProfile]:
     """List profiles from Firestore."""
     collection = (
-        db.collection("users")
-        .document(user_id)
+        db.collection("email_accounts")
+        .document(account)
         .collection("email_memory")
         .document("sender_profiles")
         .collection("profiles")
     )
     query = collection.limit(limit)
-    
+
     profiles = []
     for doc in query.stream():
         try:
             profiles.append(SenderProfile.from_dict(doc.to_dict()))
         except Exception:
             continue
-    
+
     return profiles
 
 
 # File profile operations
-def _get_profiles_file(user_id: str) -> Path:
+def _get_profiles_file(account: str) -> Path:
     """Get the file path for sender profiles."""
-    memory_dir = _get_memory_dir()
+    memory_dir = _get_memory_dir() / account
     memory_dir.mkdir(parents=True, exist_ok=True)
-    
-    safe_id = user_id.replace("@", "_at_").replace(".", "_")
-    return memory_dir / f"{safe_id}_sender_profiles.jsonl"
+    return memory_dir / "sender_profiles.jsonl"
 
 
-def _save_profile_to_file(user_id: str, email_hash: str, profile: SenderProfile) -> None:
+def _save_profile_to_file(account: str, email_hash: str, profile: SenderProfile) -> None:
     """Save profile to file."""
-    file_path = _get_profiles_file(user_id)
-    
+    file_path = _get_profiles_file(account)
+
     # Read existing profiles
     profiles = {}
     if file_path.exists():
@@ -659,25 +711,25 @@ def _save_profile_to_file(user_id: str, email_hash: str, profile: SenderProfile)
                     profiles[data.get("_hash", "")] = data
                 except Exception:
                     continue
-    
+
     # Upsert
     profile_data = profile.to_dict()
     profile_data["_hash"] = email_hash
     profiles[email_hash] = profile_data
-    
+
     # Write all
     with file_path.open("w", encoding="utf-8") as f:
         for data in profiles.values():
             f.write(json.dumps(data) + "\n")
 
 
-def _get_profile_from_file(user_id: str, email_hash: str) -> Optional[SenderProfile]:
+def _get_profile_from_file(account: str, email_hash: str) -> Optional[SenderProfile]:
     """Get profile from file."""
-    file_path = _get_profiles_file(user_id)
-    
+    file_path = _get_profiles_file(account)
+
     if not file_path.exists():
         return None
-    
+
     with file_path.open("r", encoding="utf-8") as f:
         for line in f:
             try:
@@ -686,17 +738,17 @@ def _get_profile_from_file(user_id: str, email_hash: str) -> Optional[SenderProf
                     return SenderProfile.from_dict(data)
             except Exception:
                 continue
-    
+
     return None
 
 
-def _list_profiles_from_file(user_id: str, limit: int) -> List[SenderProfile]:
+def _list_profiles_from_file(account: str, limit: int) -> List[SenderProfile]:
     """List profiles from file."""
-    file_path = _get_profiles_file(user_id)
-    
+    file_path = _get_profiles_file(account)
+
     if not file_path.exists():
         return []
-    
+
     profiles = []
     with file_path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -705,7 +757,7 @@ def _list_profiles_from_file(user_id: str, limit: int) -> List[SenderProfile]:
                 profiles.append(SenderProfile.from_dict(data))
             except Exception:
                 continue
-    
+
     return profiles[:limit]
 
 
@@ -713,40 +765,58 @@ def _list_profiles_from_file(user_id: str, limit: int) -> List[SenderProfile]:
 # Timing Pattern Operations
 # =============================================================================
 
-def get_timing_patterns(user_id: str) -> Optional[TimingPatterns]:
-    """Get timing patterns for a user."""
+def get_timing_patterns(account: str) -> Optional[TimingPatterns]:
+    """Get timing patterns for an account.
+
+    Args:
+        account: Email account ("church" or "personal")
+    """
     db = _get_firestore_client()
     if db is not None:
-        return _get_timing_from_firestore(db, user_id)
-    return _get_timing_from_file(user_id)
+        return _get_timing_from_firestore(db, account)
+    return _get_timing_from_file(account)
 
 
-def save_timing_patterns(user_id: str, patterns: TimingPatterns) -> None:
-    """Save timing patterns."""
+def save_timing_patterns(account: str, patterns: TimingPatterns) -> None:
+    """Save timing patterns.
+
+    Args:
+        account: Email account ("church" or "personal")
+        patterns: TimingPatterns to save
+    """
     patterns.last_updated = datetime.now(timezone.utc)
-    
+
     db = _get_firestore_client()
     if db is not None:
         try:
-            _save_timing_to_firestore(db, user_id, patterns)
+            _save_timing_to_firestore(db, account, patterns)
         except Exception as e:
             print(f"[EmailMemory] Firestore save failed, falling back: {e}")
-            _save_timing_to_file(user_id, patterns)
+            _save_timing_to_file(account, patterns)
     else:
-        _save_timing_to_file(user_id, patterns)
+        _save_timing_to_file(account, patterns)
 
 
 def record_response_time(
-    user_id: str,
+    account: str,
     email_id: str,
     sender_email: str,
     sender_type: str,
     received_at: datetime,
     responded_at: datetime,
 ) -> ResponseTimeRecord:
-    """Record a response time for future analysis."""
+    """Record a response time for future analysis.
+
+    Args:
+        account: Email account ("church" or "personal")
+        email_id: Email message ID
+        sender_email: Sender email address
+        sender_type: Type of sender relationship
+        received_at: When email was received
+        responded_at: When response was sent
+    """
     hours = (responded_at - received_at).total_seconds() / 3600
-    
+
     record = ResponseTimeRecord(
         email_id=email_id,
         sender_email=sender_email,
@@ -755,40 +825,44 @@ def record_response_time(
         responded_at=responded_at,
         hours_to_response=hours,
     )
-    
+
     # Store the record (simplified - just append to file for now)
-    _append_response_record(user_id, record)
-    
+    _append_response_record(account, record)
+
     # Update aggregated timing patterns
-    _update_timing_aggregates(user_id, sender_type, hours)
-    
+    _update_timing_aggregates(account, sender_type, hours)
+
     return record
 
 
-def get_average_response_time(user_id: str, sender_type: str) -> Optional[float]:
-    """Get average response time for a sender type."""
-    patterns = get_timing_patterns(user_id)
+def get_average_response_time(account: str, sender_type: str) -> Optional[float]:
+    """Get average response time for a sender type.
+
+    Args:
+        account: Email account ("church" or "personal")
+        sender_type: Type of sender relationship
+    """
+    patterns = get_timing_patterns(account)
     if patterns and sender_type in patterns.average_response_time_by_type:
         return patterns.average_response_time_by_type[sender_type]
     return None
 
 
-def _append_response_record(user_id: str, record: ResponseTimeRecord) -> None:
+def _append_response_record(account: str, record: ResponseTimeRecord) -> None:
     """Append a response time record to storage."""
-    memory_dir = _get_memory_dir()
+    memory_dir = _get_memory_dir() / account
     memory_dir.mkdir(parents=True, exist_ok=True)
-    
-    safe_id = user_id.replace("@", "_at_").replace(".", "_")
-    file_path = memory_dir / f"{safe_id}_response_times.jsonl"
-    
+
+    file_path = memory_dir / "response_times.jsonl"
+
     with file_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record.to_dict()) + "\n")
 
 
-def _update_timing_aggregates(user_id: str, sender_type: str, hours: float) -> None:
+def _update_timing_aggregates(account: str, sender_type: str, hours: float) -> None:
     """Update aggregated timing patterns with new data point."""
-    patterns = get_timing_patterns(user_id)
-    
+    patterns = get_timing_patterns(account)
+
     if patterns is None:
         patterns = TimingPatterns(
             peak_processing_hours=[9, 14, 20],
@@ -796,7 +870,7 @@ def _update_timing_aggregates(user_id: str, sender_type: str, hours: float) -> N
             batch_vs_continuous="batch",
             last_updated=datetime.now(timezone.utc),
         )
-    
+
     # Simple rolling average update
     if sender_type in patterns.average_response_time_by_type:
         old_avg = patterns.average_response_time_by_type[sender_type]
@@ -804,62 +878,60 @@ def _update_timing_aggregates(user_id: str, sender_type: str, hours: float) -> N
         patterns.average_response_time_by_type[sender_type] = old_avg * 0.8 + hours * 0.2
     else:
         patterns.average_response_time_by_type[sender_type] = hours
-    
-    save_timing_patterns(user_id, patterns)
+
+    save_timing_patterns(account, patterns)
 
 
 # Firestore timing operations
-def _save_timing_to_firestore(db, user_id: str, patterns: TimingPatterns) -> None:
+def _save_timing_to_firestore(db, account: str, patterns: TimingPatterns) -> None:
     """Save timing patterns to Firestore."""
     doc_ref = (
-        db.collection("users")
-        .document(user_id)
+        db.collection("email_accounts")
+        .document(account)
         .collection("email_memory")
         .document("timing_patterns")
     )
     doc_ref.set(patterns.to_dict())
 
 
-def _get_timing_from_firestore(db, user_id: str) -> Optional[TimingPatterns]:
+def _get_timing_from_firestore(db, account: str) -> Optional[TimingPatterns]:
     """Get timing patterns from Firestore."""
     doc_ref = (
-        db.collection("users")
-        .document(user_id)
+        db.collection("email_accounts")
+        .document(account)
         .collection("email_memory")
         .document("timing_patterns")
     )
     doc = doc_ref.get()
-    
+
     if doc.exists:
         return TimingPatterns.from_dict(doc.to_dict())
     return None
 
 
 # File timing operations
-def _get_timing_file(user_id: str) -> Path:
+def _get_timing_file(account: str) -> Path:
     """Get the file path for timing patterns."""
-    memory_dir = _get_memory_dir()
+    memory_dir = _get_memory_dir() / account
     memory_dir.mkdir(parents=True, exist_ok=True)
-    
-    safe_id = user_id.replace("@", "_at_").replace(".", "_")
-    return memory_dir / f"{safe_id}_timing_patterns.json"
+    return memory_dir / "timing_patterns.json"
 
 
-def _save_timing_to_file(user_id: str, patterns: TimingPatterns) -> None:
+def _save_timing_to_file(account: str, patterns: TimingPatterns) -> None:
     """Save timing patterns to file."""
-    file_path = _get_timing_file(user_id)
-    
+    file_path = _get_timing_file(account)
+
     with file_path.open("w", encoding="utf-8") as f:
         json.dump(patterns.to_dict(), f, indent=2)
 
 
-def _get_timing_from_file(user_id: str) -> Optional[TimingPatterns]:
+def _get_timing_from_file(account: str) -> Optional[TimingPatterns]:
     """Get timing patterns from file."""
-    file_path = _get_timing_file(user_id)
-    
+    file_path = _get_timing_file(account)
+
     if not file_path.exists():
         return None
-    
+
     with file_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
         return TimingPatterns.from_dict(data)
@@ -869,12 +941,15 @@ def _get_timing_from_file(user_id: str) -> Optional[TimingPatterns]:
 # Seed Data (from Memory Graph)
 # =============================================================================
 
-def seed_sender_profiles_from_memory_graph(user_id: str) -> int:
+def seed_sender_profiles_from_memory_graph(account: str) -> int:
     """Seed sender profiles from David's memory graph.
-    
+
     This creates initial sender profiles based on known relationships.
     Returns the number of profiles created.
-    
+
+    Args:
+        account: Email account ("church" or "personal")
+
     Seed data (from user's memory graph):
     - Family (VIP): Esther, Elijah, Daniel, Scarlett, Gloria
     - Work: Laura DeStella-Whippy (manager), Dave Gould (report), peers
@@ -882,7 +957,7 @@ def seed_sender_profiles_from_memory_graph(user_id: str) -> int:
     """
     now = datetime.now(timezone.utc)
     count = 0
-    
+
     # Family - VIP, immediate response
     family_profiles = [
         SenderProfile(
@@ -916,7 +991,7 @@ def seed_sender_profiles_from_memory_graph(user_id: str) -> int:
             notes="Mother-in-law",
         ),
     ]
-    
+
     # Work relationships (PGA TOUR)
     work_profiles = [
         SenderProfile(
@@ -980,11 +1055,11 @@ def seed_sender_profiles_from_memory_graph(user_id: str) -> int:
             notes="Peer - Associate Project Manager",
         ),
     ]
-    
+
     # Save all profiles
     for profile in family_profiles + work_profiles:
-        save_sender_profile(user_id, profile)
+        save_sender_profile(account, profile)
         count += 1
-    
+
     return count
 

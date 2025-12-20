@@ -31,7 +31,7 @@ export default defineConfig({
   /* Shared settings for all projects */
   use: {
     /* Base URL for the DATA web dashboard */
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5174',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
     
     /* Collect trace on first retry */
     trace: 'on-first-retry',
@@ -77,7 +77,7 @@ export default defineConfig({
     },
     {
       command: 'cd ../web-dashboard && npm run dev',
-      url: 'http://localhost:5174',
+      url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,
       timeout: 120 * 1000,
     },

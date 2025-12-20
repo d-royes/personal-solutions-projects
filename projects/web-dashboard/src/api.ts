@@ -1,10 +1,17 @@
 import type {
   ActivityEntry,
   AssistResponse,
+  AttentionItem,
   ConversationMessage,
   DataSource,
   TaskResponse,
   WorkBadge,
+  // Sprint 5: Suggestion Tracking
+  SuggestionDecisionResponse,
+  PendingSuggestionsResponse,
+  SuggestionStats,
+  RejectionPatternsResponse,
+  AddPatternResponse,
 } from './types'
 import type { AuthConfig } from './auth/types'
 
@@ -1499,6 +1506,135 @@ export async function analyzeInbox(
   return resp.json()
 }
 
+// --- Attention Item Actions (Sprint 4) ---
+
+export type DismissReason = 'not_actionable' | 'handled' | 'false_positive'
+
+export interface DismissResult {
+  success: boolean
+  emailId: string
+  account: string
+  reason: DismissReason
+}
+
+export interface SnoozeResult {
+  success: boolean
+  emailId: string
+  account: string
+  snoozedUntil: string
+}
+
+export interface PersistedAttentionResponse {
+  account: string
+  attentionItems: AttentionItem[]
+  count: number
+}
+
+/**
+ * Get persisted attention items from storage (without re-analyzing).
+ * Use this on page load to restore previous attention state.
+ */
+export async function getAttentionItems(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PersistedAttentionResponse> {
+  const url = new URL(`/email/attention/${account}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Failed to get attention items: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// Response type for last analysis endpoint
+export interface LastAnalysisApiResponse {
+  account: string
+  lastAnalysis: {
+    timestamp: string
+    emailsFetched: number
+    emailsAnalyzed: number
+    alreadyTracked: number
+    dismissed: number
+    suggestionsGenerated: number
+    rulesGenerated: number
+    attentionItems: number
+    haikuAnalyzed: number
+    haikuRemaining: { daily: number; weekly: number } | null
+  } | null
+}
+
+export async function getLastAnalysis(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<LastAnalysisApiResponse> {
+  const url = new URL(`/email/last-analysis/${account}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Failed to get last analysis: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function dismissAttentionItem(
+  account: EmailAccount,
+  emailId: string,
+  reason: DismissReason,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<DismissResult> {
+  const url = new URL(`/email/attention/${account}/${emailId}/dismiss`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ reason }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Dismiss failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function snoozeAttentionItem(
+  account: EmailAccount,
+  emailId: string,
+  until: Date,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SnoozeResult> {
+  const url = new URL(`/email/attention/${account}/${emailId}/snooze`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ until: until.toISOString() }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Snooze failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 // --- Rule Sync ---
 
 export async function syncRulesToSheet(
@@ -2014,6 +2150,35 @@ export async function getEmailActionSuggestions(
   return resp.json()
 }
 
+export interface PendingActionSuggestionsResponse {
+  account: string
+  suggestions: EmailActionSuggestion[]
+  count: number
+}
+
+/**
+ * Get persisted pending action suggestions for the specified account.
+ *
+ * These are suggestions that were saved during Analyze Inbox and can be
+ * displayed after page refresh without re-analyzing.
+ */
+export async function getPendingActionSuggestions(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PendingActionSuggestionsResponse> {
+  const url = new URL(`/email/suggestions/${account}/pending`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get pending suggestions failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 
 // =============================================================================
 // Email Full Message and Reply API Functions
@@ -2162,7 +2327,7 @@ export async function sendReply(
   baseUrl: string = defaultBase,
 ): Promise<ReplySendResponse> {
   const url = new URL(`/email/${account}/reply-send`, baseUrl)
-  
+
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
@@ -2180,6 +2345,414 @@ export async function sendReply(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Send reply failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// User Profile API Functions
+// =============================================================================
+
+import type { UserProfile } from './types'
+
+export interface ProfileResponse {
+  profile: UserProfile
+}
+
+export interface ProfileUpdateRequest {
+  churchRoles?: string[]
+  personalContexts?: string[]
+  vipSenders?: Record<string, string[]>
+  churchAttentionPatterns?: Record<string, string[]>
+  personalAttentionPatterns?: Record<string, string[]>
+  notActionablePatterns?: Record<string, string[]>
+}
+
+/**
+ * Fetch the current user's profile for role-aware email management.
+ */
+export async function getProfile(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<ProfileResponse> {
+  const url = new URL('/profile', baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get profile failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update the current user's profile.
+ * Only provided fields are updated; omitted fields retain their current values.
+ */
+export async function updateProfile(
+  request: ProfileUpdateRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<ProfileResponse> {
+  const url = new URL('/profile', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update profile failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// --- Suggestion Tracking (Sprint 5) ---
+
+/**
+ * Record a decision (approve/reject) on a suggestion.
+ * This feedback is critical for the Trust Gradient learning system.
+ * Account is now required (storage is by account, not user).
+ */
+export async function decideSuggestion(
+  account: EmailAccount,
+  suggestionId: string,
+  approved: boolean,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SuggestionDecisionResponse> {
+  const url = new URL(`/email/suggestions/${account}/${suggestionId}/decide`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ approved }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Decide suggestion failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get all pending suggestions for the specified account.
+ * Account is now required (storage is by account, not user).
+ */
+export async function getPendingSuggestions(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PendingSuggestionsResponse> {
+  const url = new URL(`/email/suggestions/${account}/pending`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get pending suggestions failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get suggestion approval statistics for Trust Gradient tracking.
+ * Account is now required (storage is by account, not user).
+ */
+export async function getSuggestionStats(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  days: number = 30,
+): Promise<SuggestionStats> {
+  const url = new URL(`/email/suggestions/${account}/stats`, baseUrl)
+  url.searchParams.set('days', String(days))
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get suggestion stats failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get frequently rejected patterns that could be added to not-actionable.
+ */
+export async function getRejectionPatterns(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  days: number = 30,
+  minRejections: number = 3,
+): Promise<RejectionPatternsResponse> {
+  const url = new URL('/email/suggestions/rejection-patterns', baseUrl)
+  url.searchParams.set('days', String(days))
+  url.searchParams.set('min_rejections', String(minRejections))
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get rejection patterns failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Add a pattern to the not-actionable list.
+ * This teaches DATA to skip emails matching this pattern.
+ */
+export async function addNotActionablePattern(
+  account: EmailAccount,
+  pattern: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<AddPatternResponse> {
+  const url = new URL('/profile/not-actionable/add', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ account, pattern }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Add pattern failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Remove a pattern from the not-actionable list.
+ */
+export async function removeNotActionablePattern(
+  account: EmailAccount,
+  pattern: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<AddPatternResponse> {
+  const url = new URL('/profile/not-actionable/remove', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ account, pattern }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Remove pattern failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Rule Suggestion API
+// =============================================================================
+
+export interface RuleSuggestionRecord {
+  ruleId: string
+  emailAccount: string
+  suggestionType: string
+  suggestedRule: {
+    field: string
+    operator: string
+    value: string
+    action: string
+    category: string
+    emailAccount?: string
+    order?: number
+  }
+  reason: string
+  examples: string[]
+  emailCount: number
+  confidence: number
+  analysisMethod: string
+  category: string
+  status: string
+  decidedAt?: string
+  rejectionReason?: string
+  createdAt: string
+}
+
+export interface PendingRulesResponse {
+  account: string
+  rules: RuleSuggestionRecord[]
+  count: number
+}
+
+export interface RuleDecisionResponse {
+  status: 'approved' | 'rejected'
+  ruleId: string
+  rule?: RuleSuggestionRecord
+}
+
+/**
+ * Get all pending rule suggestions for the specified account.
+ */
+export async function getPendingRules(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PendingRulesResponse> {
+  const url = new URL(`/email/rules/${account}/pending`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get pending rules failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Decide (approve/reject) a rule suggestion.
+ */
+export async function decideRuleSuggestion(
+  account: EmailAccount,
+  ruleId: string,
+  approved: boolean,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  rejectionReason?: string,
+): Promise<RuleDecisionResponse> {
+  const url = new URL(`/email/rules/${account}/${ruleId}/decide`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...buildHeaders(auth),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ approved, rejectionReason }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Decide rule failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Haiku Intelligence Layer API (F1)
+// =============================================================================
+
+export interface HaikuSettings {
+  enabled: boolean
+  dailyLimit: number
+  weeklyLimit: number
+}
+
+export interface HaikuUsage {
+  dailyCount: number
+  weeklyCount: number
+  dailyLimit: number
+  weeklyLimit: number
+  dailyRemaining: number
+  weeklyRemaining: number
+  canAnalyze: boolean
+  enabled: boolean
+}
+
+export interface HaikuSettingsResponse {
+  settings: HaikuSettings
+}
+
+export interface HaikuSettingsUpdateRequest {
+  enabled?: boolean
+  daily_limit?: number
+  weekly_limit?: number
+}
+
+export interface HaikuUsageResponse {
+  usage: HaikuUsage
+}
+
+/**
+ * Get current Haiku analysis settings for the user.
+ */
+export async function getHaikuSettings(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<HaikuSettingsResponse> {
+  const url = new URL('/email/haiku/settings', baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get Haiku settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update Haiku analysis settings.
+ * Only provided fields are updated.
+ */
+export async function updateHaikuSettings(
+  request: HaikuSettingsUpdateRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; settings: HaikuSettings }> {
+  const url = new URL('/email/haiku/settings', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update Haiku settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get current Haiku usage statistics.
+ * Shows daily/weekly counts, limits, remaining capacity.
+ */
+export async function getHaikuUsage(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<HaikuUsageResponse> {
+  const url = new URL('/email/haiku/usage', baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get Haiku usage failed: ${resp.statusText}`)
   }
   return resp.json()
 }

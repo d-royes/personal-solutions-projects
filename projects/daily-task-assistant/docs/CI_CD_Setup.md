@@ -18,8 +18,10 @@ This document describes how to set up the GitHub Actions CI/CD pipeline for the 
 | Environment | Frontend URL | Backend URL |
 |-------------|--------------|-------------|
 | **Dev** | http://localhost:5173 | http://localhost:8000 |
-| **Staging** | https://daily-task-assistant-church.web.app | https://daily-task-assistant-staging-368257400464.us-central1.run.app |
-| **Production** | https://daily-task-assistant-prod.web.app | https://daily-task-assistant-prod-368257400464.us-central1.run.app |
+| **Staging** | https://staging.dailytaskassistant.ai | https://daily-task-assistant-staging-368257400464.us-central1.run.app |
+| **Production** | https://dailytaskassistant.ai | https://daily-task-assistant-prod-368257400464.us-central1.run.app |
+
+> **Note**: Custom domains (`dailytaskassistant.ai`, `staging.dailytaskassistant.ai`) are configured via Firebase Hosting. Legacy URLs (`*.web.app`) still work but prefer custom domains.
 
 ## Branch Strategy
 
@@ -99,14 +101,14 @@ Firebase Hosting should already be configured from the previous setup. The workf
 #### Production
 | Service | URL |
 |---------|-----|
-| Frontend | https://daily-task-assistant-prod.web.app |
+| Frontend | https://dailytaskassistant.ai |
 | Backend | https://daily-task-assistant-prod-368257400464.us-central1.run.app |
 | Health Check | https://daily-task-assistant-prod-368257400464.us-central1.run.app/health |
 
 #### Staging
 | Service | URL |
 |---------|-----|
-| Frontend | https://daily-task-assistant-church.web.app |
+| Frontend | https://staging.dailytaskassistant.ai |
 | Backend | https://daily-task-assistant-staging-368257400464.us-central1.run.app |
 | Health Check | https://daily-task-assistant-staging-368257400464.us-central1.run.app/health |
 

@@ -105,6 +105,7 @@ export interface RuleSuggestion {
   reason: string
   examples: string[]
   emailCount: number
+  ruleId?: string  // Set when loaded from persistence
 }
 
 export interface AttentionItem {
@@ -119,6 +120,13 @@ export interface AttentionItem {
   extractedDeadline?: string
   extractedTask?: string
   labels?: string[]
+  // Profile-aware analysis fields (Sprint 3)
+  matchedRole?: string  // Role/context that triggered (e.g., "Treasurer", "VIP")
+  confidence: number  // 0.0-1.0 confidence score
+  analysisMethod: 'regex' | 'profile' | 'vip' | 'haiku'  // How item was detected (haiku = AI, others = rule-based)
+  // Status fields for dismiss/snooze (Sprint 4)
+  status?: 'active' | 'dismissed' | 'snoozed'
+  snoozedUntil?: string
 }
 
 export interface AttachmentInfo {
@@ -172,14 +180,47 @@ export interface FilterRulesResponse {
 export interface AnalyzeInboxResponse {
   account: string
   email: string
+  // Analysis breakdown for auditing
+  emailsFetched: number
+  emailsDismissed: number
+  emailsAlreadyTracked: number
   messagesAnalyzed: number
   existingRulesCount: number
   suggestions: RuleSuggestion[]
+  actionSuggestions?: unknown[]  // Action suggestions for Suggestions tab (typed in api.ts)
   attentionItems: AttentionItem[]
+  haikuAnalyzed?: number  // Count of emails analyzed by Haiku
+  haikuUsage?: HaikuUsage  // Current Haiku usage stats
+}
+
+// Haiku usage tracking
+export interface HaikuUsage {
+  dailyCount: number
+  weeklyCount: number
+  dailyLimit: number
+  weeklyLimit: number
+  dailyRemaining: number
+  weeklyRemaining: number
+  enabled: boolean
+  canAnalyze: boolean
 }
 
 // App mode for navigation
 export type AppMode = 'tasks' | 'email'
+
+// User Profile types (for email management intelligence)
+export interface UserProfile {
+  userId: string
+  churchRoles: string[]
+  personalContexts: string[]
+  vipSenders: Record<string, string[]>
+  churchAttentionPatterns: Record<string, string[]>
+  personalAttentionPatterns: Record<string, string[]>
+  notActionablePatterns: Record<string, string[]>
+  version: string
+  createdAt: string
+  updatedAt: string
+}
 
 // Firestore Task (created from emails)
 export interface FirestoreTask {
@@ -240,5 +281,72 @@ export interface ThreadContext {
   messageCount: number
   summary?: string
   messages: ThreadContextMessage[]
+}
+
+// Suggestion Tracking Types (Sprint 5)
+export type SuggestionStatus = 'pending' | 'approved' | 'rejected' | 'expired'
+export type SuggestionAction = 'archive' | 'label' | 'delete' | 'star' | 'create_task' | 'mark_important'
+export type AnalysisMethod = 'regex' | 'haiku' | 'profile_match'
+
+export interface PersistentSuggestion {
+  suggestionId: string
+  emailId: string
+  emailAccount: string
+  action: SuggestionAction
+  rationale: string
+  confidence: number
+  labelName?: string
+  taskTitle?: string
+  status: SuggestionStatus
+  decidedAt?: string
+  analysisMethod: AnalysisMethod
+  createdAt: string
+}
+
+export interface SuggestionDecisionResponse {
+  success: boolean
+  suggestionId: string
+  status: SuggestionStatus
+  decidedAt?: string
+}
+
+export interface PendingSuggestionsResponse {
+  account?: string
+  suggestions: PersistentSuggestion[]
+  count: number
+}
+
+export interface SuggestionStats {
+  days: number
+  total: number
+  approved: number
+  rejected: number
+  expired: number
+  pending: number
+  approvalRate: number
+  byAction: Record<string, { approved: number; rejected: number }>
+  byMethod: Record<string, { approved: number; rejected: number }>
+}
+
+export interface RejectionCandidate {
+  pattern: string
+  rejectionCount: number
+  suggestedAction: string
+}
+
+export interface RejectionPatternsResponse {
+  days: number
+  minRejections: number
+  candidates: {
+    church: RejectionCandidate[]
+    personal: RejectionCandidate[]
+  }
+}
+
+export interface AddPatternResponse {
+  success: boolean
+  account: string
+  pattern: string
+  message: string
 }
 

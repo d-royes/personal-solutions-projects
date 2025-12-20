@@ -1,7 +1,7 @@
 # Project Directive — Daily Task Assistant (DATA)
 
-Version: 2025-12-14  
-Owner: David Royes  
+Version: 2025-12-19
+Owner: David Royes
 AI Partner: Claude Opus 4.5 (switched from GPT-5.1 Codex on 2025-11-29)
 
 ---
@@ -75,7 +75,7 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 | **Interfaces** | ✅ | CLI + FastAPI backend + React web dashboard + Email Dashboard (all operational). |
 | **Storage/Logs** | ✅ | Firestore for activity log + conversation history (with local file fallback). |
 | **CI/CD** | ✅ | GitHub Actions: automated testing, staging deploy, production deploy with approval. |
-| **E2E Testing** | ✅ | Playwright regression tests: 48 tests across API, Tasks, Email, Assistant Panel, multi-browser. |
+| **E2E Testing** | ✅ | Playwright regression tests: 48+ tests across API, Tasks, Email, Assistant Panel, multi-browser. |
 | **Hosting** | ✅ | Cloud Run (backend) + Firebase Hosting (frontend) for staging and production. |
 
 ---
@@ -112,6 +112,7 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 | 2025-12-10 | **Email Management**: Chief of Staff model with Google Sheets integration, Gmail inbox reader, pattern analyzer. |
 | 2025-12-11 | **Apps Script Automation**: Personal + Church email labeling rules deployed with 15-min triggers. |
 | 2025-12-11 | **E2E Regression Tests**: Playwright framework with 32 tests across API, Tasks, Email features. |
+| 2025-12-19 | **F1 Persistence Layer**: Suggestions, Rules, Analysis persist to Firestore. Trust Gradient foundation. |
 
 ---
 
@@ -160,8 +161,15 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 
 ### Testing & Quality
 30. **Unit Tests**: 69 tests covering inbox, filter rules, email analyzer, API endpoints.
-31. **E2E Regression Tests**: Playwright framework with 32 browser-automated tests.
+31. **E2E Regression Tests**: Playwright framework with 48 browser-automated tests.
 32. **Multi-Browser Coverage**: Chrome, Firefox, Safari, Mobile Chrome test configurations.
+
+### F1 Persistence Layer (Trust Gradient Foundation)
+33. **Suggestion Persistence**: Action suggestions saved to Firestore via `suggestion_store.py` with decision tracking.
+34. **Rule Persistence**: Rule suggestions saved to Firestore via `rule_store.py` with approval/rejection status.
+35. **Analysis Audit Persistence**: Last analysis results saved to Firestore via `analysis_store.py` for cross-machine visibility.
+36. **Decision Tracking**: Approve/reject actions stored with timestamps, feeding Trust Gradient metrics.
+37. **Storage Key Architecture**: GLOBAL vs ACCOUNT keying strategy documented in `docs/STORAGE_ARCHITECTURE.md`.
 
 ---
 
@@ -232,6 +240,42 @@ Performance feedback about DATA *is* data about David — it reveals his values,
 ---
 
 ## 10. Recent Session Log
+
+### 2025-12-19: F1 Persistence Layer & Trust Gradient Foundation
+
+**Complete Persistence Layer**
+- ✅ Suggestions persist across refresh via `suggestion_store.py` (Firestore)
+- ✅ Rules persist across refresh via `rule_store.py` (Firestore)
+- ✅ Analysis audit persists across machines via `analysis_store.py` (Firestore)
+- ✅ Decision tracking: approve/reject actions stored with timestamps
+- ✅ Storage Key Architecture documented in `docs/STORAGE_ARCHITECTURE.md`
+
+**Last Analysis Audit Feature**
+- ✅ Settings page shows breakdown per account (emails fetched, tracked, dismissed, Haiku analyzed)
+- ✅ Cross-machine sync: analysis results visible from any machine
+- ✅ Side-by-side Personal/Church comparison cards
+
+**Email Dashboard UI Improvements**
+- ✅ Clickable dashboard tiles navigate to Unread, Rules, Suggestions, or Attention tabs
+- ✅ Suggestions tile highlighted (yellow styling) to emphasize Trust Gradient importance
+- ✅ Suggestions tab shows count badge like Rules and Attention tabs
+- ✅ Email cache persists across Task/Email mode switches (state lifted to App.tsx)
+
+**Bug Fixes**
+- ✅ Fixed duplicate endpoint causing all suggestions to have same `number`
+- ✅ Fixed stale cache on account switch (cache now updates even with empty response)
+- ✅ Documented fix for zombie uvicorn processes holding old code on Windows
+
+**Haiku Usage Limits**
+- ✅ Increased daily limit to 150 (from 50)
+- ✅ Increased weekly limit to 300 (from 100)
+
+**Documentation**
+- ✅ Updated DATA_PHILOSOPHY.md with Trust Gradient implementation status
+- ✅ Updated STORAGE_ARCHITECTURE.md with rule_store and analysis_store modules
+- ✅ Updated README.md with Haiku Intelligence Layer and Persistence Layer sections
+- ✅ Updated CHANGELOG.md with F1 persistence features
+- ✅ Updated BACKLOG.md - moved completed items, reduced Urgent Priority
 
 ### 2025-12-14: Workspace Context & Developer Tools
 
