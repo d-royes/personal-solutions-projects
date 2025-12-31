@@ -250,7 +250,7 @@ export async function generatePlan(
   taskId: string,
   auth: AuthConfig,
   baseUrl: string = defaultBase,
-  options: { source?: DataSource; anthropicModel?: string; workspaceContext?: string; contextItems?: string[] } = {},
+  options: { source?: DataSource; anthropicModel?: string; workspaceContext?: string; contextItems?: string[]; selectedAttachments?: string[] } = {},
 ): Promise<PlanResponse> {
   const url = new URL(`/assist/${taskId}/plan`, baseUrl)
   const resp = await fetch(url, {
@@ -264,6 +264,7 @@ export async function generatePlan(
       anthropicModel: options.anthropicModel,
       workspaceContext: options.workspaceContext,
       contextItems: options.contextItems,
+      selectedAttachments: options.selectedAttachments,
     }),
   })
   if (!resp.ok) {
@@ -576,15 +577,34 @@ export interface AttachmentInfo {
   attachmentType: string
   downloadUrl: string
   isImage: boolean
+  isPdf: boolean
   source?: string
 }
 
-export function getAttachmentDownloadUrl(
+export function getAttachmentDetailUrl(
   taskId: string,
   attachmentId: string,
   baseUrl: string = defaultBase,
 ): string {
-  return `${baseUrl}/assist/${taskId}/attachment/${attachmentId}/download`
+  // Returns backend endpoint to fetch single attachment detail (includes downloadUrl)
+  return `${baseUrl}/assist/${taskId}/attachment/${attachmentId}`
+}
+
+export async function fetchAttachmentDetail(
+  taskId: string,
+  attachmentId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<AttachmentInfo> {
+  const url = new URL(`/assist/${taskId}/attachment/${attachmentId}`, baseUrl)
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Fetch attachment detail failed: ${resp.statusText}`)
+  }
+  return resp.json()
 }
 
 export interface AttachmentsResponse {

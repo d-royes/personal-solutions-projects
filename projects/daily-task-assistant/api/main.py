@@ -1,6 +1,12 @@
 """FastAPI service for Daily Task Assistant."""
 from __future__ import annotations
 
+# Load .env file before any other imports
+from pathlib import Path
+from dotenv import load_dotenv
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(env_path)
+
 import logging
 import os
 
@@ -29,7 +35,7 @@ from daily_task_assistant.conversations import (
 from daily_task_assistant.dataset import fetch_tasks as fetch_task_dataset
 from daily_task_assistant.logs import fetch_activity_entries
 from daily_task_assistant.services import execute_assist
-from daily_task_assistant.tasks import TaskDetail
+from daily_task_assistant.tasks import AttachmentDetail, TaskDetail
 
 
 app = FastAPI(
@@ -1123,6 +1129,11 @@ class PlanRequest(BaseModel):
     context_items: Optional[List[str]] = Field(
         None, alias="contextItems", description="User-provided context items from workspace."
     )
+    selected_attachments: Optional[List[str]] = Field(
+        None,
+        alias="selectedAttachments",
+        description="IDs of selected attachments to include in context"
+    )
 
 
 @app.post("/assist/{task_id}/plan")
@@ -1240,6 +1251,112 @@ def unstrike_conversation_message(
     }
 
 
+# --- Attachment Endpoints ---
+
+class AttachmentResponse(BaseModel):
+    """Response model for attachment metadata."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    attachment_id: str = Field(..., alias="attachmentId")
+    name: str
+    mime_type: str = Field(..., alias="mimeType")
+    size_bytes: int = Field(..., alias="sizeBytes")
+    created_at: str = Field(..., alias="createdAt")
+    attachment_type: str = Field(..., alias="attachmentType")
+    download_url: str = Field(..., alias="downloadUrl")
+    is_image: bool = Field(..., alias="isImage")
+    is_pdf: bool = Field(..., alias="isPdf")
+
+
+class AttachmentsListResponse(BaseModel):
+    """Response model for list of attachments."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_id: str = Field(..., alias="taskId")
+    attachments: List[AttachmentResponse]
+
+
+def _is_image_mime(mime_type: str) -> bool:
+    """Check if MIME type is a supported image format."""
+    return mime_type.lower() in ("image/jpeg", "image/png", "image/gif", "image/webp")
+
+
+def _is_pdf_mime(mime_type: str) -> bool:
+    """Check if MIME type is PDF."""
+    return mime_type.lower() == "application/pdf"
+
+
+@app.get("/assist/{task_id}/attachments")
+def get_task_attachments(
+    task_id: str,
+    source: Literal["personal", "work"] = "personal",
+    user: str = Depends(get_current_user),
+) -> AttachmentsListResponse:
+    """Get all attachments for a task with download URLs.
+
+    Returns attachment metadata including temporary download URLs from Smartsheet.
+    URLs are signed and expire after a short period.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+
+    settings = load_settings()
+    client = SmartsheetClient(settings)
+
+    attachments = client.get_row_attachments_with_urls(task_id, source=source)
+
+    return AttachmentsListResponse(
+        task_id=task_id,
+        attachments=[
+            AttachmentResponse(
+                attachment_id=att.attachment_id,
+                name=att.name,
+                mime_type=att.mime_type,
+                size_bytes=att.size_bytes,
+                created_at=att.created_at,
+                attachment_type=att.attachment_type,
+                download_url=att.download_url,
+                is_image=_is_image_mime(att.mime_type),
+                is_pdf=_is_pdf_mime(att.mime_type),
+            )
+            for att in attachments
+        ],
+    )
+
+
+@app.get("/assist/{task_id}/attachment/{attachment_id}")
+def get_attachment_detail(
+    task_id: str,
+    attachment_id: str,
+    source: Literal["personal", "work"] = "personal",
+    user: str = Depends(get_current_user),
+) -> AttachmentResponse:
+    """Get details for a specific attachment including download URL.
+
+    The download URL is a temporary signed URL from Smartsheet that can be
+    used to fetch the file content directly.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+
+    settings = load_settings()
+    client = SmartsheetClient(settings)
+
+    attachment = client.get_attachment_detail(attachment_id, source=source)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found.")
+
+    return AttachmentResponse(
+        attachment_id=attachment.attachment_id,
+        name=attachment.name,
+        mime_type=attachment.mime_type,
+        size_bytes=attachment.size_bytes,
+        created_at=attachment.created_at,
+        attachment_type=attachment.attachment_type,
+        download_url=attachment.download_url,
+        is_image=_is_image_mime(attachment.mime_type),
+        is_pdf=_is_pdf_mime(attachment.mime_type),
+    )
+
+
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
     model_config = {"populate_by_name": True}
@@ -1250,6 +1367,11 @@ class ChatRequest(BaseModel):
         None,
         alias="workspaceContext",
         description="Selected workspace content to include in context"
+    )
+    selected_attachments: Optional[List[str]] = Field(
+        None,
+        alias="selectedAttachments",
+        description="IDs of selected attachments to include in context"
     )
 
 
@@ -1290,6 +1412,18 @@ def chat_with_task(
         {"role": msg.role, "content": msg.content} for msg in llm_history_messages
     ]
 
+    # Fetch selected attachments with full details
+    attachments: List[AttachmentDetail] = []
+    if request.selected_attachments:
+        from daily_task_assistant.smartsheet_client import SmartsheetClient
+        settings = load_settings()
+        ss_client = SmartsheetClient(settings)
+        source_key = "personal" if target.source != "work" else "work"
+        for att_id in request.selected_attachments:
+            detail = ss_client.get_attachment_detail(att_id, source=source_key)
+            if detail:
+                attachments.append(detail)
+
     # Call Anthropic with tool support for task updates
     try:
         chat_response = chat_with_tools(
@@ -1297,6 +1431,7 @@ def chat_with_task(
             user_message=request.message,
             history=llm_history,
             workspace_context=request.workspace_context,
+            attachments=attachments if attachments else None,
         )
     except AnthropicError as exc:
         raise HTTPException(status_code=502, detail=f"AI service error: {exc}")

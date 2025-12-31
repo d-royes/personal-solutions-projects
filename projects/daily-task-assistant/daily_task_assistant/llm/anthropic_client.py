@@ -104,6 +104,66 @@ def is_vision_supported(mime_type: str) -> bool:
     return mime_type.lower() in VISION_SUPPORTED_TYPES
 
 
+def is_pdf(mime_type: str) -> bool:
+    """Check if a MIME type is a PDF."""
+    return mime_type.lower() == 'application/pdf'
+
+
+def download_and_extract_pdf_text(url: str, max_chars: int = 10000) -> Optional[str]:
+    """Download a PDF from URL and extract text content.
+
+    Uses pdfplumber for reliable text extraction.
+    Returns None if download fails or PDF cannot be parsed.
+
+    Args:
+        url: URL to download the PDF from
+        max_chars: Maximum characters to extract (default 10000)
+
+    Returns:
+        Extracted text content, or None if extraction fails
+    """
+    try:
+        import pdfplumber
+        import io
+
+        # Download the PDF
+        with urlrequest.urlopen(url, timeout=30) as response:
+            pdf_data = response.read()
+
+        # Extract text using pdfplumber
+        text_parts: List[str] = []
+        total_chars = 0
+
+        with pdfplumber.open(io.BytesIO(pdf_data)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                if page_text:
+                    text_parts.append(page_text)
+                    total_chars += len(page_text)
+
+                    # Stop if we've extracted enough
+                    if total_chars >= max_chars:
+                        break
+
+        if not text_parts:
+            return None
+
+        full_text = "\n\n".join(text_parts)
+
+        # Truncate if necessary
+        if len(full_text) > max_chars:
+            full_text = full_text[:max_chars] + "\n\n[... PDF content truncated ...]"
+
+        return full_text
+
+    except ImportError:
+        # pdfplumber not installed
+        return None
+    except Exception:
+        # Any error during download or parsing
+        return None
+
+
 # Load DATA preferences from markdown file
 def _load_data_preferences() -> str:
     """Load DATA_PREFERENCES.md and extract relevant sections for prompts."""
@@ -964,10 +1024,12 @@ Reference this context in your response when relevant."""
     # Build task context content with optional images
     context_content: List[Dict[str, Any]] = []
     
-    # Add images first (Claude vision best practice)
+    # Add attachments (images first, then PDFs as text)
     if attachments:
+        pdf_texts: List[str] = []
         for att in attachments:
             if is_vision_supported(att.mime_type):
+                # Image: use Claude Vision
                 image_data = download_and_encode_image(att.download_url)
                 if image_data:
                     context_content.append({
@@ -978,6 +1040,18 @@ Reference this context in your response when relevant."""
                             "data": image_data,
                         }
                     })
+            elif is_pdf(att.mime_type):
+                # PDF: extract text content
+                pdf_text = download_and_extract_pdf_text(att.download_url)
+                if pdf_text:
+                    pdf_texts.append(f"[PDF Attachment: {att.name}]\n{pdf_text}")
+
+        # Add PDF text content after images
+        if pdf_texts:
+            context_content.append({
+                "type": "text",
+                "text": "\n\n".join(pdf_texts)
+            })
     
     # Add task context text
     context_content.append({"type": "text", "text": task_context})

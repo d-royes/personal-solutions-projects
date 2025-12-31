@@ -18,6 +18,7 @@ import {
   deleteEmail,
   starEmail,
   markEmailImportant,
+  markEmailRead,
   chatAboutEmail,
   searchEmails,
   getEmailActionSuggestions,
@@ -101,11 +102,12 @@ interface EmailDashboardProps {
 type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention' | 'settings'
 
 // Quick action types for email management
-type EmailQuickAction = 
+type EmailQuickAction =
   | { type: 'archive'; emailId: string }
   | { type: 'delete'; emailId: string }
   | { type: 'star'; emailId: string }
   | { type: 'flag'; emailId: string }
+  | { type: 'read'; emailId: string; markAsRead: boolean }
   | { type: 'create_task'; emailId: string; subject: string }
 
 // Filter categories with their order priorities
@@ -741,11 +743,11 @@ export function EmailDashboard({
     updateCache({ actionSuggestions: renumbered })
   }
 
-  // Handle quick action on a suggestion (Archive/Delete/Star without approving the suggested action)
-  async function handleSuggestionQuickAction(suggestion: EmailActionSuggestion, action: 'archive' | 'delete' | 'star' | 'flag') {
+  // Handle quick action on a suggestion (Archive/Delete/Star/Read without approving the suggested action)
+  async function handleSuggestionQuickAction(suggestion: EmailActionSuggestion, action: 'archive' | 'delete' | 'star' | 'flag' | 'read') {
     setActionLoading(action)
     setError(null)
-    
+
     try {
       switch (action) {
         case 'archive':
@@ -760,8 +762,11 @@ export function EmailDashboard({
         case 'flag':
           await markEmailImportant(selectedAccount, suggestion.emailId, true, authConfig, apiBase)
           break
+        case 'read':
+          await markEmailRead(selectedAccount, suggestion.emailId, true, authConfig, apiBase)
+          break
       }
-      
+
       // Remove from suggestions
       const updated = actionSuggestions.filter(s => s.number !== suggestion.number)
       const renumbered = updated.map((s, idx) => ({ ...s, number: idx + 1 }))
@@ -1404,15 +1409,35 @@ export function EmailDashboard({
           updateCache({
             inbox: inboxSummary ? {
               ...inboxSummary,
-              recentMessages: inboxSummary.recentMessages.map(m => 
-                m.id === action.emailId 
+              recentMessages: inboxSummary.recentMessages.map(m =>
+                m.id === action.emailId
                   ? { ...m, isImportant: true }
                   : m
               )
             } : null
           })
           break
-          
+
+        case 'read':
+          await markEmailRead(selectedAccount, action.emailId, action.markAsRead, authConfig, apiBase)
+          // Update the message in cache
+          updateCache({
+            inbox: inboxSummary ? {
+              ...inboxSummary,
+              totalUnread: inboxSummary.totalUnread + (action.markAsRead ? -1 : 1),
+              recentMessages: inboxSummary.recentMessages.map(m =>
+                m.id === action.emailId
+                  ? { ...m, isUnread: !action.markAsRead }
+                  : m
+              )
+            } : null
+          })
+          // Also update fetchedEmail if it's the currently viewed email
+          if (fetchedEmail?.id === action.emailId) {
+            setFetchedEmail({ ...fetchedEmail, isUnread: !action.markAsRead })
+          }
+          break
+
         case 'create_task':
           // Open task creation form with DATA's suggestions
           await handleOpenTaskForm(action.emailId)
@@ -2072,7 +2097,15 @@ export function EmailDashboard({
                         Dismiss
                       </button>
                       
-                      {/* Quick actions */}
+                      {/* Quick actions - Standardized Order: Read, Star, Important, Archive, Delete */}
+                      <button
+                        className="quick-action"
+                        onClick={() => handleSuggestionQuickAction(suggestion, 'read')}
+                        disabled={actionLoading !== null}
+                        title="Mark as Read"
+                      >
+                        📬
+                      </button>
                       <button
                         className="quick-action"
                         onClick={() => handleSuggestionQuickAction(suggestion, 'star')}
@@ -2440,33 +2473,29 @@ export function EmailDashboard({
                     )}
                   </button>
                   
-                  {/* Quick action buttons */}
+                  {/* Quick action buttons - Standardized Order: Read, Reply All, Star, Important, Archive, Delete */}
                   <div className="email-quick-actions">
-                    <button 
-                      className="quick-action-btn reply"
-                      onClick={() => handleReply(false)}
-                      disabled={actionLoading !== null || generatingReply}
-                      title="Reply"
+                    <button
+                      className="quick-action-btn"
+                      onClick={() => handleEmailQuickAction({
+                        type: 'read',
+                        emailId: selectedEmail.id,
+                        markAsRead: selectedEmail.isUnread
+                      })}
+                      disabled={actionLoading !== null}
+                      title={selectedEmail.isUnread ? "Mark as Read" : "Mark as Unread"}
                     >
-                      {generatingReply && !replyContext?.replyAll ? '⏳' : '↩️'}
+                      {actionLoading === 'read' ? '⏳' : (selectedEmail.isUnread ? '📬' : '📭')}
                     </button>
-                    <button 
+                    <button
                       className="quick-action-btn reply-all"
                       onClick={() => handleReply(true)}
                       disabled={actionLoading !== null || generatingReply}
                       title="Reply All"
                     >
-                      {generatingReply && replyContext?.replyAll ? '⏳' : '↩️⃕'}
+                      {generatingReply ? '⏳' : '↩️'}
                     </button>
-                    <button 
-                      className="quick-action-btn"
-                      onClick={() => handleEmailQuickAction({ type: 'archive', emailId: selectedEmail.id })}
-                      disabled={actionLoading !== null}
-                      title="Archive"
-                    >
-                      {actionLoading === 'archive' ? '⏳' : '📥'}
-                    </button>
-                    <button 
+                    <button
                       className="quick-action-btn"
                       onClick={() => handleEmailQuickAction({ type: 'star', emailId: selectedEmail.id })}
                       disabled={actionLoading !== null}
@@ -2474,7 +2503,7 @@ export function EmailDashboard({
                     >
                       {actionLoading === 'star' ? '⏳' : '⭐'}
                     </button>
-                    <button 
+                    <button
                       className="quick-action-btn"
                       onClick={() => handleEmailQuickAction({ type: 'flag', emailId: selectedEmail.id })}
                       disabled={actionLoading !== null}
@@ -2482,7 +2511,15 @@ export function EmailDashboard({
                     >
                       {actionLoading === 'flag' ? '⏳' : '🚩'}
                     </button>
-                    <button 
+                    <button
+                      className="quick-action-btn"
+                      onClick={() => handleEmailQuickAction({ type: 'archive', emailId: selectedEmail.id })}
+                      disabled={actionLoading !== null}
+                      title="Archive"
+                    >
+                      {actionLoading === 'archive' ? '⏳' : '📥'}
+                    </button>
+                    <button
                       className="quick-action-btn delete"
                       onClick={() => handleEmailQuickAction({ type: 'delete', emailId: selectedEmail.id })}
                       disabled={actionLoading !== null}

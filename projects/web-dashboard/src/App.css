@@ -2100,6 +2100,196 @@ button:not(:disabled):hover {
   border-radius: 4px;
 }
 
+/* ========== Attachments Gallery ========== */
+.attachments-gallery {
+  margin-bottom: 0.75rem;
+}
+
+.attachments-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.attachments-header:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.attachments-toggle {
+  font-size: 0.65rem;
+  color: rgba(148, 163, 184, 0.6);
+  width: 12px;
+}
+
+.attachments-icon {
+  font-size: 0.9rem;
+}
+
+.attachments-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.attachments-selected-count {
+  font-size: 0.7rem;
+  color: rgb(99, 102, 241);
+  margin-left: auto;
+  background: rgba(99, 102, 241, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.attachments-thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0.5rem;
+  padding-top: 0;
+}
+
+.attachment-thumb {
+  position: relative;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px;
+  transition: background 0.15s, border-color 0.15s;
+  border: 1px solid transparent;
+}
+
+.attachment-thumb:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.attachment-thumb.selected {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+/* Checkbox - matching workspace-item-checkbox pattern */
+.attachment-checkbox {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: rgb(99, 102, 241);
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+
+.attachment-thumb:hover .attachment-checkbox,
+.attachment-thumb.selected .attachment-checkbox {
+  opacity: 1;
+}
+
+.attachment-thumb-content {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.attachment-thumb-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-thumb-pdf,
+.attachment-thumb-file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.pdf-icon,
+.file-icon {
+  font-size: 1.5rem;
+}
+
+.pdf-label {
+  font-size: 0.6rem;
+  color: rgba(148, 163, 184, 0.8);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.attachment-filename {
+  font-size: 0.65rem;
+  color: rgba(148, 163, 184, 0.8);
+  text-align: center;
+  margin-top: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hover preview - positioned below and to the right of thumbnail */
+.attachment-preview {
+  position: fixed;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.attachment-preview-image {
+  max-width: 600px;
+  max-height: 450px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.attachment-preview-pdf {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  min-width: 160px;
+}
+
+.pdf-icon-large {
+  font-size: 3rem;
+}
+
+.pdf-name {
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.9);
+  text-align: center;
+  max-width: 200px;
+  word-break: break-word;
+}
+
+.pdf-hint {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.6);
+}
+
 /* Legacy non-editable workspace item (keeping for reference) */
 .workspace-item {
   background: rgba(15, 23, 42, 0.6);

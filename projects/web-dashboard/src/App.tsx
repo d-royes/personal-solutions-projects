@@ -13,6 +13,7 @@ import {
   deleteDraft,
   draftEmail,
   fetchActivity,
+  fetchAttachments,
   fetchConversationHistory,
   fetchGlobalContext,
   fetchTasks,
@@ -37,6 +38,7 @@ import {
   updateTask,
   bulkUpdateTasks,
 } from './api'
+import type { AttachmentInfo } from './api'
 import type { Perspective, PortfolioStats, SavedEmailDraft, PortfolioPendingAction, BulkTaskUpdate } from './api'
 import type {
   ContactCard,
@@ -103,6 +105,11 @@ function App() {
   const [savedDraft, setSavedDraft] = useState<SavedEmailDraft | null>(null)
   const [emailDraftOpen, setEmailDraftOpen] = useState(false)
 
+  // Attachments state
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([])
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<Set<string>>(new Set())
+
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [activityError, setActivityError] = useState<string | null>(null)
   const [workBadge, setWorkBadge] = useState<WorkBadge | null>(null)
@@ -151,6 +158,9 @@ function App() {
       setEmailDraftOpen(false)
       setEmailError(null)
       setIsEngaged(false)
+      // Clear attachments for new task
+      setAttachments([])
+      setSelectedAttachmentIds(new Set())
     }
     setSelectedTaskId(taskId)
     
@@ -188,6 +198,27 @@ function App() {
     }
     void loadConversation(selectedTaskId)
   }, [authConfig, selectedTaskId])
+
+  // Load attachments when task is selected
+  useEffect(() => {
+    if (!authConfig || !selectedTaskId) {
+      setAttachments([])
+      return
+    }
+    async function loadAttachments() {
+      setAttachmentsLoading(true)
+      try {
+        const response = await fetchAttachments(selectedTaskId!, authConfig!, apiBase)
+        setAttachments(response.attachments)
+      } catch (err) {
+        console.error('Failed to load attachments:', err)
+        setAttachments([])
+      } finally {
+        setAttachmentsLoading(false)
+      }
+    }
+    void loadAttachments()
+  }, [authConfig, selectedTaskId, apiBase])
 
   // Load global context (stats + history) when Portfolio View opens
   useEffect(() => {
@@ -371,6 +402,7 @@ function App() {
         source: dataSource,
         anthropicModel: import.meta.env.VITE_ANTHROPIC_MODEL,
         contextItems: contextItems && contextItems.length > 0 ? contextItems : undefined,
+        selectedAttachments: Array.from(selectedAttachmentIds),
       })
       setAssistPlan(response.plan)
       void refreshActivity()
@@ -700,7 +732,11 @@ function App() {
         message,
         authConfig,
         apiBase,
-        { source: dataSource, workspaceContext },
+        {
+          source: dataSource,
+          workspaceContext,
+          selectedAttachments: Array.from(selectedAttachmentIds),
+        },
       )
       // Update conversation with the response
       setConversation(result.history)
@@ -1242,6 +1278,11 @@ function App() {
               onExpandTasks={handleExpandTasksFromGlobal}
               onStrikeGlobalMessages={handleStrikeGlobalMessages}
               onDeleteGlobalMessage={handleDeleteGlobalMessage}
+              // Attachment props
+              attachments={attachments}
+              attachmentsLoading={attachmentsLoading}
+              selectedAttachmentIds={selectedAttachmentIds}
+              onAttachmentSelectionChange={setSelectedAttachmentIds}
             />
           </>
         )}

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
-import type { ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import type { AttachmentInfo, ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
+import { AttachmentsGallery } from './AttachmentsGallery'
 
 // Feedback callback type
 type OnFeedbackSubmit = (
@@ -311,6 +312,11 @@ interface AssistPanelProps {
   onToggleGlobalExpand?: () => void
   onStrikeGlobalMessages?: (messageTimestamps: string[]) => Promise<void>
   onDeleteGlobalMessage?: (messageTs: string) => Promise<void>
+  // Attachment props
+  attachments?: AttachmentInfo[]
+  attachmentsLoading?: boolean
+  selectedAttachmentIds?: Set<string>
+  onAttachmentSelectionChange?: (ids: Set<string>) => void
 }
 
 // Draggable divider component
@@ -452,8 +458,14 @@ export function AssistPanel({
   onToggleGlobalExpand,
   onStrikeGlobalMessages,
   onDeleteGlobalMessage,
+  // Attachment props
+  attachments,
+  attachmentsLoading,
+  selectedAttachmentIds,
+  onAttachmentSelectionChange,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
+  const [attachmentsCollapsed, setAttachmentsCollapsed] = useState(false)
   const [message, setMessage] = useState('')
   const [activeAction, setActiveAction] = useState<string | null>(null)
   
@@ -1239,6 +1251,18 @@ export function AssistPanel({
             </button>
           )}
         </div>
+      )}
+
+      {/* Attachments Gallery - below notes, above Planning */}
+      {attachments && attachments.length > 0 && selectedAttachmentIds && onAttachmentSelectionChange && (
+        <AttachmentsGallery
+          taskId={selectedTask.rowId}
+          attachments={attachments}
+          selectedIds={selectedAttachmentIds}
+          onSelectionChange={onAttachmentSelectionChange}
+          collapsed={attachmentsCollapsed}
+          onToggleCollapse={() => setAttachmentsCollapsed(!attachmentsCollapsed)}
+        />
       )}
 
       {/* Three-zone content area */}
