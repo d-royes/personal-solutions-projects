@@ -1058,6 +1058,7 @@ function App() {
                 className={`mode-card ${appMode === 'tasks' ? 'active' : ''}`}
                 onClick={() => setAppMode('tasks')}
                 aria-label="Task Management"
+                title="Task Management"
               >
                 <img src="/Selector_Task_v1.png" alt="Task" className="mode-card-img" />
               </button>
@@ -1065,6 +1066,7 @@ function App() {
                 className={`mode-card ${appMode === 'email' ? 'active' : ''}`}
                 onClick={() => setAppMode('email')}
                 aria-label="Email Management"
+                title="Email Management"
               >
                 <img src="/Selector_Email_v1.png" alt="Email" className="mode-card-img" />
               </button>
