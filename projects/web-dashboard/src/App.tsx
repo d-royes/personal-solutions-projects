@@ -1086,6 +1086,13 @@ function App() {
       {menuOpen && (
         <div className="menu-overlay" onClick={() => setMenuOpen(false)}>
           <div className="menu-shell" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="menu-close-btn"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Close menu"
+            >
+              ×
+            </button>
             <nav className="menu-nav" aria-label="Admin menu">
               <button
                 className={menuView === 'auth' ? 'active' : ''}
@@ -1115,7 +1122,7 @@ function App() {
               </button>
             </nav>
             <div className="menu-view">
-              {menuView === 'auth' && <AuthPanel onClose={() => setMenuOpen(false)} />}
+              {menuView === 'auth' && <AuthPanel />}
               {menuView === 'environment' && (
                 <div className="menu-panel">
                   <h3>Environment Settings</h3>
