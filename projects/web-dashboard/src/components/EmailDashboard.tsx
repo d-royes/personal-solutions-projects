@@ -39,6 +39,8 @@ import {
   getLastAnalysis,
   getEmailConversation,
   getEmailPrivacyStatus,
+  decideSuggestion,
+  decideRuleSuggestion,
   type EmailPendingAction,
   type EmailActionSuggestion,
   type GmailLabel,
@@ -803,9 +805,20 @@ export function EmailDashboard({
   }
   
   // Handle dismissing a rule suggestion
-  function handleDismissSuggestion(suggestion: RuleSuggestion) {
+  async function handleDismissSuggestion(suggestion: RuleSuggestion) {
+    // Update local cache immediately for responsive UI
     const updatedSuggestions = suggestions.filter(s => s !== suggestion)
     updateCache({ suggestions: updatedSuggestions })
+
+    // Persist dismissal to backend if we have a ruleId
+    if (suggestion.ruleId) {
+      try {
+        await decideRuleSuggestion(selectedAccount, suggestion.ruleId, false, authConfig, apiBase)
+      } catch (err) {
+        console.error('Failed to persist rule dismissal:', err)
+        // Don't revert UI - the dismissal still "worked" locally
+      }
+    }
   }
 
   // Handle approving an email action suggestion
@@ -851,11 +864,22 @@ export function EmailDashboard({
   }
 
   // Handle dismissing an email action suggestion
-  function handleDismissActionSuggestion(suggestion: EmailActionSuggestion) {
+  async function handleDismissActionSuggestion(suggestion: EmailActionSuggestion) {
+    // Update local cache immediately for responsive UI
     const updated = actionSuggestions.filter(s => s.number !== suggestion.number)
     // Re-number remaining suggestions
     const renumbered = updated.map((s, idx) => ({ ...s, number: idx + 1 }))
     updateCache({ actionSuggestions: renumbered })
+
+    // Persist dismissal to backend if we have a suggestionId
+    if (suggestion.suggestionId) {
+      try {
+        await decideSuggestion(selectedAccount, suggestion.suggestionId, false, authConfig, apiBase)
+      } catch (err) {
+        console.error('Failed to persist action suggestion dismissal:', err)
+        // Don't revert UI - the dismissal still "worked" locally
+      }
+    }
   }
 
   // Handle quick action on a suggestion (Archive/Delete/Star/Read without approving the suggested action)
