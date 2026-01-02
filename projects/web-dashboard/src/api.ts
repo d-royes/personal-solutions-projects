@@ -12,6 +12,16 @@ import type {
   SuggestionStats,
   RejectionPatternsResponse,
   AddPatternResponse,
+  // Calendar types
+  CalendarAccount,
+  CalendarListResponse,
+  EventListResponse,
+  CalendarEventResponse,
+  CalendarSettingsResponse,
+  CreateEventRequest,
+  UpdateEventRequest,
+  QuickAddEventRequest,
+  UpdateCalendarSettingsRequest,
 } from './types'
 import type { AuthConfig } from './auth/types'
 
@@ -3085,6 +3095,250 @@ export async function getHaikuUsage(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Get Haiku usage failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Calendar API Functions
+// =============================================================================
+
+/**
+ * List all calendars accessible by this account.
+ */
+export async function listCalendars(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  showHidden = false,
+): Promise<CalendarListResponse> {
+  const url = new URL(`/calendar/${account}/calendars`, baseUrl)
+  if (showHidden) {
+    url.searchParams.set('showHidden', 'true')
+  }
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `List calendars failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface ListEventsOptions {
+  calendarId?: string
+  timeMin?: string  // ISO datetime
+  timeMax?: string  // ISO datetime
+  maxResults?: number
+  pageToken?: string
+  sourceDomain?: 'personal' | 'work' | 'church'
+}
+
+/**
+ * List events from a calendar.
+ */
+export async function listEvents(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: ListEventsOptions = {},
+): Promise<EventListResponse> {
+  const url = new URL(`/calendar/${account}/events`, baseUrl)
+
+  if (options.calendarId) url.searchParams.set('calendarId', options.calendarId)
+  if (options.timeMin) url.searchParams.set('timeMin', options.timeMin)
+  if (options.timeMax) url.searchParams.set('timeMax', options.timeMax)
+  if (options.maxResults) url.searchParams.set('maxResults', String(options.maxResults))
+  if (options.pageToken) url.searchParams.set('pageToken', options.pageToken)
+  if (options.sourceDomain) url.searchParams.set('sourceDomain', options.sourceDomain)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `List events failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get a specific calendar event by ID.
+ */
+export async function getCalendarEvent(
+  account: CalendarAccount,
+  eventId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  calendarId = 'primary',
+  sourceDomain: 'personal' | 'work' | 'church' = 'personal',
+): Promise<CalendarEventResponse> {
+  const url = new URL(`/calendar/${account}/events/${eventId}`, baseUrl)
+  url.searchParams.set('calendarId', calendarId)
+  url.searchParams.set('sourceDomain', sourceDomain)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Create a new calendar event.
+ */
+export async function createCalendarEvent(
+  account: CalendarAccount,
+  request: CreateEventRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; event: CalendarEventResponse['event'] }> {
+  const url = new URL(`/calendar/${account}/events`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Create event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update an existing calendar event.
+ */
+export async function updateCalendarEvent(
+  account: CalendarAccount,
+  eventId: string,
+  request: UpdateEventRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; event: CalendarEventResponse['event'] }> {
+  const url = new URL(`/calendar/${account}/events/${eventId}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Delete a calendar event.
+ */
+export async function deleteCalendarEvent(
+  account: CalendarAccount,
+  eventId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  calendarId = 'primary',
+  sendNotifications = true,
+): Promise<{ status: string; account: string; eventId: string; calendarId: string }> {
+  const url = new URL(`/calendar/${account}/events/${eventId}`, baseUrl)
+  url.searchParams.set('calendarId', calendarId)
+  url.searchParams.set('sendNotifications', String(sendNotifications))
+
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Delete event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Create an event using natural language.
+ * Google Calendar will parse the text to create an event.
+ * Example: "Meeting with Doug tomorrow at 2pm"
+ */
+export async function quickAddCalendarEvent(
+  account: CalendarAccount,
+  request: QuickAddEventRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; event: CalendarEventResponse['event'] }> {
+  const url = new URL(`/calendar/${account}/quick-add`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Quick add event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get calendar display settings for an account.
+ */
+export async function getCalendarSettings(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<CalendarSettingsResponse> {
+  const url = new URL(`/calendar/${account}/settings`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get calendar settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update calendar display settings for an account.
+ */
+export async function updateCalendarSettings(
+  account: CalendarAccount,
+  request: UpdateCalendarSettingsRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; settings: CalendarSettingsResponse['settings'] }> {
+  const url = new URL(`/calendar/${account}/settings`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update calendar settings failed: ${resp.statusText}`)
   }
   return resp.json()
 }

@@ -6029,3 +6029,497 @@ def update_profile_endpoint(
     }
 
 
+# =============================================================================
+# Calendar API Endpoints
+# =============================================================================
+
+
+class CreateEventRequest(BaseModel):
+    """Request body for creating a calendar event."""
+    summary: str = Field(..., description="Event title")
+    start: str = Field(..., description="Start time (ISO format)")
+    end: str = Field(..., description="End time (ISO format)")
+    description: Optional[str] = Field(None, description="Event description")
+    location: Optional[str] = Field(None, description="Event location")
+    attendees: Optional[List[str]] = Field(None, description="List of attendee email addresses")
+    is_all_day: bool = Field(False, alias="isAllDay", description="Whether this is an all-day event")
+    send_notifications: bool = Field(True, alias="sendNotifications", description="Whether to send notifications")
+    calendar_id: str = Field("primary", alias="calendarId", description="Calendar ID (defaults to primary)")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class UpdateEventRequest(BaseModel):
+    """Request body for updating a calendar event."""
+    summary: Optional[str] = Field(None, description="New event title")
+    start: Optional[str] = Field(None, description="New start time (ISO format)")
+    end: Optional[str] = Field(None, description="New end time (ISO format)")
+    description: Optional[str] = Field(None, description="New event description")
+    location: Optional[str] = Field(None, description="New event location")
+    send_notifications: bool = Field(True, alias="sendNotifications", description="Whether to send notifications")
+    calendar_id: str = Field("primary", alias="calendarId", description="Calendar ID")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class QuickAddEventRequest(BaseModel):
+    """Request body for quick-add event using natural language."""
+    text: str = Field(..., description="Natural language description (e.g., 'Meeting with Doug tomorrow at 2pm')")
+    calendar_id: str = Field("primary", alias="calendarId", description="Calendar ID")
+    send_notifications: bool = Field(True, alias="sendNotifications", description="Whether to send notifications")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class UpdateCalendarSettingsRequest(BaseModel):
+    """Request body for updating calendar settings."""
+    enabled_calendars: Optional[List[str]] = Field(None, alias="enabledCalendars", description="List of enabled calendar IDs")
+    work_calendar_id: Optional[str] = Field(None, alias="workCalendarId", description="Calendar ID designated as 'work'")
+    show_declined_events: Optional[bool] = Field(None, alias="showDeclinedEvents", description="Whether to show declined events")
+    show_all_day_events: Optional[bool] = Field(None, alias="showAllDayEvents", description="Whether to show all-day events")
+    default_days_ahead: Optional[int] = Field(None, alias="defaultDaysAhead", description="Default number of days to show ahead")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+def _serialize_calendar_event(event) -> dict:
+    """Serialize a CalendarEvent to API response format."""
+    return {
+        "id": event.id,
+        "calendarId": event.calendar_id,
+        "summary": event.summary,
+        "start": event.start.isoformat(),
+        "end": event.end.isoformat(),
+        "description": event.description,
+        "location": event.location,
+        "colorId": event.color_id,
+        "startTimezone": event.start_timezone,
+        "endTimezone": event.end_timezone,
+        "isAllDay": event.is_all_day,
+        "status": event.status,
+        "attendees": [
+            {
+                "email": a.email,
+                "displayName": a.display_name,
+                "responseStatus": a.response_status,
+                "isOrganizer": a.is_organizer,
+                "isSelf": a.is_self,
+            }
+            for a in event.attendees
+        ],
+        "organizerEmail": event.organizer_email,
+        "creatorEmail": event.creator_email,
+        "recurringEventId": event.recurring_event_id,
+        "recurrence": event.recurrence,
+        "htmlLink": event.html_link,
+        "hangoutLink": event.hangout_link,
+        "created": event.created.isoformat() if event.created else None,
+        "updated": event.updated.isoformat() if event.updated else None,
+        "sourceDomain": event.source_domain,
+        "isMeeting": event.is_meeting,
+        "attendeeCount": event.attendee_count,
+        "durationMinutes": event.duration_minutes,
+    }
+
+
+def _serialize_calendar_info(cal) -> dict:
+    """Serialize a CalendarInfo to API response format."""
+    return {
+        "id": cal.id,
+        "summary": cal.summary,
+        "description": cal.description,
+        "colorId": cal.color_id,
+        "backgroundColor": cal.background_color,
+        "foregroundColor": cal.foreground_color,
+        "isPrimary": cal.is_primary,
+        "accessRole": cal.access_role,
+        "isWritable": cal.is_writable,
+    }
+
+
+@app.get("/calendar/{account}/calendars")
+def list_calendars_endpoint(
+    account: Literal["church", "personal"],
+    show_hidden: bool = Query(False, alias="showHidden"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List all calendars accessible by this account.
+
+    Returns calendar metadata including ID, name, color, and access role.
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        list_calendars,
+    )
+
+    try:
+        config = load_account_from_env(account)
+        response = list_calendars(config, show_hidden=show_hidden)
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+
+    return {
+        "account": account,
+        "calendars": [_serialize_calendar_info(cal) for cal in response.calendars],
+        "nextPageToken": response.next_page_token,
+    }
+
+
+@app.get("/calendar/{account}/events")
+def list_events_endpoint(
+    account: Literal["church", "personal"],
+    calendar_id: str = Query("primary", alias="calendarId"),
+    time_min: Optional[str] = Query(None, alias="timeMin", description="Start time (ISO format)"),
+    time_max: Optional[str] = Query(None, alias="timeMax", description="End time (ISO format)"),
+    max_results: int = Query(100, alias="maxResults", ge=1, le=2500),
+    page_token: Optional[str] = Query(None, alias="pageToken"),
+    source_domain: str = Query("personal", alias="sourceDomain"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List events from a calendar.
+
+    Args:
+        account: Email account (church or personal)
+        calendar_id: Calendar ID or "primary"
+        time_min: Lower bound for event start time (defaults to now)
+        time_max: Upper bound for event start time
+        max_results: Maximum events to return (1-2500)
+        page_token: Token for pagination
+        source_domain: Domain label for events (personal, work, church)
+
+    Returns:
+        List of calendar events with pagination token
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        list_events,
+    )
+
+    try:
+        config = load_account_from_env(account)
+
+        # Parse datetime strings if provided
+        time_min_dt = datetime.fromisoformat(time_min) if time_min else None
+        time_max_dt = datetime.fromisoformat(time_max) if time_max else None
+
+        response = list_events(
+            config,
+            calendar_id=calendar_id,
+            time_min=time_min_dt,
+            time_max=time_max_dt,
+            max_results=max_results,
+            page_token=page_token,
+            source_domain=source_domain,
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}")
+
+    return {
+        "account": account,
+        "calendarId": calendar_id,
+        "events": [_serialize_calendar_event(e) for e in response.events],
+        "nextPageToken": response.next_page_token,
+        "nextSyncToken": response.next_sync_token,
+    }
+
+
+@app.get("/calendar/{account}/events/{event_id}")
+def get_event_endpoint(
+    account: Literal["church", "personal"],
+    event_id: str,
+    calendar_id: str = Query("primary", alias="calendarId"),
+    source_domain: str = Query("personal", alias="sourceDomain"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get a specific calendar event by ID.
+
+    Args:
+        account: Email account (church or personal)
+        event_id: Event ID
+        calendar_id: Calendar ID
+        source_domain: Domain label for the event
+
+    Returns:
+        Calendar event details
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        get_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+        event = get_event(config, calendar_id, event_id, source_domain=source_domain)
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+
+    return {
+        "account": account,
+        "event": _serialize_calendar_event(event),
+    }
+
+
+@app.post("/calendar/{account}/events")
+def create_event_endpoint(
+    account: Literal["church", "personal"],
+    request: CreateEventRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create a new calendar event.
+
+    Args:
+        account: Email account (church or personal)
+        request: Event details
+
+    Returns:
+        Created calendar event
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        create_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+
+        # Parse datetime strings
+        start_dt = datetime.fromisoformat(request.start)
+        end_dt = datetime.fromisoformat(request.end)
+
+        event = create_event(
+            config,
+            request.calendar_id,
+            summary=request.summary,
+            start=start_dt,
+            end=end_dt,
+            description=request.description,
+            location=request.location,
+            attendees=request.attendees,
+            is_all_day=request.is_all_day,
+            send_notifications=request.send_notifications,
+            source_domain=account,  # Use account as source domain for new events
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}")
+
+    return {
+        "status": "created",
+        "account": account,
+        "event": _serialize_calendar_event(event),
+    }
+
+
+@app.put("/calendar/{account}/events/{event_id}")
+def update_event_endpoint(
+    account: Literal["church", "personal"],
+    event_id: str,
+    request: UpdateEventRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update an existing calendar event.
+
+    Args:
+        account: Email account (church or personal)
+        event_id: Event ID to update
+        request: Fields to update
+
+    Returns:
+        Updated calendar event
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        update_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+
+        # Parse datetime strings if provided
+        start_dt = datetime.fromisoformat(request.start) if request.start else None
+        end_dt = datetime.fromisoformat(request.end) if request.end else None
+
+        event = update_event(
+            config,
+            request.calendar_id,
+            event_id,
+            summary=request.summary,
+            start=start_dt,
+            end=end_dt,
+            description=request.description,
+            location=request.location,
+            send_notifications=request.send_notifications,
+            source_domain=account,
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}")
+
+    return {
+        "status": "updated",
+        "account": account,
+        "event": _serialize_calendar_event(event),
+    }
+
+
+@app.delete("/calendar/{account}/events/{event_id}")
+def delete_event_endpoint(
+    account: Literal["church", "personal"],
+    event_id: str,
+    calendar_id: str = Query("primary", alias="calendarId"),
+    send_notifications: bool = Query(True, alias="sendNotifications"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Delete a calendar event.
+
+    Args:
+        account: Email account (church or personal)
+        event_id: Event ID to delete
+        calendar_id: Calendar ID
+        send_notifications: Whether to send notifications to attendees
+
+    Returns:
+        Deletion confirmation
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        delete_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+        delete_event(config, calendar_id, event_id, send_notifications=send_notifications)
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+
+    return {
+        "status": "deleted",
+        "account": account,
+        "eventId": event_id,
+        "calendarId": calendar_id,
+    }
+
+
+@app.post("/calendar/{account}/quick-add")
+def quick_add_event_endpoint(
+    account: Literal["church", "personal"],
+    request: QuickAddEventRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create an event using natural language.
+
+    Google Calendar will parse the text to create an event.
+    Example: "Meeting with Doug tomorrow at 2pm"
+
+    Args:
+        account: Email account (church or personal)
+        request: Natural language event description
+
+    Returns:
+        Created calendar event
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        quick_add_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+        event = quick_add_event(
+            config,
+            request.calendar_id,
+            request.text,
+            send_notifications=request.send_notifications,
+            source_domain=account,
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+
+    return {
+        "status": "created",
+        "account": account,
+        "event": _serialize_calendar_event(event),
+    }
+
+
+@app.get("/calendar/{account}/settings")
+def get_calendar_settings_endpoint(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get calendar display settings for an account.
+
+    Returns enabled calendars, work calendar designation, and display preferences.
+    """
+    from daily_task_assistant.calendar import get_calendar_settings
+
+    settings = get_calendar_settings(account)
+
+    return {
+        "account": account,
+        "settings": {
+            "enabledCalendars": settings.enabled_calendars,
+            "workCalendarId": settings.work_calendar_id,
+            "showDeclinedEvents": settings.show_declined_events,
+            "showAllDayEvents": settings.show_all_day_events,
+            "defaultDaysAhead": settings.default_days_ahead,
+            "lastSyncedAt": settings.last_synced_at.isoformat() if settings.last_synced_at else None,
+        },
+    }
+
+
+@app.put("/calendar/{account}/settings")
+def update_calendar_settings_endpoint(
+    account: Literal["church", "personal"],
+    request: UpdateCalendarSettingsRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update calendar display settings for an account.
+
+    Only provided fields are updated; others remain unchanged.
+    """
+    from daily_task_assistant.calendar import (
+        get_calendar_settings,
+        save_calendar_settings,
+    )
+
+    settings = get_calendar_settings(account)
+
+    # Update only provided fields
+    if request.enabled_calendars is not None:
+        settings.enabled_calendars = request.enabled_calendars
+    if request.work_calendar_id is not None:
+        settings.work_calendar_id = request.work_calendar_id if request.work_calendar_id else None
+    if request.show_declined_events is not None:
+        settings.show_declined_events = request.show_declined_events
+    if request.show_all_day_events is not None:
+        settings.show_all_day_events = request.show_all_day_events
+    if request.default_days_ahead is not None:
+        settings.default_days_ahead = request.default_days_ahead
+
+    save_calendar_settings(account, settings)
+
+    return {
+        "status": "updated",
+        "account": account,
+        "settings": {
+            "enabledCalendars": settings.enabled_calendars,
+            "workCalendarId": settings.work_calendar_id,
+            "showDeclinedEvents": settings.show_declined_events,
+            "showAllDayEvents": settings.show_all_day_events,
+            "defaultDaysAhead": settings.default_days_ahead,
+            "lastSyncedAt": settings.last_synced_at.isoformat() if settings.last_synced_at else None,
+        },
+    }
+
