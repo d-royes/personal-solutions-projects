@@ -1051,22 +1051,39 @@ function App() {
         </div>
 
         <div className="header-menu">
-          {/* Mode switcher */}
+          {/* Mode switcher - Cyberpunk card style */}
           {isAuthenticated && (
             <div className="mode-switcher">
               <button
-                className={`mode-btn ${appMode === 'tasks' ? 'active' : ''}`}
+                className={`mode-card ${appMode === 'tasks' ? 'active' : ''}`}
                 onClick={() => setAppMode('tasks')}
-                title="Tasks"
               >
-                📋
+                <div className="mode-card-inner">
+                  <svg className="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    <path d="M9 12l2 2 4-4" />
+                    <circle cx="17" cy="17" r="3" />
+                    <path d="M15 17h4M17 15v4" />
+                  </svg>
+                  <span className="mode-label">TASK</span>
+                </div>
+                <div className="circuit-lines circuit-left" />
+                <div className="circuit-lines circuit-right" />
               </button>
               <button
-                className={`mode-btn ${appMode === 'email' ? 'active' : ''}`}
+                className={`mode-card ${appMode === 'email' ? 'active' : ''}`}
                 onClick={() => setAppMode('email')}
-                title="Email Management"
               >
-                ✉️
+                <div className="mode-card-inner">
+                  <svg className="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <path d="M22 6l-10 7L2 6" />
+                    <path d="M15 12l4-3M15 12l3 4" strokeLinecap="round" />
+                  </svg>
+                  <span className="mode-label">EMAIL</span>
+                </div>
+                <div className="circuit-lines circuit-left" />
+                <div className="circuit-lines circuit-right" />
               </button>
             </div>
           )}

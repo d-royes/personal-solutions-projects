@@ -67,34 +67,161 @@
   gap: 0.75rem;
 }
 
+/* Mode Switcher - Cyberpunk Card Style */
 .mode-switcher {
   display: flex;
-  background: rgba(30, 41, 59, 0.6);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  gap: 0.75rem;
+}
+
+.mode-card {
+  position: relative;
+  width: 90px;
+  height: 70px;
+  background: rgba(2, 6, 23, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.4);
   border-radius: 8px;
-  padding: 0.25rem;
-  gap: 0.25rem;
-}
-
-.mode-btn {
-  padding: 0.4rem 0.6rem;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  font-size: 1rem;
   cursor: pointer;
-  transition: all 0.2s ease;
-  opacity: 0.6;
+  transition: all 0.3s ease;
+  overflow: visible;
 }
 
-.mode-btn:hover {
-  background: rgba(99, 102, 241, 0.15);
-  opacity: 0.9;
+.mode-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.05), transparent);
+  pointer-events: none;
 }
 
-.mode-btn.active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
-  opacity: 1;
+.mode-card-inner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0.5rem;
+}
+
+.mode-icon {
+  width: 28px;
+  height: 28px;
+  color: rgba(226, 232, 240, 0.8);
+  margin-bottom: 0.25rem;
+  transition: all 0.3s ease;
+}
+
+.mode-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: rgba(56, 189, 248, 0.9);
+  text-transform: uppercase;
+  transition: all 0.3s ease;
+}
+
+/* Circuit board decorative lines */
+.circuit-lines {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 24px;
+  pointer-events: none;
+}
+
+.circuit-left {
+  left: -12px;
+}
+
+.circuit-right {
+  right: -12px;
+}
+
+.circuit-left::before,
+.circuit-left::after,
+.circuit-right::before,
+.circuit-right::after {
+  content: '';
+  position: absolute;
+  background: rgba(56, 189, 248, 0.3);
+  transition: all 0.3s ease;
+}
+
+/* Left circuit lines */
+.circuit-left::before {
+  width: 10px;
+  height: 1px;
+  top: 6px;
+  right: 0;
+}
+
+.circuit-left::after {
+  width: 10px;
+  height: 1px;
+  bottom: 6px;
+  right: 0;
+}
+
+/* Right circuit lines */
+.circuit-right::before {
+  width: 10px;
+  height: 1px;
+  top: 6px;
+  left: 0;
+}
+
+.circuit-right::after {
+  width: 10px;
+  height: 1px;
+  bottom: 6px;
+  left: 0;
+}
+
+/* Hover state */
+.mode-card:hover {
+  border-color: rgba(56, 189, 248, 0.7);
+}
+
+.mode-card:hover .mode-icon {
+  color: rgba(226, 232, 240, 1);
+}
+
+.mode-card:hover .circuit-left::before,
+.mode-card:hover .circuit-left::after,
+.mode-card:hover .circuit-right::before,
+.mode-card:hover .circuit-right::after {
+  background: rgba(56, 189, 248, 0.6);
+}
+
+/* Active/Selected state - Amber/Orange glow halo */
+.mode-card.active {
+  border-color: rgba(251, 146, 60, 0.8);
+  box-shadow:
+    0 0 20px rgba(251, 146, 60, 0.3),
+    0 0 40px rgba(251, 146, 60, 0.15),
+    inset 0 0 20px rgba(251, 146, 60, 0.1);
+}
+
+.mode-card.active::before {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.1), transparent);
+}
+
+.mode-card.active .mode-icon {
+  color: rgba(251, 191, 36, 1);
+}
+
+.mode-card.active .mode-label {
+  color: rgba(251, 146, 60, 1);
+}
+
+.mode-card.active .circuit-left::before,
+.mode-card.active .circuit-left::after,
+.mode-card.active .circuit-right::before,
+.mode-card.active .circuit-right::after {
+  background: rgba(251, 146, 60, 0.6);
 }
 
 /* Legacy header styles */
