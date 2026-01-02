@@ -2238,6 +2238,7 @@ export interface EmailActionSuggestion {
   labelName: string | null
   taskTitle: string | null
   confidence: 'high' | 'medium' | 'low'
+  suggestionId?: string  // Set when persisted to backend
 }
 
 export interface EmailSuggestionsResponse {
