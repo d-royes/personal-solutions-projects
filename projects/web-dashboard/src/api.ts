@@ -662,6 +662,13 @@ export interface FeedbackRequest {
   context: FeedbackContext
   messageContent: string
   messageId?: string
+  // Phase 1A: Email context fields for quality metrics
+  emailId?: string
+  emailAccount?: EmailAccount
+  suggestionId?: string
+  analysisMethod?: 'haiku' | 'regex' | 'vip' | 'profile_match'
+  confidence?: number
+  actionTaken?: 'dismissed' | 'task_created' | 'replied'
 }
 
 export interface FeedbackResponse {
@@ -697,6 +704,13 @@ export async function submitFeedback(
       context: request.context,
       message_content: request.messageContent,
       message_id: request.messageId,
+      // Phase 1A: Email context fields
+      email_id: request.emailId,
+      email_account: request.emailAccount,
+      suggestion_id: request.suggestionId,
+      analysis_method: request.analysisMethod,
+      confidence: request.confidence,
+      action_taken: request.actionTaken,
     }),
   })
   if (!resp.ok) {
@@ -1377,10 +1391,14 @@ export async function getInboxSummary(
   auth: AuthConfig,
   baseUrl: string = defaultBase,
   maxResults: number = 20,
+  pageToken?: string,  // For "Load More" pagination
 ): Promise<InboxSummary> {
   const url = new URL(`/inbox/${account}`, baseUrl)
   url.searchParams.set('max_results', String(maxResults))
-  
+  if (pageToken) {
+    url.searchParams.set('page_token', pageToken)
+  }
+
   const resp = await fetch(url, {
     headers: buildHeaders(auth),
   })
@@ -1655,6 +1673,68 @@ export async function snoozeAttentionItem(
   return resp.json()
 }
 
+// --- Phase 1A: Quality Tracking Functions ---
+
+export interface QualityMetrics {
+  account: EmailAccount
+  periodDays: number
+  total: number
+  byStatus: Record<string, number>
+  byMethod: Record<string, number>
+  byAction: Record<string, number>
+  acceptanceRate: number
+  dismissedRate: number
+}
+
+/**
+ * Mark an attention item as viewed.
+ * Phase 1A: Records first_viewed_at for response latency metrics.
+ */
+export async function markAttentionViewed(
+  account: EmailAccount,
+  emailId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ success: boolean; emailId: string; account: EmailAccount }> {
+  const url = new URL(`/email/attention/${account}/${emailId}/viewed`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Mark viewed failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get quality metrics for attention items.
+ * Phase 1A: Returns acceptance rates, dismissal rates, and breakdowns.
+ */
+export async function getQualityMetrics(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  days: number = 30,
+): Promise<QualityMetrics> {
+  const url = new URL(`/email/attention/${account}/quality-metrics`, baseUrl)
+  url.searchParams.set('days', String(days))
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Quality metrics request failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 // --- Rule Sync ---
 
 export async function syncRulesToSheet(
@@ -1691,6 +1771,8 @@ export interface EmailActionResult {
   account: string
   messageId: string
   labels: string[]
+  stale?: boolean
+  staleMessage?: string
 }
 
 export async function archiveEmail(
@@ -1822,7 +1904,9 @@ export async function searchEmails(
 export interface EmailChatRequest {
   message: string
   emailId: string
+  threadId?: string  // For conversation persistence
   history?: Array<{ role: string; content: string }>
+  overridePrivacy?: boolean  // One-time privacy override ("Share with DATA")
 }
 
 export interface EmailPendingAction {
@@ -1834,11 +1918,22 @@ export interface EmailPendingAction {
   labelName?: string
 }
 
+export interface EmailPrivacyStatus {
+  canSeeBody: boolean
+  blockedReason: string | null
+  blockedReasonDisplay: string | null
+  overrideGranted: boolean
+}
+
 export interface EmailChatResponse {
   response: string
   account: string
   emailId: string
+  threadId: string  // For conversation persistence
+  privacyStatus: EmailPrivacyStatus
   pendingAction?: EmailPendingAction
+  stale?: boolean  // True if email no longer exists
+  staleMessage?: string
 }
 
 export async function chatAboutEmail(
@@ -1848,7 +1943,7 @@ export async function chatAboutEmail(
   baseUrl: string = defaultBase,
 ): Promise<EmailChatResponse> {
   const url = new URL(`/email/${account}/chat`, baseUrl)
-  
+
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
@@ -1858,7 +1953,9 @@ export async function chatAboutEmail(
     body: JSON.stringify({
       message: request.message,
       email_id: request.emailId,
+      thread_id: request.threadId,
       history: request.history,
+      override_privacy: request.overridePrivacy ?? false,
     }),
   })
   if (!resp.ok) {
@@ -2209,6 +2306,8 @@ import type { EmailReplyDraft } from './types'
 export interface FullMessageResponse {
   account: EmailAccount
   message: EmailMessage
+  stale?: boolean
+  staleMessage?: string | null
 }
 
 /**
@@ -2430,6 +2529,218 @@ export async function updateProfile(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Update profile failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Sender Blocklist API (Privacy Controls)
+// =============================================================================
+
+export interface BlocklistResponse {
+  blocklist: string[]
+}
+
+export interface BlocklistAddResponse {
+  success: boolean
+  senderEmail: string
+  reason?: string
+}
+
+export interface BlocklistRemoveResponse {
+  success: boolean
+  senderEmail: string
+  reason?: string
+}
+
+/**
+ * Get the current sender blocklist.
+ * Blocklist is stored at GLOBAL level (shared across login identities).
+ */
+export async function getBlocklist(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<BlocklistResponse> {
+  const url = new URL('/profile/blocklist', baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get blocklist failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Add a sender email to the blocklist.
+ * DATA will not see body content from blocked senders unless override is granted.
+ */
+export async function addToBlocklist(
+  senderEmail: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<BlocklistAddResponse> {
+  const url = new URL('/profile/blocklist/add', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ senderEmail }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Add to blocklist failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Remove a sender email from the blocklist.
+ */
+export async function removeFromBlocklist(
+  senderEmail: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<BlocklistRemoveResponse> {
+  const url = new URL('/profile/blocklist/remove', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ senderEmail }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Remove from blocklist failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Email Privacy Status API
+// =============================================================================
+
+export interface EmailPrivacyCheckResponse {
+  emailId: string
+  fromAddress: string
+  privacy: {
+    isBlocked: boolean
+    reason: string | null
+    senderBlocked: boolean
+    domainSensitive: boolean
+    labelSensitive: boolean
+    canRequestOverride: boolean
+    overrideGranted?: boolean  // User previously shared this email with DATA
+  }
+}
+
+/**
+ * Check privacy status for an email.
+ * Returns whether DATA can see the email body and why it might be blocked.
+ */
+export async function getEmailPrivacyStatus(
+  account: EmailAccount,
+  emailId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<EmailPrivacyCheckResponse> {
+  const url = new URL(`/email/${account}/privacy/${emailId}`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get privacy status failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Email Conversation Persistence API
+// =============================================================================
+
+export interface EmailConversationMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+  emailContext?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface EmailConversationResponse {
+  account: string
+  threadId: string
+  messages: EmailConversationMessage[]
+  metadata?: {
+    subject?: string
+    fromEmail?: string
+    fromName?: string
+    lastEmailDate?: string
+    sensitivity?: string
+  }
+}
+
+export interface ClearConversationResponse {
+  success: boolean
+  threadId: string
+  messagesCleared: number
+}
+
+/**
+ * Get conversation history for an email thread.
+ * Conversations are persisted for 90 days.
+ */
+export async function getEmailConversation(
+  account: EmailAccount,
+  threadId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  limit: number = 50,
+): Promise<EmailConversationResponse> {
+  const url = new URL(`/email/${account}/conversation/${threadId}`, baseUrl)
+  url.searchParams.set('limit', String(limit))
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get conversation failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Clear conversation history for an email thread.
+ */
+export async function clearEmailConversation(
+  account: EmailAccount,
+  threadId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<ClearConversationResponse> {
+  const url = new URL(`/email/${account}/conversation/${threadId}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Clear conversation failed: ${resp.statusText}`)
   }
   return resp.json()
 }

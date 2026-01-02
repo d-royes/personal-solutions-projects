@@ -34,8 +34,10 @@ from ..firestore import get_firestore_client
 # Type aliases
 AttentionStatus = Literal["active", "dismissed", "snoozed", "task_created"]
 DismissReason = Literal["not_actionable", "handled", "false_positive"]
-AnalysisMethod = Literal["regex", "haiku", "profile_match"]
+AnalysisMethod = Literal["regex", "haiku", "profile_match", "vip"]
 UrgencyLevel = Literal["high", "medium", "low"]
+# Phase 1A: Action types for quality tracking
+ActionType = Literal["viewed", "dismissed", "task_created", "email_replied", "ignored"]
 
 
 # Configuration helpers
@@ -81,6 +83,11 @@ class AttentionRecord:
     Represents an email that has been flagged as requiring David's attention.
     Includes analysis results, status tracking, and TTL management.
 
+    Extended in Phase 1A (Quality Improvement Strategy) to support:
+    - User action tracking for acceptance rate measurement
+    - Threshold suppression tracking for quality calibration
+    - User modification tracking to detect AI suggestion quality
+
     Attributes:
         email_id: Gmail message ID
         email_account: "church" or "personal"
@@ -102,9 +109,14 @@ class AttentionRecord:
         snoozed_until: Snooze expiration (optional)
         linked_task_id: Created task ID (optional)
         analyzed_at: When analysis was performed
-        analysis_method: "regex", "haiku", or "profile_match"
+        analysis_method: "regex", "haiku", "vip", or "profile_match"
         created_at: Record creation time
         expires_at: TTL expiration time
+        first_viewed_at: When user first saw this item (Phase 1A)
+        action_taken_at: When user took action (Phase 1A)
+        action_type: What action was taken (Phase 1A)
+        suppressed_by_threshold: Whether item was hidden due to low confidence (Phase 1A)
+        user_modified_reason: Whether user changed the suggested reason (Phase 1A)
     """
     # Identity
     email_id: str
@@ -141,6 +153,13 @@ class AttentionRecord:
     # TTL
     created_at: datetime = field(default_factory=_now)
     expires_at: Optional[datetime] = None
+
+    # Phase 1A: Action tracking for quality metrics
+    first_viewed_at: Optional[datetime] = None  # When user first saw this item
+    action_taken_at: Optional[datetime] = None  # When user took action
+    action_type: Optional[ActionType] = None  # viewed/dismissed/task_created/email_replied/ignored
+    suppressed_by_threshold: bool = False  # Hidden due to low confidence
+    user_modified_reason: bool = False  # User changed the suggested reason
 
     def __post_init__(self):
         """Set default expires_at based on status."""
@@ -190,6 +209,12 @@ class AttentionRecord:
             "analysis_method": self.analysis_method,
             "created_at": dt_to_str(self.created_at),
             "expires_at": dt_to_str(self.expires_at),
+            # Phase 1A: Action tracking
+            "first_viewed_at": dt_to_str(self.first_viewed_at),
+            "action_taken_at": dt_to_str(self.action_taken_at),
+            "action_type": self.action_type,
+            "suppressed_by_threshold": self.suppressed_by_threshold,
+            "user_modified_reason": self.user_modified_reason,
         }
 
     def to_api_dict(self) -> Dict[str, Any]:
@@ -219,6 +244,12 @@ class AttentionRecord:
             "linkedTaskId": self.linked_task_id,
             "analyzedAt": dt_to_str(self.analyzed_at),
             "analysisMethod": self.analysis_method,
+            # Phase 1A: Action tracking
+            "firstViewedAt": dt_to_str(self.first_viewed_at),
+            "actionTakenAt": dt_to_str(self.action_taken_at),
+            "actionType": self.action_type,
+            "suppressedByThreshold": self.suppressed_by_threshold,
+            "userModifiedReason": self.user_modified_reason,
         }
 
     @classmethod
@@ -254,6 +285,12 @@ class AttentionRecord:
             analysis_method=data.get("analysis_method", "regex"),
             created_at=str_to_dt(data.get("created_at")) or _now(),
             expires_at=str_to_dt(data.get("expires_at")),
+            # Phase 1A: Action tracking
+            first_viewed_at=str_to_dt(data.get("first_viewed_at")),
+            action_taken_at=str_to_dt(data.get("action_taken_at")),
+            action_type=data.get("action_type"),
+            suppressed_by_threshold=data.get("suppressed_by_threshold", False),
+            user_modified_reason=data.get("user_modified_reason", False),
         )
 
 
@@ -485,6 +522,10 @@ def dismiss_attention(
     record.dismissed_reason = reason
     record._update_expiration()
 
+    # Phase 1A: Record action tracking
+    record.action_taken_at = _now()
+    record.action_type = "dismissed"
+
     save_attention(account, record)
     return True
 
@@ -510,6 +551,9 @@ def snooze_attention(
 
     record.status = "snoozed"
     record.snoozed_until = until
+    # Phase 1A: Track action for quality metrics
+    record.action_taken_at = _now()
+    record.action_type = "dismissed"  # Snooze counts as dismissal for quality tracking
 
     save_attention(account, record)
     return True
@@ -536,6 +580,10 @@ def link_task(
 
     record.status = "task_created"
     record.linked_task_id = task_id
+
+    # Phase 1A: Record action tracking
+    record.action_taken_at = _now()
+    record.action_type = "task_created"
 
     save_attention(account, record)
     return True
@@ -640,3 +688,131 @@ def _get_dismissed_email_ids_firestore(account: str) -> set:
         dismissed_ids.add(data["email_id"])
 
     return dismissed_ids
+
+
+# =============================================================================
+# Phase 1A: Quality Tracking Functions
+# =============================================================================
+
+def mark_viewed(account: str, email_id: str) -> bool:
+    """Record when a user first views an attention item.
+
+    Only sets first_viewed_at if it hasn't been set already.
+
+    Args:
+        account: Email account ("church" or "personal")
+        email_id: Gmail message ID
+
+    Returns:
+        True if successfully updated, False if not found
+    """
+    record = get_attention(account, email_id)
+    if record is None:
+        return False
+
+    # Only set first_viewed_at once
+    if record.first_viewed_at is None:
+        record.first_viewed_at = _now()
+        save_attention(account, record)
+
+    return True
+
+
+def mark_email_replied(account: str, email_id: str) -> bool:
+    """Record when a user replies to an email from an attention item.
+
+    Args:
+        account: Email account ("church" or "personal")
+        email_id: Gmail message ID
+
+    Returns:
+        True if successfully updated, False if not found
+    """
+    record = get_attention(account, email_id)
+    if record is None:
+        return False
+
+    record.action_taken_at = _now()
+    record.action_type = "email_replied"
+
+    save_attention(account, record)
+    return True
+
+
+def get_quality_metrics(account: str, days: int = 30) -> Dict[str, Any]:
+    """Get quality metrics for attention items.
+
+    Args:
+        account: Email account ("church" or "personal")
+        days: Number of days to look back
+
+    Returns:
+        Dictionary with quality metrics including acceptance rates
+    """
+    from datetime import timedelta
+
+    cutoff = _now() - timedelta(days=days)
+
+    # Get all attention records
+    if _force_file_fallback():
+        records = _get_all_records_file(account)
+    else:
+        records = _get_all_records_firestore(account)
+
+    # Filter by date
+    filtered = [r for r in records if r.created_at >= cutoff]
+
+    # Aggregate metrics
+    total = len(filtered)
+    by_status = {"active": 0, "dismissed": 0, "snoozed": 0, "task_created": 0}
+    by_method = {"regex": 0, "haiku": 0, "profile_match": 0, "vip": 0}
+    by_action = {"viewed": 0, "dismissed": 0, "task_created": 0, "email_replied": 0, "ignored": 0}
+
+    for record in filtered:
+        by_status[record.status] = by_status.get(record.status, 0) + 1
+        by_method[record.analysis_method] = by_method.get(record.analysis_method, 0) + 1
+        if record.action_type:
+            by_action[record.action_type] = by_action.get(record.action_type, 0) + 1
+
+    # Calculate acceptance rate (task_created + email_replied) / total
+    accepted = by_action.get("task_created", 0) + by_action.get("email_replied", 0)
+    acceptance_rate = accepted / total if total > 0 else 0.0
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "by_method": by_method,
+        "by_action": by_action,
+        "acceptance_rate": acceptance_rate,
+        "dismissed_rate": by_action.get("dismissed", 0) / total if total > 0 else 0.0,
+    }
+
+
+def _get_all_records_file(account: str) -> List[AttentionRecord]:
+    """Get all attention records from file storage."""
+    store_dir = _attention_dir() / account
+    if not store_dir.exists():
+        return []
+
+    records = []
+    for file_path in store_dir.glob("*.json"):
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        records.append(AttentionRecord.from_dict(data))
+
+    return records
+
+
+def _get_all_records_firestore(account: str) -> List[AttentionRecord]:
+    """Get all attention records from Firestore."""
+    db = get_firestore_client()
+    if db is None:
+        return _get_all_records_file(account)
+
+    collection_ref = db.collection("email_accounts").document(account).collection("attention")
+
+    records = []
+    for doc in collection_ref.stream():
+        records.append(AttentionRecord.from_dict(doc.to_dict()))
+
+    return records

@@ -65,8 +65,8 @@ class DavidProfile:
     """David's profile for role-aware email management.
 
     This profile captures church roles, personal contexts, VIP senders,
-    attention patterns, and not-actionable patterns to enable intelligent
-    email detection that goes beyond simple regex matching.
+    attention patterns, not-actionable patterns, and privacy controls to
+    enable intelligent email detection that goes beyond simple regex matching.
 
     Attributes:
         user_id: Unique identifier (typically email address)
@@ -76,6 +76,7 @@ class DavidProfile:
         church_attention_patterns: Dict mapping church role to attention keywords
         personal_attention_patterns: Dict mapping personal context to attention keywords
         not_actionable_patterns: Dict mapping account type to patterns to skip
+        sender_blocklist: List of sender emails that DATA cannot see body for
         version: Profile schema version for migrations
         created_at: ISO timestamp of profile creation
         updated_at: ISO timestamp of last update
@@ -98,8 +99,11 @@ class DavidProfile:
     # Not-Actionable Patterns (skip these)
     not_actionable_patterns: Dict[str, List[str]] = field(default_factory=dict)
 
+    # Privacy Controls - Sender Blocklist (DATA cannot see body for these senders)
+    sender_blocklist: List[str] = field(default_factory=list)
+
     # Metadata
-    version: str = "1.0.0"
+    version: str = "1.1.0"  # Bumped for sender_blocklist addition
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
 
@@ -606,3 +610,87 @@ def get_rejection_candidates(
                 })
 
     return candidates
+
+
+# =============================================================================
+# Privacy Controls - Sender Blocklist
+# =============================================================================
+
+
+def add_to_sender_blocklist(sender_email: str) -> bool:
+    """Add a sender email to the blocklist (DATA cannot see body).
+
+    Args:
+        sender_email: Email address to block (e.g., "statements@chase.com")
+
+    Returns:
+        True if added, False if already exists or failed
+    """
+    profile = get_or_create_profile()
+
+    # Normalize to lowercase
+    sender_lower = sender_email.lower().strip()
+
+    # Check if already exists
+    if sender_lower in [s.lower() for s in profile.sender_blocklist]:
+        return False
+
+    profile.sender_blocklist.append(sender_lower)
+    return save_profile(profile)
+
+
+def remove_from_sender_blocklist(sender_email: str) -> bool:
+    """Remove a sender email from the blocklist.
+
+    Args:
+        sender_email: Email address to unblock
+
+    Returns:
+        True if removed, False if not found
+    """
+    profile = get_profile()
+    if profile is None:
+        return False
+
+    sender_lower = sender_email.lower().strip()
+    original_len = len(profile.sender_blocklist)
+
+    profile.sender_blocklist = [
+        s for s in profile.sender_blocklist
+        if s.lower() != sender_lower
+    ]
+
+    if len(profile.sender_blocklist) == original_len:
+        return False  # Not found
+
+    return save_profile(profile)
+
+
+def get_sender_blocklist() -> List[str]:
+    """Get the current sender blocklist.
+
+    Returns:
+        List of blocked sender emails
+    """
+    profile = get_profile()
+    if profile is None:
+        return []
+    return profile.sender_blocklist
+
+
+def is_sender_blocked(sender_email: str) -> bool:
+    """Check if a sender is in the blocklist.
+
+    Args:
+        sender_email: Email address to check
+
+    Returns:
+        True if sender is blocked
+    """
+    if not sender_email:
+        return False
+
+    blocklist = get_sender_blocklist()
+    sender_lower = sender_email.lower().strip()
+
+    return sender_lower in [s.lower() for s in blocklist]

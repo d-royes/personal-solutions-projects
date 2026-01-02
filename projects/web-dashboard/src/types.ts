@@ -168,6 +168,7 @@ export interface InboxSummary {
   unreadFromVips: number
   recentMessages: EmailMessage[]
   vipMessages: EmailMessage[]
+  nextPageToken?: string | null  // For "Load More" pagination
 }
 
 export interface FilterRulesResponse {
@@ -308,6 +309,8 @@ export interface SuggestionDecisionResponse {
   suggestionId: string
   status: SuggestionStatus
   decidedAt?: string
+  stale?: boolean  // True if email no longer exists
+  staleMessage?: string  // Message to show in toast
 }
 
 export interface PendingSuggestionsResponse {

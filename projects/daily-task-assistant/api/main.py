@@ -2150,28 +2150,30 @@ def _email_to_model(msg, include_body: bool = False) -> dict:
 def get_inbox(
     account: Literal["church", "personal"],
     max_results: int = Query(20, ge=1, le=100),
+    page_token: Optional[str] = Query(None, description="Gmail pagination token for next page"),
     user: str = Depends(get_current_user),
 ) -> dict:
     """Get inbox summary for a Gmail account.
-    
+
     Returns unread counts and recent messages.
+    Supports pagination via page_token for "Load More" functionality.
     """
     from daily_task_assistant.mailer import (
         GmailError,
         load_account_from_env,
         get_inbox_summary,
     )
-    
+
     try:
         gmail_config = load_account_from_env(account)
     except GmailError as exc:
         raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
-    
+
     try:
-        summary = get_inbox_summary(gmail_config, max_recent=max_results)
+        summary = get_inbox_summary(gmail_config, max_recent=max_results, page_token=page_token)
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
-    
+
     return {
         "account": account,
         "email": gmail_config.from_address,
@@ -2180,6 +2182,7 @@ def get_inbox(
         "unreadFromVips": summary.unread_from_vips,
         "recentMessages": [_email_to_model(m) for m in summary.recent_messages],
         "vipMessages": [_email_to_model(m) for m in summary.vip_messages],
+        "nextPageToken": summary.next_page_token,
     }
 
 
@@ -2271,34 +2274,42 @@ def get_email_full(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Get a single email message with optional full body content.
-    
+
     When full=True, includes:
     - Plain text and HTML body
     - CC recipients
     - Message-ID and References headers (for replying)
     - Attachment metadata
+
+    Returns stale=True if email is in Trash or Spam.
     """
     from daily_task_assistant.mailer import (
         GmailError,
         load_account_from_env,
         get_message,
     )
-    
+
     try:
         gmail_config = load_account_from_env(account)
     except GmailError as exc:
         raise HTTPException(status_code=400, detail=f"Gmail config error: {exc}")
-    
+
     try:
         # Use "full" format to get body content
         format_type = "full" if full else "metadata"
         msg = get_message(gmail_config, message_id, format=format_type)
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
-    
+
+    # Check if email is stale (in Trash or Spam)
+    labels = getattr(msg, "labels", []) or []
+    is_stale = "TRASH" in labels or "SPAM" in labels
+
     return {
         "account": account,
         "message": _email_to_model(msg, include_body=full),
+        "stale": is_stale,
+        "staleMessage": "This email has been deleted or moved to trash." if is_stale else None,
     }
 
 
@@ -2986,10 +2997,33 @@ def get_attention_items(
 
     Returns active attention items from storage without re-analyzing emails.
     Use this for quick refresh of the attention tab.
+
+    Performs stale item validation - items referencing deleted emails are
+    auto-dismissed and reported in the response.
     """
-    from daily_task_assistant.email import list_active_attention
+    from daily_task_assistant.email import (
+        list_active_attention,
+        validate_attention_items,
+        dismiss_stale_attention,
+    )
+    from daily_task_assistant.mailer import GmailError, load_account_from_env
 
     attention_items = list_active_attention(account)
+
+    # Validate against Gmail to find stale items (emails that were deleted)
+    stale_dismissed = 0
+    try:
+        gmail_config = load_account_from_env(account)
+        stale_email_ids = validate_attention_items(account, attention_items, gmail_config)
+        if stale_email_ids:
+            stale_dismissed = dismiss_stale_attention(account, stale_email_ids)
+            # Filter out stale items from response
+            stale_set = set(stale_email_ids)
+            attention_items = [item for item in attention_items if item.email_id not in stale_set]
+    except GmailError as exc:
+        # Log but don't fail - stale detection is best-effort
+        import logging
+        logging.getLogger(__name__).warning(f"Stale check failed for {account}: {exc}")
 
     # Convert to API format and sort by urgency: high > medium > low
     api_items = [r.to_api_dict() for r in attention_items]
@@ -3000,6 +3034,7 @@ def get_attention_items(
         "account": account,
         "attentionItems": api_items,
         "count": len(api_items),
+        "staleDismissed": stale_dismissed,
     }
 
 
@@ -3065,8 +3100,30 @@ def dismiss_attention_item(
 
     Marks the item as dismissed so it won't appear in future analyses.
     Dismissed items are kept for 7 days for audit purposes.
+
+    Checks if the email still exists - returns stale status if deleted.
     """
-    from daily_task_assistant.email import dismiss_attention
+    from daily_task_assistant.email import dismiss_attention, verify_email_for_interaction
+    from daily_task_assistant.mailer import GmailError, load_account_from_env
+
+    # Check if email still exists in Gmail
+    try:
+        gmail_config = load_account_from_env(account)
+        exists, stale_message = verify_email_for_interaction(gmail_config, email_id)
+        if not exists:
+            # Email is stale - dismiss and inform user
+            dismiss_attention(account, email_id, "stale")
+            return {
+                "success": True,
+                "emailId": email_id,
+                "account": account,
+                "reason": "stale",
+                "stale": True,
+                "staleMessage": stale_message,
+            }
+    except GmailError:
+        # If Gmail check fails, proceed with dismiss anyway
+        pass
 
     success = dismiss_attention(account, email_id, request.reason)
 
@@ -3078,6 +3135,7 @@ def dismiss_attention_item(
         "emailId": email_id,
         "account": account,
         "reason": request.reason,
+        "stale": False,
     }
 
 
@@ -3118,6 +3176,62 @@ def snooze_attention_item(
     }
 
 
+# --- Phase 1A: Quality Tracking Endpoints ---
+
+
+@app.post("/email/attention/{account}/{email_id}/viewed")
+def mark_attention_viewed(
+    account: Literal["church", "personal"],
+    email_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Record when a user views an attention item.
+
+    Phase 1A: Quality Improvement Strategy
+    Used to track first_viewed_at for response latency metrics.
+    Only records the first view (subsequent views are ignored).
+    """
+    from daily_task_assistant.email.attention_store import mark_viewed
+
+    success = mark_viewed(account, email_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {
+        "success": True,
+        "emailId": email_id,
+        "account": account,
+    }
+
+
+@app.get("/email/attention/{account}/quality-metrics")
+def get_attention_quality_metrics(
+    account: Literal["church", "personal"],
+    days: int = Query(30, ge=1, le=365),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get quality metrics for attention items.
+
+    Phase 1A: Quality Improvement Strategy
+    Returns acceptance rates, dismissal rates, and breakdowns by analysis method.
+    """
+    from daily_task_assistant.email.attention_store import get_quality_metrics
+
+    metrics = get_quality_metrics(account, days=days)
+
+    return {
+        "account": account,
+        "periodDays": days,
+        "total": metrics["total"],
+        "byStatus": metrics["by_status"],
+        "byMethod": metrics["by_method"],
+        "byAction": metrics["by_action"],
+        "acceptanceRate": round(metrics["acceptance_rate"] * 100, 1),
+        "dismissedRate": round(metrics["dismissed_rate"] * 100, 1),
+    }
+
+
 # --- Suggestion Tracking (Sprint 5: Learning Foundation) ---
 
 
@@ -3145,8 +3259,41 @@ def decide_suggestion(
     Rejections help DATA learn what NOT to suggest.
 
     Note: Account is required in URL path (storage is by account, not user).
+
+    Includes stale check - if the email no longer exists, returns stale status
+    and auto-dismisses the suggestion.
     """
-    from daily_task_assistant.email import record_suggestion_decision, get_suggestion
+    from daily_task_assistant.email import (
+        record_suggestion_decision,
+        get_suggestion,
+        verify_email_for_interaction,
+    )
+    from daily_task_assistant.mailer import load_account_from_env
+
+    # Get the suggestion first to check the email
+    suggestion = get_suggestion(account, suggestion_id)
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+
+    # Check if the email still exists (stale check)
+    try:
+        gmail_config = load_account_from_env(account)
+        exists, stale_message = verify_email_for_interaction(gmail_config, suggestion.email_id)
+
+        if not exists:
+            # Email is stale - auto-reject and inform user
+            record_suggestion_decision(account, suggestion_id, approved=False)
+            return {
+                "success": True,
+                "suggestionId": suggestion_id,
+                "status": "stale",
+                "stale": True,
+                "staleMessage": stale_message,
+                "decidedAt": datetime.now(timezone.utc).isoformat(),
+            }
+    except Exception as exc:
+        # If we can't check, proceed anyway (don't block on transient errors)
+        logger.warning(f"Stale check failed for suggestion {suggestion_id}: {exc}")
 
     # Record the decision (keyed by account, not user)
     success = record_suggestion_decision(account, suggestion_id, request.approved)
@@ -3161,6 +3308,7 @@ def decide_suggestion(
         "success": True,
         "suggestionId": suggestion_id,
         "status": suggestion.status if suggestion else ("approved" if request.approved else "rejected"),
+        "stale": False,
         "decidedAt": suggestion.decided_at.isoformat() if suggestion and suggestion.decided_at else None,
     }
 
@@ -3556,6 +3704,163 @@ def remove_not_actionable(
     }
 
 
+# --- Sender Blocklist Endpoints (Privacy Controls) ---
+
+
+class BlocklistRequest(BaseModel):
+    """Request for blocklist add/remove operations."""
+    sender_email: str = Field(
+        ...,
+        alias="senderEmail",
+        description="Sender email to block (DATA cannot see body from this sender)",
+        min_length=3,
+        max_length=254,
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@app.get("/profile/blocklist")
+def get_sender_blocklist(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get the sender blocklist.
+
+    Returns list of sender emails that DATA cannot see body content from.
+    Profile is GLOBAL (shared across login identities).
+    """
+    from daily_task_assistant.memory.profile import get_sender_blocklist
+
+    blocklist = get_sender_blocklist()
+
+    return {
+        "success": True,
+        "blocklist": blocklist,
+        "count": len(blocklist),
+    }
+
+
+@app.post("/profile/blocklist/add")
+def add_to_blocklist(
+    request: BlocklistRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Add a sender email to the blocklist.
+
+    DATA will not be able to see email body content from this sender.
+    Use for sensitive senders like banks, healthcare, etc.
+    Profile is GLOBAL (shared across login identities).
+    """
+    from daily_task_assistant.memory.profile import add_to_sender_blocklist
+
+    success = add_to_sender_blocklist(request.sender_email)
+
+    if not success:
+        return {
+            "success": False,
+            "senderEmail": request.sender_email,
+            "message": "Sender already in blocklist",
+        }
+
+    return {
+        "success": True,
+        "senderEmail": request.sender_email,
+        "message": "Sender added to blocklist - DATA cannot see body from this sender",
+    }
+
+
+@app.post("/profile/blocklist/remove")
+def remove_from_blocklist(
+    request: BlocklistRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Remove a sender email from the blocklist.
+
+    DATA will be able to see email body content from this sender again.
+    Profile is GLOBAL (shared across login identities).
+    """
+    from daily_task_assistant.memory.profile import remove_from_sender_blocklist
+
+    success = remove_from_sender_blocklist(request.sender_email)
+
+    if not success:
+        return {
+            "success": False,
+            "senderEmail": request.sender_email,
+            "message": "Sender not found in blocklist",
+        }
+
+    return {
+        "success": True,
+        "senderEmail": request.sender_email,
+        "message": "Sender removed from blocklist - DATA can now see body from this sender",
+    }
+
+
+@app.get("/email/{account}/privacy/{email_id}")
+def check_email_privacy_status(
+    account: Literal["church", "personal"],
+    email_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Check privacy status for an email.
+
+    Returns whether DATA can see the email body based on:
+    - Sender blocklist (Tier 1)
+    - Gmail "Sensitive" label (Tier 2)
+    - PII detection (Tier 3) - Note: Domain detection deprecated Jan 2026
+
+    Also returns overrideGranted if user previously shared this email thread.
+    Use this to show privacy indicators before loading full body.
+    """
+    from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message, list_labels
+    from daily_task_assistant.email import get_privacy_summary_for_email
+    from daily_task_assistant.conversations import get_conversation_metadata
+
+    try:
+        gmail_config = load_account_from_env(account)
+        # Use metadata format - enough for labels, avoids loading body
+        email = get_message(gmail_config, email_id, format="metadata")
+        # Get all labels to resolve IDs to names (Gmail returns labelIds, not names)
+        all_labels = list_labels(gmail_config)
+    except GmailError as exc:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
+
+    # Build label ID -> name mapping and resolve email's label IDs to names
+    label_id_to_name = {label.id: label.name for label in all_labels}
+    resolved_label_names = [
+        label_id_to_name.get(label_id, label_id) for label_id in email.labels
+    ]
+
+    # Get privacy summary (quick check without body scan)
+    summary = get_privacy_summary_for_email(
+        from_address=email.from_address,
+        labels=resolved_label_names,
+    )
+
+    # Check if user previously shared this thread with DATA
+    thread_id = email.thread_id
+    conv_metadata = get_conversation_metadata(account, thread_id)
+    override_granted = conv_metadata.override_granted if conv_metadata else False
+
+    # If override was previously granted, update summary to reflect that
+    if override_granted:
+        summary["overrideGranted"] = True
+        # Override the blocked status - user explicitly shared
+        summary["isBlocked"] = False
+        summary["reason"] = "shared"
+    else:
+        summary["overrideGranted"] = False
+
+    return {
+        "success": True,
+        "account": account,
+        "emailId": email_id,
+        "fromAddress": email.from_address,
+        "privacy": summary,
+    }
+
+
 @app.post("/email/sync/{account}")
 def sync_rules_to_sheet(
     account: Literal["church", "personal"],
@@ -3740,26 +4045,40 @@ def star_email(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Star or unstar an email.
-    
+
     Starred emails appear in the Starred folder for quick access.
+    Returns stale status if email is deleted, trashed, or in spam.
     """
     from daily_task_assistant.mailer import (
         GmailError,
         load_account_from_env,
         star_message,
     )
-    
+    from daily_task_assistant.email import email_exists
+
     try:
         gmail_config = load_account_from_env(account)
+
+        # Pre-check: is email accessible (not in trash/spam)?
+        if not email_exists(gmail_config, message_id):
+            return {
+                "status": "stale",
+                "account": account,
+                "messageId": message_id,
+                "stale": True,
+                "staleMessage": "This email has been deleted or moved to trash.",
+            }
+
         result = star_message(gmail_config, message_id, starred=starred)
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
-    
+
     return {
         "status": "starred" if starred else "unstarred",
         "account": account,
         "messageId": message_id,
         "labels": result.get("labelIds", []),
+        "stale": False,
     }
 
 
@@ -3771,26 +4090,40 @@ def mark_email_important(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Mark an email as important or remove importance.
-    
+
     Important emails appear in the Important folder.
+    Returns stale status if email is deleted, trashed, or in spam.
     """
     from daily_task_assistant.mailer import (
         GmailError,
         load_account_from_env,
         mark_important,
     )
-    
+    from daily_task_assistant.email import email_exists
+
     try:
         gmail_config = load_account_from_env(account)
+
+        # Pre-check: is email accessible (not in trash/spam)?
+        if not email_exists(gmail_config, message_id):
+            return {
+                "status": "stale",
+                "account": account,
+                "messageId": message_id,
+                "stale": True,
+                "staleMessage": "This email has been deleted or moved to trash.",
+            }
+
         result = mark_important(gmail_config, message_id, important=important)
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
-    
+
     return {
         "status": "important" if important else "not_important",
         "account": account,
         "messageId": message_id,
         "labels": result.get("labelIds", []),
+        "stale": False,
     }
 
 
@@ -3802,6 +4135,8 @@ def mark_email_read(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Mark an email as read or unread.
+
+    Returns stale status if email is deleted, trashed, or in spam.
     """
     from daily_task_assistant.mailer import (
         GmailError,
@@ -3809,21 +4144,44 @@ def mark_email_read(
         mark_read,
         mark_unread,
     )
-    
+    from daily_task_assistant.email import email_exists
+
     try:
         gmail_config = load_account_from_env(account)
+
+        # Pre-check: is email accessible (not in trash/spam)?
+        if not email_exists(gmail_config, message_id):
+            return {
+                "status": "stale",
+                "account": account,
+                "messageId": message_id,
+                "stale": True,
+                "staleMessage": "This email has been deleted or moved to trash.",
+            }
+
         if read:
             result = mark_read(gmail_config, message_id)
         else:
             result = mark_unread(gmail_config, message_id)
     except GmailError as exc:
+        # Check if this is a 404 (email deleted)
+        error_str = str(exc).lower()
+        if "404" in error_str or "not found" in error_str:
+            return {
+                "status": "stale",
+                "account": account,
+                "messageId": message_id,
+                "stale": True,
+                "staleMessage": "This email has been deleted or archived.",
+            }
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
-    
+
     return {
         "status": "read" if read else "unread",
         "account": account,
         "messageId": message_id,
         "labels": result.get("labelIds", []),
+        "stale": False,
     }
 
 
@@ -4234,7 +4592,9 @@ class EmailChatRequest(BaseModel):
     """Request body for email chat."""
     message: str = Field(..., description="User's message about the email")
     email_id: str = Field(..., description="Gmail message ID")
-    history: Optional[List[Dict[str, str]]] = Field(default=None, description="Previous conversation")
+    thread_id: Optional[str] = Field(None, description="Gmail thread ID for conversation persistence")
+    history: Optional[List[Dict[str, str]]] = Field(default=None, description="Previous conversation (fallback)")
+    override_privacy: bool = Field(False, description="User granted one-time body access")
 
 
 @app.post("/email/{account}/chat")
@@ -4244,48 +4604,195 @@ def chat_about_email(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Chat with DATA about an email.
-    
+
     DATA can help analyze, summarize, or suggest actions for the email.
     If DATA detects an action request, returns a pending_action.
+
+    Conversation is persisted by thread_id (90-day TTL).
+    Privacy controls determine if DATA can see the email body.
     """
     from daily_task_assistant.llm.anthropic_client import chat_with_email, AnthropicError
-    from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message
-    
-    # Load the email
+    from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message, list_labels
+    from daily_task_assistant.conversations import (
+        fetch_email_conversation,
+        log_email_message,
+        update_conversation_metadata,
+    )
+    from daily_task_assistant.email import (
+        check_email_privacy,
+        build_email_context_for_data,
+    )
+
+    # Load the email (with full body for privacy check)
     try:
         gmail_config = load_account_from_env(account)
-        email = get_message(gmail_config, request.email_id)
+        email = get_message(gmail_config, request.email_id, format="full")
+        # Get all labels to resolve IDs to names (Gmail returns labelIds, not names)
+        all_labels = list_labels(gmail_config)
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
-    
-    # Build email context for DATA
-    email_context = f"""Email Details:
+
+    # Build label ID -> name mapping and resolve email's label IDs to names
+    label_id_to_name = {label.id: label.name for label in all_labels}
+    resolved_label_names = [
+        label_id_to_name.get(label_id, label_id) for label_id in email.labels
+    ]
+
+    # Use thread_id for conversation persistence (falls back to email_id)
+    thread_id = request.thread_id or email.thread_id
+
+    # Load conversation metadata to check for persisted override
+    from daily_task_assistant.conversations import get_conversation_metadata
+    conv_metadata = get_conversation_metadata(account, thread_id)
+
+    # Use persisted override OR current request override
+    # Once user shares an email, it stays shared for this thread
+    effective_override = request.override_privacy or (conv_metadata.override_granted if conv_metadata else False)
+
+    # Check privacy controls
+    privacy_result = check_email_privacy(
+        from_address=email.from_address,
+        labels=resolved_label_names,
+        body=email.body,
+        subject=email.subject,
+        snippet=email.snippet,
+        override_granted=effective_override,
+    )
+
+    # Persist override if user just granted it
+    if request.override_privacy and not (conv_metadata and conv_metadata.override_granted):
+        update_conversation_metadata(
+            account=account,
+            thread_id=thread_id,
+            subject=email.subject,
+            from_email=email.from_address,
+            from_name=email.from_name,
+            override_granted=True,
+        )
+
+    # Get email body content (prefer richer content between plain text and HTML)
+    def get_body_content() -> str | None:
+        import re
+        from html import unescape
+
+        def convert_html_to_text(html: str) -> str:
+            """Convert HTML to plain text."""
+            text = html
+            # Remove style and script tags with content
+            text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+            # Replace common block elements with newlines
+            text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+            text = re.sub(r'</(p|div|tr|li|h[1-6])>', '\n', text, flags=re.IGNORECASE)
+            # Remove all remaining HTML tags
+            text = re.sub(r'<[^>]+>', '', text)
+            # Decode HTML entities
+            text = unescape(text)
+            # Clean up whitespace
+            text = re.sub(r'\n\s*\n', '\n\n', text)
+            return text.strip()
+
+        plain_text = email.body.strip() if email.body else ""
+        html_text = convert_html_to_text(email.body_html) if email.body_html else ""
+
+        # Use whichever content is richer (longer, more substantial)
+        # Many emails have minimal plain text (footer only) but rich HTML content
+        # Use HTML if it's at least 20% longer - indicates more substantive content
+        if html_text and len(html_text) > len(plain_text) * 1.2:
+            return html_text
+        elif plain_text:
+            return plain_text
+        elif html_text:
+            return html_text
+        return None
+
+    body_content = get_body_content()
+
+    # Build email context respecting privacy
+    if privacy_result.can_see_body and body_content:
+        # DATA can see full body
+        email_context = f"""Email Details:
 - From: {email.from_name} <{email.from_address}>
 - To: {email.to_address}
 - Subject: {email.subject}
 - Date: {email.date.strftime("%Y-%m-%d %H:%M")}
-- Preview: {email.snippet}
 - Status: {"Unread" if email.is_unread else "Read"}
 - Important: {"Yes" if email.is_important else "No"}
-- Starred: {"Yes" if email.is_starred else "No"}"""
+- Starred: {"Yes" if email.is_starred else "No"}
+
+Email Body:
+{body_content}"""
+    else:
+        # DATA cannot see body OR snippet - email is privacy protected
+        blocked_note = f"\n[Note: Email content is hidden - {privacy_result.blocked_reason_display}. User can click 'Share with DATA' to grant access.]"
+        email_context = f"""Email Details:
+- From: {email.from_name} <{email.from_address}>
+- To: {email.to_address}
+- Subject: {email.subject}
+- Date: {email.date.strftime("%Y-%m-%d %H:%M")}
+- Status: {"Unread" if email.is_unread else "Read"}
+- Important: {"Yes" if email.is_important else "No"}
+- Starred: {"Yes" if email.is_starred else "No"}{blocked_note}"""
+
+    # Load existing conversation history (persistent across sessions)
+    history = request.history  # Use provided history as fallback
+    if not history:
+        # Try loading persisted conversation
+        persisted_msgs = fetch_email_conversation(account, thread_id, limit=20)
+        if persisted_msgs:
+            history = [{"role": m.role, "content": m.content} for m in persisted_msgs]
 
     # Chat with DATA
     try:
         chat_response = chat_with_email(
             email_context=email_context,
             user_message=request.message,
-            history=request.history,
+            history=history,
         )
     except AnthropicError as exc:
         raise HTTPException(status_code=502, detail=f"AI service error: {exc}")
-    
+
+    # Persist conversation messages
+    log_email_message(
+        account=account,
+        thread_id=thread_id,
+        role="user",
+        content=request.message,
+        email_context=request.email_id,
+        user_email=user,
+    )
+    log_email_message(
+        account=account,
+        thread_id=thread_id,
+        role="assistant",
+        content=chat_response.message,
+        email_context=request.email_id,
+    )
+
+    # Update conversation metadata
+    update_conversation_metadata(
+        account=account,
+        thread_id=thread_id,
+        subject=email.subject,
+        from_email=email.from_address,
+        from_name=email.from_name,
+        last_email_date=email.date.isoformat() if email.date else None,
+    )
+
     # Build response
     response_data = {
         "response": chat_response.message,
         "account": account,
         "emailId": request.email_id,
+        "threadId": thread_id,
+        "privacyStatus": {
+            "canSeeBody": privacy_result.can_see_body,
+            "blockedReason": privacy_result.blocked_reason,
+            "blockedReasonDisplay": privacy_result.blocked_reason_display,
+            "overrideGranted": privacy_result.override_granted,
+        },
     }
-    
+
     # Include pending action if DATA detected one
     if chat_response.pending_action:
         action = chat_response.pending_action
@@ -4302,8 +4809,78 @@ def chat_about_email(
         if action.label_name:
             pending_action_data["labelName"] = action.label_name
         response_data["pendingAction"] = pending_action_data
-    
+
     return response_data
+
+
+@app.get("/email/{account}/conversation/{thread_id}")
+def get_email_conversation(
+    account: Literal["church", "personal"],
+    thread_id: str,
+    limit: int = Query(50, ge=1, le=100, description="Max messages to return"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get conversation history for an email thread.
+
+    Returns persisted conversation messages for the given thread.
+    Conversations persist for 90 days.
+    """
+    from daily_task_assistant.conversations import (
+        fetch_email_conversation,
+        get_conversation_metadata,
+    )
+
+    # Load conversation
+    messages = fetch_email_conversation(account, thread_id, limit=limit)
+    metadata = get_conversation_metadata(account, thread_id)
+
+    return {
+        "success": True,
+        "account": account,
+        "threadId": thread_id,
+        "messages": [
+            {
+                "role": m.role,
+                "content": m.content,
+                "timestamp": m.ts,
+                "emailContext": m.email_context,
+            }
+            for m in messages
+        ],
+        "metadata": {
+            "subject": metadata.subject if metadata else None,
+            "fromEmail": metadata.from_email if metadata else None,
+            "fromName": metadata.from_name if metadata else None,
+            "lastEmailDate": metadata.last_email_date if metadata else None,
+            "sensitivity": metadata.sensitivity if metadata else "normal",
+            "overrideGranted": metadata.override_granted if metadata else False,
+            "messageCount": metadata.message_count if metadata else len(messages),
+            "expiresAt": metadata.expires_at if metadata else None,
+        } if metadata else None,
+        "count": len(messages),
+    }
+
+
+@app.delete("/email/{account}/conversation/{thread_id}")
+def clear_email_conversation_endpoint(
+    account: Literal["church", "personal"],
+    thread_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Clear conversation history for an email thread.
+
+    Removes all conversation messages for the given thread.
+    """
+    from daily_task_assistant.conversations import clear_email_conversation
+
+    count = clear_email_conversation(account, thread_id)
+
+    return {
+        "success": True,
+        "account": account,
+        "threadId": thread_id,
+        "messagesCleared": count,
+    }
 
 
 # --- Email-to-Task Endpoints (Phase B) ---
@@ -5164,11 +5741,23 @@ def update_task(
 
 
 class FeedbackRequest(BaseModel):
-    """Request body for feedback endpoint."""
+    """Request body for feedback endpoint.
+
+    Extended in Phase 1A (Quality Improvement Strategy) to include email context
+    for tracking acceptance rates and quality metrics.
+    """
+
     feedback: Literal["helpful", "needs_work"]
     context: Literal["research", "plan", "chat", "email", "task_update"]
     message_content: str = Field(..., description="The content being rated")
     message_id: Optional[str] = Field(None, description="Optional conversation message ID")
+    # Phase 1A: Email context fields
+    email_id: Optional[str] = Field(None, description="Gmail message ID for email feedback")
+    email_account: Optional[str] = Field(None, description="Email account: 'church' or 'personal'")
+    suggestion_id: Optional[str] = Field(None, description="AttentionRecord or SuggestionRecord ID")
+    analysis_method: Optional[str] = Field(None, description="Analysis method: haiku/regex/vip/profile_match")
+    confidence: Optional[float] = Field(None, description="Confidence score at time of feedback (0.0-1.0)")
+    action_taken: Optional[str] = Field(None, description="Action taken: dismissed/task_created/replied")
 
 
 @app.post("/assist/{task_id}/feedback")
@@ -5178,11 +5767,12 @@ def submit_feedback(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Submit feedback on a DATA response.
-    
+
     This feedback is used to improve DATA's responses over time.
+    Phase 1A extended to capture email context for quality metrics.
     """
     from daily_task_assistant.feedback import log_feedback
-    
+
     entry = log_feedback(
         task_id=task_id,
         feedback=request.feedback,
@@ -5191,12 +5781,19 @@ def submit_feedback(
         user_email=user,
         message_id=request.message_id,
         metadata={"source": "user_feedback"},
+        # Phase 1A: Email context fields
+        email_id=request.email_id,
+        email_account=request.email_account,
+        suggestion_id=request.suggestion_id,
+        analysis_method=request.analysis_method,
+        confidence=request.confidence,
+        action_taken=request.action_taken,
     )
-    
+
     return {
         "status": "success",
         "feedbackId": entry.id,
-        "message": f"Thank you for your feedback!",
+        "message": "Thank you for your feedback!",
     }
 
 
@@ -5430,4 +6027,5 @@ def update_profile_endpoint(
             "updatedAt": profile.updated_at,
         }
     }
+
 

@@ -4461,6 +4461,42 @@ button:not(:disabled):hover {
   text-overflow: ellipsis;
 }
 
+/* Thread count badge */
+.thread-count-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 8px;
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Load More button */
+.load-more-btn {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  color: #60a5fa;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.load-more-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Rules view */
 .rules-toolbar {
   display: flex;
@@ -6318,4 +6354,59 @@ button:not(:disabled):hover {
   .filter-group input {
     flex: 1;
   }
+}
+
+/* =============================================================================
+   Privacy Indicator & Share with DATA Button
+   ============================================================================= */
+
+.privacy-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+}
+
+.privacy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 5px;
+}
+
+.privacy-badge.blocked {
+  background: rgba(245, 158, 11, 0.2);
+  color: rgba(251, 191, 36, 0.95);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-weight: 500;
+}
+
+.privacy-badge.override {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgba(134, 239, 172, 0.9);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.share-with-data-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.25));
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.share-with-data-btn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.35));
+  border-color: rgba(99, 102, 241, 0.6);
+  transform: translateY(-1px);
 }

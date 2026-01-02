@@ -52,44 +52,55 @@ from daily_task_assistant.email.haiku_usage import (
 # =============================================================================
 
 class TestSensitiveDomainBlocklist:
-    """Tests for domain blocklist functionality."""
+    """Tests for domain blocklist functionality.
+
+    DEPRECATED (Jan 2026): Hardcoded domain blocklist removed.
+    Users now manage sensitive senders via Profile blocklist and Gmail "Sensitive" label.
+    is_sensitive_domain() now always returns False.
+    """
 
     def test_blocks_banking_domains(self):
-        """Banking domains should be blocked."""
-        assert is_sensitive_domain("alerts@chase.com")
-        assert is_sensitive_domain("noreply@bankofamerica.com")
-        assert is_sensitive_domain("security@citibank.com")
+        """Banking domains are no longer blocked by hardcoded list."""
+        # DEPRECATED: Domain blocklist removed - use Profile blocklist instead
+        assert not is_sensitive_domain("alerts@chase.com")
+        assert not is_sensitive_domain("noreply@bankofamerica.com")
+        assert not is_sensitive_domain("security@citibank.com")
 
     def test_blocks_investment_domains(self):
-        """Investment domains should be blocked."""
-        assert is_sensitive_domain("statements@fidelity.com")
-        assert is_sensitive_domain("info@schwab.com")
-        assert is_sensitive_domain("updates@vanguard.com")
+        """Investment domains are no longer blocked by hardcoded list."""
+        # DEPRECATED: Domain blocklist removed - use Profile blocklist instead
+        assert not is_sensitive_domain("statements@fidelity.com")
+        assert not is_sensitive_domain("info@schwab.com")
+        assert not is_sensitive_domain("updates@vanguard.com")
 
     def test_blocks_payment_domains(self):
-        """Payment service domains should be blocked."""
-        assert is_sensitive_domain("support@paypal.com")
-        assert is_sensitive_domain("receipts@venmo.com")
-        assert is_sensitive_domain("payments@stripe.com")
+        """Payment domains are no longer blocked by hardcoded list."""
+        # DEPRECATED: Domain blocklist removed - use Profile blocklist instead
+        assert not is_sensitive_domain("support@paypal.com")
+        assert not is_sensitive_domain("receipts@venmo.com")
+        assert not is_sensitive_domain("payments@stripe.com")
 
     def test_blocks_government_domains(self):
-        """Government domains should be blocked."""
-        assert is_sensitive_domain("refunds@irs.gov")
-        assert is_sensitive_domain("updates@ssa.gov")
-        assert is_sensitive_domain("notices@treasury.gov")
+        """Government domains are no longer blocked by hardcoded list."""
+        # DEPRECATED: Domain blocklist removed - use Profile blocklist instead
+        assert not is_sensitive_domain("refunds@irs.gov")
+        assert not is_sensitive_domain("updates@ssa.gov")
+        assert not is_sensitive_domain("notices@treasury.gov")
 
     def test_blocks_healthcare_domains(self):
-        """Healthcare portal domains should be blocked."""
-        assert is_sensitive_domain("appointments@mychart.com")
-        assert is_sensitive_domain("claims@anthem.com")
+        """Healthcare domains are no longer blocked by hardcoded list."""
+        # DEPRECATED: Domain blocklist removed - use Profile blocklist instead
+        assert not is_sensitive_domain("appointments@mychart.com")
+        assert not is_sensitive_domain("claims@anthem.com")
 
     def test_blocks_subdomains(self):
-        """Subdomains of sensitive domains should be blocked."""
-        assert is_sensitive_domain("alerts@mail.chase.com")
-        assert is_sensitive_domain("noreply@secure.bankofamerica.com")
+        """Subdomains are no longer blocked by hardcoded list."""
+        # DEPRECATED: Domain blocklist removed - use Profile blocklist instead
+        assert not is_sensitive_domain("alerts@mail.chase.com")
+        assert not is_sensitive_domain("noreply@secure.bankofamerica.com")
 
     def test_allows_regular_domains(self):
-        """Regular domains should NOT be blocked."""
+        """Regular domains should NOT be blocked (unchanged behavior)."""
         assert not is_sensitive_domain("john@gmail.com")
         assert not is_sensitive_domain("newsletter@company.com")
         assert not is_sensitive_domain("support@amazon.com")
@@ -186,15 +197,20 @@ class TestPrepareEmailForHaiku:
     """Tests for the combined prepare function."""
 
     def test_skips_sensitive_domains(self):
-        """Emails from sensitive domains should be skipped."""
+        """Emails from sensitive domains are no longer skipped (deprecated).
+
+        DEPRECATED (Jan 2026): Domain blocklist removed.
+        Emails from previously blocked domains now process normally.
+        """
         content, skip_reason = prepare_email_for_haiku(
             sender="alerts@chase.com",
             subject="Your statement is ready",
             snippet="View your balance",
         )
-        assert content is None
-        assert skip_reason is not None
-        assert "Sensitive domain" in skip_reason
+        # Domain blocklist removed - content should now be prepared
+        assert content is not None
+        assert skip_reason is None
+        assert "Subject: Your statement is ready" in content
 
     def test_sanitizes_content_for_safe_domains(self):
         """Content from safe domains should be sanitized."""
@@ -612,20 +628,32 @@ class TestHaikuAnalysisIntegration:
         assert result.confidence == 0.88
         assert result.analysis_method == "haiku"
 
-    def test_analyze_skips_sensitive_domain(self):
-        """Should skip Haiku for sensitive domains."""
-        result = analyze_email_with_haiku(
-            sender_email="alerts@chase.com",
-            sender_name="Chase Bank",
-            subject="Your statement is ready",
-            snippet="View your balance",
-            date="2025-01-15",
-        )
+    def test_analyze_skips_sensitive_domain(self, mock_anthropic_response):
+        """Sensitive domains are no longer skipped - domain blocklist deprecated.
 
-        assert result.analysis_method == "skipped"
-        assert result.skipped_reason is not None
-        assert "Sensitive domain" in result.skipped_reason
-        assert result.attention.needs_attention is False
+        DEPRECATED (Jan 2026): Domain blocklist removed.
+        Emails from previously blocked domains now process normally via Haiku.
+        Users manage sensitive senders via Profile blocklist instead.
+        """
+        # Mock the Anthropic client since we now call Haiku
+        with patch("daily_task_assistant.email.haiku_analyzer.build_anthropic_client") as mock_build:
+            mock_client = Mock()
+            mock_client.messages.create.return_value = mock_anthropic_response
+            mock_build.return_value = mock_client
+
+            result = analyze_email_with_haiku(
+                sender_email="alerts@chase.com",
+                sender_name="Chase Bank",
+                subject="Your statement is ready",
+                snippet="View your balance",
+                date="2025-01-15",
+            )
+
+            # Domain blocklist removed - should now analyze via Haiku
+            assert result.analysis_method == "haiku"
+            assert result.skipped_reason is None
+            # Verify Haiku was called
+            mock_client.messages.create.assert_called_once()
 
     @patch("daily_task_assistant.email.haiku_analyzer.build_anthropic_client")
     def test_analyze_masks_sensitive_content(self, mock_build_client, mock_anthropic_response):
