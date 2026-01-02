@@ -89,25 +89,22 @@
   height: 40px;
   width: auto;
   transition: all 0.3s ease;
-  /* Default: cyan/unselected look - shift orange images to cyan */
-  filter: hue-rotate(150deg) saturate(0.8);
+  /* Unselected: slightly dimmed */
+  opacity: 0.6;
 }
 
 /* Hover state - brighten slightly */
 .mode-card:hover .mode-card-img {
-  filter: hue-rotate(150deg) saturate(1) brightness(1.1);
+  opacity: 0.8;
 }
 
-/* Active/Selected state - show original colors (orange/amber glow) */
+/* Active/Selected state - full brightness with subtle halo */
 .mode-card.active .mode-card-img {
-  filter: none;
+  opacity: 1;
 }
 
-/* Add glow effect on active state */
 .mode-card.active {
-  box-shadow:
-    0 0 15px rgba(251, 146, 60, 0.4),
-    0 0 30px rgba(251, 146, 60, 0.2);
+  filter: drop-shadow(0 0 6px rgba(251, 146, 60, 0.5));
 }
 
 /* Legacy header styles */
