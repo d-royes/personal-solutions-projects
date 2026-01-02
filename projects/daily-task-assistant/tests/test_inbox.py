@@ -220,10 +220,11 @@ class TestListMessages:
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
         
-        result = list_messages(mock_account, max_results=10)
-        
-        assert len(result) == 3
-        assert result[0]["id"] == "msg1"
+        messages, next_token = list_messages(mock_account, max_results=10)
+
+        assert len(messages) == 3
+        assert messages[0]["id"] == "msg1"
+        assert next_token is None  # No more pages in sample data
     
     @patch("daily_task_assistant.mailer.inbox._fetch_access_token")
     @patch("daily_task_assistant.mailer.inbox.urlrequest.urlopen")
@@ -238,8 +239,8 @@ class TestListMessages:
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
         
-        result = list_messages(mock_account, query="is:unread from:boss@company.com")
-        
+        messages, next_token = list_messages(mock_account, query="is:unread from:boss@company.com")
+
         # Verify URL contains the query
         call_args = mock_urlopen.call_args
         url = call_args[0][0].full_url
@@ -259,8 +260,8 @@ class TestListMessages:
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
         
-        result = list_messages(mock_account, label_ids=["INBOX", "UNREAD"])
-        
+        messages, next_token = list_messages(mock_account, label_ids=["INBOX", "UNREAD"])
+
         call_args = mock_urlopen.call_args
         url = call_args[0][0].full_url
         assert "labelIds=INBOX" in url
@@ -306,12 +307,9 @@ class TestGetInboxSummary:
             {"messagesTotal": 10, "messagesUnread": 1},   # IMPORTANT
         ]
         
-        # Mock list_messages to return message refs
-        mock_list.side_effect = [
-            [{"id": "1"}, {"id": "2"}],  # unread
-            [{"id": "1"}],  # important
-            [{"id": "1"}, {"id": "2"}],  # recent
-        ]
+        # Mock list_messages to return (messages, next_page_token) tuple
+        # get_inbox_summary now only calls list_messages once for recent messages
+        mock_list.return_value = ([{"id": "1"}, {"id": "2"}], None)
         
         # Mock get_message to return EmailMessage
         mock_msg = EmailMessage(
@@ -347,8 +345,9 @@ class TestGetInboxSummary:
             {"messagesTotal": 5, "messagesUnread": 0},   # IMPORTANT
         ]
         
-        mock_list.return_value = [{"id": "1"}]
-        
+        # Mock list_messages to return (messages, next_page_token) tuple
+        mock_list.return_value = ([{"id": "1"}], None)
+
         mock_msg = EmailMessage(
             id="1",
             thread_id="1",
@@ -362,12 +361,12 @@ class TestGetInboxSummary:
             labels=["INBOX", "UNREAD"],
         )
         mock_get.return_value = mock_msg
-        
+
         result = get_inbox_summary(
             mock_account,
             vip_senders=["@company.com"],
         )
-        
+
         assert result.unread_from_vips == 1
         assert len(result.vip_messages) == 1
 
@@ -380,8 +379,9 @@ class TestSearchMessages:
     def test_search_returns_messages(
         self, mock_list, mock_get, mock_account
     ):
-        mock_list.return_value = [{"id": "1"}, {"id": "2"}]
-        
+        # Mock list_messages to return (messages, next_page_token) tuple
+        mock_list.return_value = ([{"id": "1"}, {"id": "2"}], None)
+
         mock_msg = EmailMessage(
             id="1",
             thread_id="1",
@@ -395,9 +395,9 @@ class TestSearchMessages:
             labels=[],
         )
         mock_get.return_value = mock_msg
-        
+
         result = search_messages(mock_account, "subject:urgent")
-        
+
         assert len(result) == 2
         mock_list.assert_called_once_with(
             mock_account, max_results=20, query="subject:urgent"
@@ -412,10 +412,11 @@ class TestGetUnreadMessages:
     def test_get_unread_builds_correct_query(
         self, mock_list, mock_get, mock_account
     ):
-        mock_list.return_value = []
-        
+        # Mock list_messages to return (messages, next_page_token) tuple
+        mock_list.return_value = ([], None)
+
         get_unread_messages(mock_account, from_filter="@company.com")
-        
+
         mock_list.assert_called_once()
         call_kwargs = mock_list.call_args[1]
         assert "is:unread" in call_kwargs["query"]

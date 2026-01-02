@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { UserProfile } from '../types'
 import type { AuthConfig } from '../auth/types'
-import { getProfile, updateProfile } from '../api'
+import { getProfile, updateProfile, getBlocklist, addToBlocklist, removeFromBlocklist } from '../api'
 import './ProfileSettings.css'
 
 interface ProfileSettingsProps {
@@ -10,6 +10,7 @@ interface ProfileSettingsProps {
 }
 
 type EditableSection =
+  | 'senderBlocklist'
   | 'churchRoles'
   | 'personalContexts'
   | 'vipSenders'
@@ -24,6 +25,12 @@ export function ProfileSettings({ authConfig, apiBase }: ProfileSettingsProps) {
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [editingSection, setEditingSection] = useState<EditableSection | null>(null)
+
+  // Blocklist state (GLOBAL - shared across login identities)
+  const [blocklist, setBlocklist] = useState<string[]>([])
+  const [blocklistLoading, setBlocklistLoading] = useState(true)
+  const [editBlocklist, setEditBlocklist] = useState<string[]>([])
+  const [savingBlocklist, setSavingBlocklist] = useState(false)
 
   // Edit state for each section
   const [editChurchRoles, setEditChurchRoles] = useState<string[]>([])
@@ -50,30 +57,85 @@ export function ProfileSettings({ authConfig, apiBase }: ProfileSettingsProps) {
     loadProfile()
   }, [loadProfile])
 
+  // Load blocklist on mount
+  const loadBlocklist = useCallback(async () => {
+    setBlocklistLoading(true)
+    try {
+      const response = await getBlocklist(authConfig, apiBase)
+      setBlocklist(response.blocklist)
+    } catch (err) {
+      console.error('Failed to load blocklist:', err)
+      // Non-blocking - profile page still works
+    } finally {
+      setBlocklistLoading(false)
+    }
+  }, [authConfig, apiBase])
+
+  useEffect(() => {
+    loadBlocklist()
+  }, [loadBlocklist])
+
+  // Save blocklist changes
+  const saveBlocklist = async () => {
+    setSavingBlocklist(true)
+    setError(null)
+
+    // Filter out empty entries and get unique values
+    const newBlocklist = [...new Set(editBlocklist.filter(e => e.trim().length >= 3).map(e => e.trim().toLowerCase()))]
+
+    // Find what was added and removed
+    const toAdd = newBlocklist.filter(e => !blocklist.includes(e))
+    const toRemove = blocklist.filter(e => !newBlocklist.includes(e))
+
+    try {
+      // Process removals first
+      for (const email of toRemove) {
+        await removeFromBlocklist(email, authConfig, apiBase)
+      }
+      // Process additions
+      for (const email of toAdd) {
+        await addToBlocklist(email, authConfig, apiBase)
+      }
+
+      setBlocklist(newBlocklist)
+      setEditingSection(null)
+      setSuccessMessage('Blocklist updated successfully')
+      setTimeout(() => setSuccessMessage(null), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save blocklist')
+    } finally {
+      setSavingBlocklist(false)
+    }
+  }
+
   const startEditing = (section: EditableSection) => {
-    if (!profile) return
+    // Blocklist doesn't require profile, others do
+    if (section !== 'senderBlocklist' && !profile) return
 
     setEditingSection(section)
     setSuccessMessage(null)
 
     switch (section) {
+      case 'senderBlocklist':
+        setEditBlocklist([...blocklist])
+        break
       case 'churchRoles':
-        setEditChurchRoles([...profile.churchRoles])
+        setEditChurchRoles([...profile!.churchRoles])
         break
       case 'personalContexts':
-        setEditPersonalContexts([...profile.personalContexts])
+        setEditPersonalContexts([...profile!.personalContexts])
         break
       case 'vipSenders':
-        setEditVipSenders(JSON.parse(JSON.stringify(profile.vipSenders)))
+        setEditVipSenders(JSON.parse(JSON.stringify(profile!.vipSenders)))
         break
       case 'churchAttentionPatterns':
-        setEditChurchPatterns(JSON.parse(JSON.stringify(profile.churchAttentionPatterns)))
+        setEditChurchPatterns(JSON.parse(JSON.stringify(profile!.churchAttentionPatterns)))
         break
       case 'personalAttentionPatterns':
-        setEditPersonalPatterns(JSON.parse(JSON.stringify(profile.personalAttentionPatterns)))
+        setEditPersonalPatterns(JSON.parse(JSON.stringify(profile!.personalAttentionPatterns)))
         break
       case 'notActionablePatterns':
-        setEditNotActionable(JSON.parse(JSON.stringify(profile.notActionablePatterns)))
+        setEditNotActionable(JSON.parse(JSON.stringify(profile!.notActionablePatterns)))
         break
     }
   }
@@ -232,6 +294,62 @@ export function ProfileSettings({ authConfig, apiBase }: ProfileSettingsProps) {
 
       {error && <p className="error">{error}</p>}
       {successMessage && <p className="success">{successMessage}</p>}
+
+      {/* Sender Blocklist Section */}
+      <section className="profile-section">
+        <div className="section-header">
+          <h4>Sender Blocklist</h4>
+          {editingSection !== 'senderBlocklist' && (
+            <button className="edit-btn" onClick={() => startEditing('senderBlocklist')} disabled={blocklistLoading}>
+              Edit
+            </button>
+          )}
+        </div>
+
+        {blocklistLoading ? (
+          <p className="loading">Loading blocklist...</p>
+        ) : editingSection === 'senderBlocklist' ? (
+          <div className="edit-form">
+            <p className="section-hint">
+              Add sender email addresses. DATA will not see email body content from these senders.
+            </p>
+            {editBlocklist.map((email, i) => (
+              <div key={i} className="edit-row">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => updateArrayItem(setEditBlocklist, editBlocklist, i, e.target.value)}
+                  placeholder="sender@example.com"
+                />
+                <button className="remove-btn" onClick={() => removeArrayItem(setEditBlocklist, editBlocklist, i)}>
+                  ×
+                </button>
+              </div>
+            ))}
+            <button className="add-btn" onClick={() => addArrayItem(setEditBlocklist, editBlocklist)}>
+              + Add Sender
+            </button>
+            <div className="edit-actions">
+              <button onClick={cancelEditing} disabled={savingBlocklist}>Cancel</button>
+              <button
+                className="save-btn"
+                onClick={saveBlocklist}
+                disabled={savingBlocklist}
+              >
+                {savingBlocklist ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        ) : blocklist.length > 0 ? (
+          <ul className="item-list">
+            {blocklist.map((email) => (
+              <li key={email}>{email}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">No blocked senders configured.</p>
+        )}
+      </section>
 
       {/* Church Roles Section */}
       <section className="profile-section">

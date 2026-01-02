@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+#### F1: Label Validation & Smarter Rules (2025-12-20)
+- **Account-specific allowed labels**: Church (9 labels) and Personal (6 labels) have curated label sets
+- **New endpoint**: `GET /email/rules/{account}/allowed-labels` returns valid labels per account
+- **Improved Haiku prompt**: Added RULE SUGGESTION GUIDELINES, WHEN TO SUGGEST RULES, and PATTERN RECOGNITION sections
+- **No default fallback**: DATA only suggests rules when there's a clear pattern match (removed "1 Week Hold" default)
+- **F7 Parallel Prompts**: Added to backlog for future consideration (split unified prompt into 3 focused parallel prompts)
+
+#### Staging Deployment (2025-12-20)
+- **PR #18 merged**: F1 Persistence Layer deployed to staging
+- **CI/CD docs updated**: Custom domain URLs (`staging.dailytaskassistant.ai`, `dailytaskassistant.ai`)
+- **Test fixes**: 6 tests updated for new label validation behavior
+
 #### F1: Complete Persistence Layer (2025-12-19)
 - **Suggestions persist across refresh**: Action suggestions saved to Firestore via `suggestion_store.py`
 - **Rules persist across refresh**: Rule suggestions saved to Firestore via `rule_store.py`

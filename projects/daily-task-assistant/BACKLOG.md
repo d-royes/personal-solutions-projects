@@ -1,6 +1,6 @@
 # Feature Backlog & Known Issues
 
-> **Last Updated**: 2025-12-19
+> **Last Updated**: 2025-12-31
 > **Purpose**: Track planned features, enhancements, and known bugs for the Daily Task Assistant.
 
 ---
@@ -65,6 +65,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
+| **Attachment Security Hardening** | Add defense-in-depth for attachment handling: (1) PDF download domain validation + size limits, (2) Image download domain validation, (3) Frontend URL sanitization for XSS prevention, (4) Error handling for read toggle cache consistency. | Code Review 2025-12-31 |
 | **Phase A: Smartsheet Decoupling** | Create native Firestore task storage, abstract integrations into provider interfaces, user-scope all data. | [DATA_CLOUD_VISION.md](docs/DATA_CLOUD_VISION.md) |
 | **Move Email Allowlist to Backend-Only** | Remove hardcoded ALLOWED_EMAILS from AuthContext.tsx:9-12. Frontend check is redundant since backend validates. Exposing authorized users in client code is unnecessary info disclosure. | Code Review 2025-12-14 |
 | **Externalize Google Sheet ID** | Move hardcoded FILTER_SHEET_ID in filter_rules.py:29 to environment variable (GMAIL_FILTER_SHEET_ID). Improves configurability and follows 12-factor app principles. | Code Review 2025-12-14 |
@@ -104,6 +105,8 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| **Task Attachments Gallery** | 2025-12-31 | Attachment viewer with thumbnails, selection, Claude Vision for images, pdfplumber for PDFs |
+| **Mark as Read Toggle** | 2025-12-31 | Email read/unread toggle in Email Viewer and Suggestions tab |
 | **F1: Full Persistence Layer** | 2025-12-19 | Suggestions, rules, and analysis results persist across refresh/machines via Firestore |
 | **F1: Last Analysis Audit** | 2025-12-19 | Settings page shows analysis breakdown per account for auditing |
 | **F1: Dashboard UI Improvements** | 2025-12-19 | Clickable tiles, Suggestions tile (yellow), count badges on tabs |

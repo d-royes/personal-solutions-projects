@@ -28,28 +28,24 @@ from ..llm.anthropic_client import build_anthropic_client, AnthropicError
 
 HAIKU_MODEL = "claude-3-5-haiku-20241022"
 
-# Domains that should NEVER be sent to Haiku (financial, government, healthcare)
-SENSITIVE_DOMAINS = frozenset([
-    # Banking
-    "bankofamerica.com", "chase.com", "wellsfargo.com", "citibank.com",
-    "usbank.com", "pnc.com", "capitalone.com", "ally.com", "discover.com",
-    "americanexpress.com", "amex.com", "citi.com", "barclays.com",
-    # Credit Unions
-    "navyfederal.org", "usaa.com", "becu.org",
-    # Investments
-    "fidelity.com", "schwab.com", "vanguard.com", "etrade.com",
-    "tdameritrade.com", "robinhood.com", "merrilledge.com", "edwardjones.com",
-    # Payments
-    "paypal.com", "venmo.com", "stripe.com", "square.com", "zelle.com",
-    "cashapp.com", "wise.com", "remitly.com",
-    # Government
-    "irs.gov", "ssa.gov", "treasury.gov", "medicare.gov", "va.gov",
-    "usa.gov", "state.gov", "dhs.gov",
-    # Healthcare portals
-    "mychart.com", "healthvault.com", "followmyhealth.com",
-    "patient-portal.com", "myuhc.com", "anthem.com", "cigna.com",
-    "aetna.com", "humana.com", "bluecrossma.com", "bcbs.com",
-])
+# DEPRECATED: Hardcoded domain blocklist removed (Jan 2026)
+# User now manages sensitive senders via Profile blocklist and Gmail "Sensitive" label.
+# The domains below are preserved for reference if user wants to add them to blocklist:
+#
+# Banking: bankofamerica.com, chase.com, wellsfargo.com, citibank.com,
+#          usbank.com, pnc.com, capitalone.com, ally.com, discover.com,
+#          americanexpress.com, amex.com, citi.com, barclays.com
+# Credit Unions: navyfederal.org, usaa.com, becu.org
+# Investments: fidelity.com, schwab.com, vanguard.com, etrade.com,
+#              tdameritrade.com, robinhood.com, merrilledge.com, edwardjones.com
+# Payments: paypal.com, venmo.com, stripe.com, square.com, zelle.com,
+#           cashapp.com, wise.com, remitly.com
+# Government: irs.gov, ssa.gov, treasury.gov, medicare.gov, va.gov,
+#             usa.gov, state.gov, dhs.gov
+# Healthcare portals: mychart.com, healthvault.com, followmyhealth.com,
+#                     patient-portal.com, myuhc.com, anthem.com, cigna.com,
+#                     aetna.com, humana.com, bluecrossma.com, bcbs.com
+SENSITIVE_DOMAINS: frozenset = frozenset()  # Empty - use Profile blocklist instead
 
 # Patterns to mask before sending content to Haiku
 # IMPORTANT: Order matters! More specific patterns (with keywords) should come first.
@@ -136,26 +132,18 @@ class PrivacySanitizeResult:
 def is_sensitive_domain(email_address: str) -> bool:
     """Check if an email address belongs to a sensitive domain.
 
+    DEPRECATED (Jan 2026): This function now always returns False.
+    Domain-based sensitivity is no longer hardcoded. Users should:
+    1. Add specific senders to their Profile blocklist
+    2. Use Gmail "Sensitive" label for sensitive emails
+
     Args:
         email_address: The sender's email address
 
     Returns:
-        True if the domain is in the sensitive blocklist
+        Always False - hardcoded domain list removed
     """
-    if not email_address or "@" not in email_address:
-        return False
-
-    domain = email_address.lower().split("@")[-1]
-
-    # Direct match
-    if domain in SENSITIVE_DOMAINS:
-        return True
-
-    # Check for subdomains (e.g., mail.chase.com)
-    for sensitive in SENSITIVE_DOMAINS:
-        if domain.endswith(f".{sensitive}"):
-            return True
-
+    # Hardcoded domain list removed - user manages via Profile blocklist
     return False
 
 
@@ -209,11 +197,11 @@ def prepare_email_for_haiku(
     Returns:
         Tuple of (sanitized_content, skip_reason)
         If skip_reason is set, the email should not be sent to Haiku
-    """
-    # Check domain blocklist first (fast path)
-    if is_sensitive_domain(sender):
-        return None, f"Sensitive domain: {sender.split('@')[-1]}"
 
+    Note:
+        Privacy checks (blocklist, Sensitive label) are now done in
+        analyze_email_with_haiku_safe() BEFORE this function is called.
+    """
     # Sanitize content
     content_parts = []
 

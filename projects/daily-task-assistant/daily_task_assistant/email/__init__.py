@@ -126,6 +126,26 @@ from .analysis_store import (
     get_last_analysis,
 )
 
+from .privacy import (
+    PrivacyCheckResult,
+    check_email_privacy,
+    can_data_see_email,
+    build_email_context_for_data,
+    get_privacy_summary_for_email,
+    SENSITIVE_LABEL_NAME,
+)
+
+from .sync import (
+    email_exists,
+    batch_check_emails,
+    validate_attention_items,
+    dismiss_stale_attention,
+    validate_suggestion_items,
+    expire_stale_suggestions,
+    sync_stale_items,
+    verify_email_for_interaction,
+)
+
 __all__ = [
     # Analyzer
     "EmailAnalyzer",
@@ -228,5 +248,21 @@ __all__ = [
     "LastAnalysisRecord",
     "save_last_analysis",
     "get_last_analysis",
+    # Privacy Controls
+    "PrivacyCheckResult",
+    "check_email_privacy",
+    "can_data_see_email",
+    "build_email_context_for_data",
+    "get_privacy_summary_for_email",
+    "SENSITIVE_LABEL_NAME",
+    # Stale Item Sync
+    "email_exists",
+    "batch_check_emails",
+    "validate_attention_items",
+    "dismiss_stale_attention",
+    "validate_suggestion_items",
+    "expire_stale_suggestions",
+    "sync_stale_items",
+    "verify_email_for_interaction",
 ]
 

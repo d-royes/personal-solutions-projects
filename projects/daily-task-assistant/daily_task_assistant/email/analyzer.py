@@ -37,7 +37,12 @@ from ..sheets.filter_rules import (
 from .haiku_analyzer import (
     HaikuAnalysisResult,
     analyze_email_with_haiku,
+    _create_fallback_result,
 )
+from .privacy import (
+    SENSITIVE_LABEL_VARIANTS,
+)
+from ..memory.profile import is_sender_blocked
 from .haiku_usage import (
     can_use_haiku,
     increment_usage as increment_haiku_usage,
@@ -1244,6 +1249,10 @@ def analyze_email_with_haiku_safe(
 ) -> Optional[HaikuAnalysisResult]:
     """Safely analyze an email with Haiku, handling errors gracefully.
 
+    Checks user-managed privacy controls before sending to Haiku:
+    - Tier 1: Sender blocklist (user-managed via Profile)
+    - Tier 2: Gmail "Sensitive" label (user-applied or via Gmail filters)
+
     Args:
         email: The email to analyze.
         user_id: User identifier for usage tracking.
@@ -1254,6 +1263,19 @@ def analyze_email_with_haiku_safe(
         HaikuAnalysisResult if successful, None if error or skipped.
     """
     try:
+        # Privacy Check: Skip Haiku for blocked/sensitive emails
+        # Tier 1: Check user-managed sender blocklist
+        if is_sender_blocked(email.from_address):
+            logger.debug(f"Haiku skipped {email.id}: sender blocked by user")
+            return _create_fallback_result(f"Sender blocked: {email.from_address}")
+
+        # Tier 2: Check Gmail "Sensitive" label
+        if email.labels:
+            for label in email.labels:
+                if label in SENSITIVE_LABEL_VARIANTS or "sensitive" in label.lower():
+                    logger.debug(f"Haiku skipped {email.id}: Sensitive label")
+                    return _create_fallback_result("Email has Sensitive label")
+
         # For short snippets (< 250 chars), include body if available
         # This handles emails where snippet is just a signature
         body_to_send = None

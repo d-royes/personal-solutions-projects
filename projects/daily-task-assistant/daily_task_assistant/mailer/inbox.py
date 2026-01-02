@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Tuple
 from urllib import request as urlrequest
 from urllib import error as urlerror
 
@@ -79,12 +79,13 @@ class EmailMessage:
 @dataclass(slots=True)
 class InboxSummary:
     """Summary of inbox state."""
-    
+
     total_unread: int
     unread_important: int
     unread_from_vips: int
     recent_messages: List[EmailMessage]
     vip_messages: List[EmailMessage]
+    next_page_token: Optional[str] = None  # For pagination
 
 
 def list_messages(
@@ -94,21 +95,25 @@ def list_messages(
     label_ids: Optional[List[str]] = None,
     query: Optional[str] = None,
     include_spam_trash: bool = False,
-) -> List[dict]:
-    """List message IDs from the inbox.
-    
+    page_token: Optional[str] = None,
+) -> Tuple[List[dict], Optional[str]]:
+    """List message IDs from the inbox with pagination support.
+
     Args:
         account: Gmail account configuration.
         max_results: Maximum number of messages to return (default 20).
         label_ids: Filter by label IDs (e.g., ["UNREAD", "INBOX"]).
         query: Gmail search query (e.g., "is:unread from:boss@company.com").
         include_spam_trash: Whether to include spam and trash.
-        
+        page_token: Token for fetching next page of results.
+
     Returns:
-        List of message dicts with 'id' and 'threadId'.
+        Tuple of (messages, next_page_token).
+        messages: List of message dicts with 'id' and 'threadId'.
+        next_page_token: Token for next page, or None if no more pages.
     """
     access_token = _fetch_access_token(account)
-    
+
     params = [f"maxResults={max_results}"]
     if label_ids:
         for label in label_ids:
@@ -117,16 +122,20 @@ def list_messages(
         params.append(f"q={urlrequest.quote(query)}")
     if include_spam_trash:
         params.append("includeSpamTrash=true")
-    
+    if page_token:
+        params.append(f"pageToken={page_token}")
+
     url = f"{MESSAGES_URL}?{'&'.join(params)}"
     headers = {"Authorization": f"Bearer {access_token}"}
-    
+
     req = urlrequest.Request(url, headers=headers, method="GET")
-    
+
     try:
         with urlrequest.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            return data.get("messages", [])
+            messages = data.get("messages", [])
+            next_token = data.get("nextPageToken")
+            return messages, next_token
     except urlerror.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
         raise GmailError(f"Gmail list failed ({exc.code}): {detail}") from exc
@@ -262,26 +271,26 @@ def get_unread_messages(
     from_filter: Optional[str] = None,
 ) -> List[EmailMessage]:
     """Get unread messages from inbox.
-    
+
     Args:
         account: Gmail account configuration.
         max_results: Maximum number of messages.
         from_filter: Optional filter for sender (e.g., "@company.com").
-        
+
     Returns:
         List of unread EmailMessage objects.
     """
     query = "is:unread"
     if from_filter:
         query += f" from:{from_filter}"
-    
-    message_refs = list_messages(
+
+    message_refs, _ = list_messages(
         account,
         max_results=max_results,
         label_ids=["INBOX"],
         query=query,
     )
-    
+
     messages = []
     for ref in message_refs:
         try:
@@ -290,7 +299,7 @@ def get_unread_messages(
         except GmailError:
             # Skip messages that fail to load
             continue
-    
+
     return messages
 
 
@@ -299,28 +308,32 @@ def get_inbox_summary(
     *,
     vip_senders: Optional[List[str]] = None,
     max_recent: int = 10,
+    page_token: Optional[str] = None,
 ) -> InboxSummary:
-    """Get a summary of the inbox state.
-    
+    """Get a summary of the inbox state with pagination support.
+
     Args:
         account: Gmail account configuration.
         vip_senders: List of important sender patterns (e.g., ["boss@", "@company.com"]).
-        max_recent: Number of recent messages to include.
-        
+        max_recent: Number of recent messages to include per page.
+        page_token: Token for fetching next page of results.
+
     Returns:
-        InboxSummary with counts and recent/VIP messages.
+        InboxSummary with counts, recent/VIP messages, and next_page_token.
     """
     vip_senders = vip_senders or []
-    
+
     # Get exact counts from Gmail Labels API
     inbox_counts = get_label_counts(account, "INBOX")
     important_counts = get_label_counts(account, "IMPORTANT")
-    
+
     total_unread = inbox_counts["messagesUnread"]
     unread_important = important_counts["messagesUnread"]
-    
-    # Get recent messages with full details
-    recent_refs = list_messages(account, max_results=max_recent, label_ids=["INBOX"])
+
+    # Get recent messages with full details (with pagination)
+    recent_refs, next_page_token = list_messages(
+        account, max_results=max_recent, label_ids=["INBOX"], page_token=page_token
+    )
     recent_messages = []
     for ref in recent_refs:
         try:
@@ -328,11 +341,11 @@ def get_inbox_summary(
             recent_messages.append(msg)
         except GmailError:
             continue
-    
+
     # Filter VIP messages
     vip_messages = []
     unread_from_vips = 0
-    
+
     if vip_senders:
         for msg in recent_messages:
             sender = msg.from_address.lower()
@@ -342,13 +355,14 @@ def get_inbox_summary(
                     if msg.is_unread:
                         unread_from_vips += 1
                     break
-    
+
     return InboxSummary(
         total_unread=total_unread,
         unread_important=unread_important,
         unread_from_vips=unread_from_vips,
         recent_messages=recent_messages,
         vip_messages=vip_messages,
+        next_page_token=next_page_token,
     )
 
 
@@ -376,7 +390,7 @@ def search_messages(
         - "after:2025/12/01 has:attachment"
         - "in:inbox is:important"
     """
-    message_refs = list_messages(account, max_results=max_results, query=query)
+    message_refs, _ = list_messages(account, max_results=max_results, query=query)
 
     messages = []
     for ref in message_refs:
@@ -498,21 +512,21 @@ def _extract_body_and_attachments(
     payload: dict,
 ) -> tuple[Optional[str], Optional[str], List[AttachmentInfo]]:
     """Extract body content and attachments from Gmail message payload.
-    
+
     Handles multipart MIME structures recursively.
-    
+
     Args:
         payload: The 'payload' field from Gmail API message response.
-        
+
     Returns:
         Tuple of (plain_text_body, html_body, attachments_list).
     """
     import base64
-    
+
     body_plain: Optional[str] = None
     body_html: Optional[str] = None
     attachments: List[AttachmentInfo] = []
-    
+
     def decode_body(data: str) -> str:
         """Decode base64url encoded body data."""
         # Gmail uses URL-safe base64 encoding
@@ -525,10 +539,10 @@ def _extract_body_and_attachments(
     def process_part(part: dict) -> None:
         """Process a single MIME part recursively."""
         nonlocal body_plain, body_html
-        
+
         mime_type = part.get("mimeType", "")
         filename = part.get("filename", "")
-        
+
         # Check if this is an attachment
         if filename:
             # This is an attachment
@@ -546,20 +560,20 @@ def _extract_body_and_attachments(
             for sub_part in part["parts"]:
                 process_part(sub_part)
             return
-        
+
         # Extract body content
         body_data = part.get("body", {}).get("data", "")
         if not body_data:
             return
-        
+
         if mime_type == "text/plain" and body_plain is None:
             body_plain = decode_body(body_data)
         elif mime_type == "text/html" and body_html is None:
             body_html = decode_body(body_data)
-    
+
     # Start processing from the root payload
     process_part(payload)
-    
+
     return body_plain, body_html, attachments
 
 
