@@ -1051,39 +1051,22 @@ function App() {
         </div>
 
         <div className="header-menu">
-          {/* Mode switcher - Cyberpunk card style */}
+          {/* Mode switcher - Cyberpunk card style with custom images */}
           {isAuthenticated && (
             <div className="mode-switcher">
               <button
                 className={`mode-card ${appMode === 'tasks' ? 'active' : ''}`}
                 onClick={() => setAppMode('tasks')}
+                aria-label="Task Management"
               >
-                <div className="mode-card-inner">
-                  <svg className="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    <path d="M9 12l2 2 4-4" />
-                    <circle cx="17" cy="17" r="3" />
-                    <path d="M15 17h4M17 15v4" />
-                  </svg>
-                  <span className="mode-label">TASK</span>
-                </div>
-                <div className="circuit-lines circuit-left" />
-                <div className="circuit-lines circuit-right" />
+                <img src="/Selector_Task_v1.png" alt="Task" className="mode-card-img" />
               </button>
               <button
                 className={`mode-card ${appMode === 'email' ? 'active' : ''}`}
                 onClick={() => setAppMode('email')}
+                aria-label="Email Management"
               >
-                <div className="mode-card-inner">
-                  <svg className="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <rect x="2" y="4" width="20" height="16" rx="2" />
-                    <path d="M22 6l-10 7L2 6" />
-                    <path d="M15 12l4-3M15 12l3 4" strokeLinecap="round" />
-                  </svg>
-                  <span className="mode-label">EMAIL</span>
-                </div>
-                <div className="circuit-lines circuit-left" />
-                <div className="circuit-lines circuit-right" />
+                <img src="/Selector_Email_v1.png" alt="Email" className="mode-card-img" />
               </button>
             </div>
           )}
