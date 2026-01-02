@@ -460,7 +460,7 @@ export function AssistPanel({
   onDeleteGlobalMessage,
   // Attachment props
   attachments,
-  attachmentsLoading,
+  attachmentsLoading: _attachmentsLoading,
   selectedAttachmentIds,
   onAttachmentSelectionChange,
 }: AssistPanelProps) {

@@ -11,7 +11,7 @@ interface AttachmentsGalleryProps {
 }
 
 export function AttachmentsGallery({
-  taskId,
+  taskId: _taskId,
   attachments,
   selectedIds,
   onSelectionChange,
