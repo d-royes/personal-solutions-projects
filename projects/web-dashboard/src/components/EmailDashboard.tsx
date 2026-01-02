@@ -1080,6 +1080,22 @@ export function EmailDashboard({
     return null
   }
 
+  // Find next email to select after disposing of current one
+  function getNextEmailId(disposedEmailId: string): string | null {
+    // Check search results first, then recent messages
+    const emailList = emailSearchResults || inboxSummary?.recentMessages || []
+    const currentIndex = emailList.findIndex(m => m.id === disposedEmailId)
+
+    if (currentIndex === -1 || emailList.length <= 1) return null
+
+    // Try next email, or previous if disposing the last one
+    if (currentIndex < emailList.length - 1) {
+      return emailList[currentIndex + 1].id
+    } else {
+      return emailList[currentIndex - 1].id
+    }
+  }
+
   // Handle selecting an email (opens assist panel)
   async function handleSelectEmail(emailId: string, threadId?: string) {
     setSelectedEmailId(emailId)
@@ -1611,7 +1627,9 @@ export function EmailDashboard({
     
     try {
       switch (action.type) {
-        case 'archive':
+        case 'archive': {
+          // Find next email BEFORE removing from list
+          const nextEmailAfterArchive = getNextEmailId(action.emailId)
           await archiveEmail(selectedAccount, action.emailId, authConfig, apiBase)
           // Remove from recent messages in cache
           updateCache({
@@ -1620,10 +1638,17 @@ export function EmailDashboard({
               recentMessages: inboxSummary.recentMessages.filter(m => m.id !== action.emailId)
             } : null
           })
-          setSelectedEmailId(null)
+          // Also remove from search results if present
+          if (emailSearchResults) {
+            setEmailSearchResults(emailSearchResults.filter(m => m.id !== action.emailId))
+          }
+          setSelectedEmailId(nextEmailAfterArchive)
           break
-          
-        case 'delete':
+        }
+
+        case 'delete': {
+          // Find next email BEFORE removing from list
+          const nextEmailAfterDelete = getNextEmailId(action.emailId)
           await deleteEmail(selectedAccount, action.emailId, authConfig, apiBase)
           // Remove from recent messages in cache
           updateCache({
@@ -1632,8 +1657,13 @@ export function EmailDashboard({
               recentMessages: inboxSummary.recentMessages.filter(m => m.id !== action.emailId)
             } : null
           })
-          setSelectedEmailId(null)
+          // Also remove from search results if present
+          if (emailSearchResults) {
+            setEmailSearchResults(emailSearchResults.filter(m => m.id !== action.emailId))
+          }
+          setSelectedEmailId(nextEmailAfterDelete)
           break
+        }
           
         case 'star': {
           const starResult = await starEmail(selectedAccount, action.emailId, true, authConfig, apiBase)
