@@ -5530,7 +5530,7 @@ button:not(:disabled):hover {
   display: flex;
   flex: 1;
   min-height: 0;
-  gap: 1rem;
+  gap: 0; /* Divider provides spacing */
   padding: 0.5rem 1rem 1rem;
 }
 
@@ -5579,21 +5579,46 @@ button:not(:disabled):hover {
   max-width: 100%;
 }
 
-/* Both panels visible - split evenly */
+/* Both panels visible - use inline width styles from JS */
 .email-dashboard:not(.email-collapsed):not(.assist-collapsed) .email-left-panel,
 .email-dashboard:not(.email-collapsed):not(.assist-collapsed) .email-right-panel {
-  flex: 1;
-  max-width: calc(50% - 0.5rem);
+  flex: none; /* Use inline width instead of flex */
 }
 
-/* Panel collapse controls */
-.panel-collapse-btn {
+/* Draggable panel divider */
+.email-panel-divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  user-select: none;
+  position: relative;
+}
+
+.email-panel-divider:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.divider-handle {
+  width: 4px;
+  height: 40px;
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 2px;
+  transition: background 0.2s ease;
+}
+
+.email-panel-divider:hover .divider-handle {
+  background: rgba(99, 102, 241, 0.6);
+}
+
+.divider-arrow {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 24px;
-  height: 48px;
-  background: rgba(99, 102, 241, 0.2);
+  width: 20px;
+  height: 20px;
+  background: rgba(15, 23, 42, 0.8);
   border: 1px solid rgba(99, 102, 241, 0.3);
   border-radius: 4px;
   color: rgba(226, 232, 240, 0.8);
@@ -5601,22 +5626,21 @@ button:not(:disabled):hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
-  z-index: 10;
+  font-size: 0.65rem;
   transition: all 0.2s ease;
 }
 
-.panel-collapse-btn:hover {
+.divider-arrow:hover {
   background: rgba(99, 102, 241, 0.4);
   color: rgba(226, 232, 240, 1);
 }
 
-.panel-collapse-btn.left {
-  right: 4px;
+.divider-arrow.left {
+  top: calc(50% - 30px);
 }
 
-.panel-collapse-btn.right {
-  left: 4px;
+.divider-arrow.right {
+  top: calc(50% + 10px);
 }
 
 /* Collapsed panel indicators */

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { AuthConfig } from '../auth/types'
 import type {
   EmailAccount,
@@ -113,6 +113,71 @@ type EmailQuickAction =
   | { type: 'read'; emailId: string; markAsRead: boolean }
   | { type: 'create_task'; emailId: string; subject: string }
 
+// Draggable panel divider component with collapse arrows
+function PanelDivider({
+  onDrag,
+  onCollapseLeft,
+  onCollapseRight,
+  leftCollapsed,
+  rightCollapsed,
+}: {
+  onDrag: (delta: number) => void
+  onCollapseLeft: () => void
+  onCollapseRight: () => void
+  leftCollapsed: boolean
+  rightCollapsed: boolean
+}) {
+  const isDragging = useRef(false)
+  const startPos = useRef(0)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Don't start drag if clicking on arrows
+    if ((e.target as HTMLElement).closest('.divider-arrow')) return
+    e.preventDefault()
+    isDragging.current = true
+    startPos.current = e.clientX
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging.current) return
+    const delta = e.clientX - startPos.current
+    startPos.current = e.clientX
+    onDrag(delta)
+  }
+
+  const handleMouseUp = () => {
+    isDragging.current = false
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', handleMouseUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
+  return (
+    <div className="email-panel-divider" onMouseDown={handleMouseDown}>
+      <button
+        className="divider-arrow left"
+        onClick={onCollapseLeft}
+        title={leftCollapsed ? "Expand inbox" : "Collapse inbox"}
+      >
+        {leftCollapsed ? '▶' : '◀'}
+      </button>
+      <div className="divider-handle" />
+      <button
+        className="divider-arrow right"
+        onClick={onCollapseRight}
+        title={rightCollapsed ? "Expand DATA" : "Collapse DATA"}
+      >
+        {rightCollapsed ? '◀' : '▶'}
+      </button>
+    </div>
+  )
+}
+
 // Filter categories with their order priorities
 const CATEGORIES = [
   { value: '1 Week Hold', order: 1, color: '#6b7280' },
@@ -153,8 +218,10 @@ export function EmailDashboard({
 
   // Two-panel layout state
   const [emailPanelCollapsed, setEmailPanelCollapsed] = useState(false)
-  const [assistPanelCollapsed, setAssistPanelCollapsed] = useState(true) // Start collapsed until Phase 4
+  const [assistPanelCollapsed, setAssistPanelCollapsed] = useState(false) // Both panels visible by default
+  const [panelSplitRatio, setPanelSplitRatio] = useState(50) // Percentage for left panel (50 = 50/50 split)
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null)
+  const panelsContainerRef = useRef<HTMLDivElement>(null)
 
   // Per-account data cache - use external state if provided, otherwise local
   const [localCache, localSetCache] = useState<EmailCacheState>({
@@ -650,6 +717,14 @@ export function EmailDashboard({
     loadPersistedRules()  // Load persisted rule suggestions on account change
     loadPersistedActionSuggestions()  // Load persisted action suggestions on account change
   }, [selectedAccount]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-select first email when inbox loads and nothing is selected
+  useEffect(() => {
+    if (!selectedEmailId && inboxSummary?.recentMessages?.length) {
+      const firstEmail = inboxSummary.recentMessages[0]
+      setSelectedEmailId(firstEmail.id)
+    }
+  }, [inboxSummary?.recentMessages, selectedEmailId])
 
   // Handle adding a new rule
   async function handleAddRule() {
@@ -1675,6 +1750,14 @@ export function EmailDashboard({
     setAssistPanelCollapsed(false)
   }
 
+  // Handle panel divider drag
+  function handlePanelDrag(delta: number) {
+    if (!panelsContainerRef.current) return
+    const containerWidth = panelsContainerRef.current.offsetWidth
+    const deltaPercent = (delta / containerWidth) * 100
+    setPanelSplitRatio(prev => Math.max(20, Math.min(80, prev + deltaPercent)))
+  }
+
   // Filter rules based on category and search
   const filteredRules = rules.filter(rule => {
     if (categoryFilter !== 'all' && rule.category !== categoryFilter) return false
@@ -1735,19 +1818,13 @@ export function EmailDashboard({
       )}
 
       {/* Two-panel content area */}
-      <div className="email-panels">
+      <div className="email-panels" ref={panelsContainerRef}>
         {/* Left Panel - Email List/Rules */}
         {!emailPanelCollapsed && (
-          <section className="email-left-panel">
-            {/* Panel collapse control */}
-            <button 
-              className="panel-collapse-btn left"
-              onClick={handleToggleEmailPanel}
-              title="Collapse email panel"
-            >
-              ◀
-            </button>
-
+          <section
+            className="email-left-panel"
+            style={{ width: assistPanelCollapsed ? '100%' : `${panelSplitRatio}%` }}
+          >
             {/* Tab navigation */}
             <nav className="email-tabs">
               <button
@@ -2626,18 +2703,23 @@ export function EmailDashboard({
           </div>
         )}
 
+        {/* Draggable divider between panels */}
+        {!emailPanelCollapsed && !assistPanelCollapsed && (
+          <PanelDivider
+            onDrag={handlePanelDrag}
+            onCollapseLeft={handleToggleEmailPanel}
+            onCollapseRight={handleToggleAssistPanel}
+            leftCollapsed={emailPanelCollapsed}
+            rightCollapsed={assistPanelCollapsed}
+          />
+        )}
+
         {/* Right Panel - DATA Assist (placeholder until Phase 4) */}
         {!assistPanelCollapsed && (
-          <section className="email-right-panel">
-            {/* Panel collapse control */}
-            <button 
-              className="panel-collapse-btn right"
-              onClick={handleToggleAssistPanel}
-              title="Collapse DATA panel"
-            >
-              ▶
-            </button>
-
+          <section
+            className="email-right-panel"
+            style={{ width: emailPanelCollapsed ? '100%' : `${100 - panelSplitRatio}%` }}
+          >
             <div className="email-assist-content">
               <div className="email-assist-header">
                 <h2>DATA</h2>
