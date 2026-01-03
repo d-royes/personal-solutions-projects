@@ -1232,6 +1232,13 @@ function App() {
             setCache={setCalendarCache}
             selectedView={calendarSelectedView}
             setSelectedView={setCalendarSelectedView}
+            tasks={tasks}
+            tasksLoading={tasksLoading}
+            onRefreshTasks={() => refreshTasks(true)}
+            onSelectTaskInTasksMode={(taskId) => {
+              setAppMode('tasks')
+              handleSelectTask(taskId)
+            }}
           />
         ) : (
           <>

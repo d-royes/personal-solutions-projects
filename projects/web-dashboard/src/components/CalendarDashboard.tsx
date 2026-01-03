@@ -6,14 +6,20 @@ import type {
   CalendarEvent,
   CalendarInfo,
   CalendarSettings,
+  Task,
+  TimelineItem,
 } from '../types'
 import {
   listCalendars,
   listEvents,
   getCalendarSettings,
   updateCalendarSettings,
+  createCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
   type ListEventsOptions,
 } from '../api'
+import { deriveDomain, getTaskPriority } from '../utils/domain'
 
 // Per-account cache structure - exported for App.tsx to manage
 export interface CalendarAccountCache {
@@ -46,9 +52,20 @@ interface CalendarDashboardProps {
   setCache?: React.Dispatch<React.SetStateAction<CalendarCacheMap>>
   selectedView?: CalendarView
   setSelectedView?: React.Dispatch<React.SetStateAction<CalendarView>>
+  // Task integration props
+  tasks?: Task[]
+  tasksLoading?: boolean
+  onRefreshTasks?: () => void
+  onSelectTaskInTasksMode?: (taskId: string) => void
 }
 
-type CalendarTabView = 'dashboard' | 'events' | 'meetings' | 'suggestions' | 'settings'
+type CalendarTabView = 'dashboard' | 'events' | 'meetings' | 'tasks' | 'suggestions' | 'settings'
+
+// Selected item type for DATA panel (either event or task)
+type SelectedItem =
+  | { type: 'event'; item: CalendarEvent }
+  | { type: 'task'; item: Task }
+  | null
 
 // Helper to format date for display
 function formatEventDate(dateStr: string): string {
@@ -90,8 +107,363 @@ function groupEventsByDate(events: CalendarEvent[]): Map<string, CalendarEvent[]
   return groups
 }
 
+// Build unified timeline combining events and tasks
+function buildUnifiedTimeline(
+  events: CalendarEvent[],
+  tasks: Task[],
+  selectedView: CalendarView,
+  daysAhead: number
+): TimelineItem[] {
+  const now = new Date()
+  const futureDate = new Date()
+  futureDate.setDate(futureDate.getDate() + daysAhead)
+
+  const items: TimelineItem[] = []
+
+  // Add events to timeline
+  for (const event of events) {
+    items.push({
+      type: 'event',
+      id: `event-${event.id}`,
+      title: event.summary,
+      dateKey: new Date(event.start).toDateString(),
+      sortTime: new Date(event.start),
+      sortPriority: 0, // Events sort by time, not priority
+      sourceDomain: event.sourceDomain,
+      event,
+    })
+  }
+
+  // Add tasks to timeline (filtered by view and date range)
+  for (const task of tasks) {
+    // Skip tasks without due dates
+    if (!task.due) continue
+
+    const dueDate = new Date(task.due)
+    // Skip tasks outside the date range
+    if (dueDate < now || dueDate > futureDate) continue
+
+    const taskDomain = deriveDomain(task)
+
+    // Filter by view
+    if (selectedView !== 'combined') {
+      if (selectedView === 'personal' && taskDomain !== 'personal') continue
+      if (selectedView === 'work' && taskDomain !== 'work') continue
+      if (selectedView === 'church' && taskDomain !== 'church') continue
+    }
+
+    items.push({
+      type: 'task',
+      id: `task-${task.rowId}`,
+      title: task.title,
+      dateKey: dueDate.toDateString(),
+      sortTime: dueDate,
+      sortPriority: getTaskPriority(task.priority),
+      sourceDomain: taskDomain,
+      task,
+    })
+  }
+
+  // Sort: by date, then events before tasks, then by time/priority
+  items.sort((a, b) => {
+    // First by date
+    const dateCompare = new Date(a.dateKey).getTime() - new Date(b.dateKey).getTime()
+    if (dateCompare !== 0) return dateCompare
+
+    // Events before tasks within the same day
+    if (a.type !== b.type) {
+      return a.type === 'event' ? -1 : 1
+    }
+
+    // Events sort by time
+    if (a.type === 'event' && b.type === 'event') {
+      return a.sortTime.getTime() - b.sortTime.getTime()
+    }
+
+    // Tasks sort by priority
+    return a.sortPriority - b.sortPriority
+  })
+
+  return items
+}
+
+// Group timeline items by date
+function groupTimelineByDate(items: TimelineItem[]): Map<string, TimelineItem[]> {
+  const groups = new Map<string, TimelineItem[]>()
+  for (const item of items) {
+    if (!groups.has(item.dateKey)) {
+      groups.set(item.dateKey, [])
+    }
+    groups.get(item.dateKey)!.push(item)
+  }
+  return groups
+}
+
+// Format due date label for tasks
+function formatDueLabel(due: string): string {
+  const dueDate = new Date(due)
+  const today = new Date()
+  const diff = dueDate.getTime() - today.getTime()
+  const days = Math.round(diff / (1000 * 60 * 60 * 24))
+  if (days < 0) return `Overdue ${Math.abs(days)}d`
+  if (days === 0) return 'Due today'
+  if (days === 1) return 'Due tomorrow'
+  return `Due in ${days}d`
+}
+
+// Get priority badge class
+function getPriorityClass(priority: string | undefined): string {
+  if (!priority) return ''
+  const p = priority.toLowerCase()
+  if (p.includes('critical') || p === '5-critical') return 'critical'
+  if (p.includes('urgent') || p === '4-urgent') return 'urgent'
+  if (p.includes('important') || p === '3-important') return 'important'
+  return 'standard'
+}
+
 // Domain colors are now handled via CSS classes:
 // .domain-personal, .domain-work, .domain-church
+
+// Helper to format datetime for input fields
+function formatDateTimeLocal(isoString: string): string {
+  const date = new Date(isoString)
+  return date.toISOString().slice(0, 16)
+}
+
+// Helper to format date only for input fields (all-day events)
+function formatDateOnly(isoString: string): string {
+  const date = new Date(isoString)
+  return date.toISOString().slice(0, 10)
+}
+
+// Event Form Component for create/edit
+function EventForm({
+  event,
+  calendars,
+  defaultCalendarId,
+  onSave,
+  onCancel,
+  isSaving,
+}: {
+  event: CalendarEvent | null
+  calendars: CalendarInfo[]
+  defaultCalendarId: string
+  onSave: (eventData: {
+    summary: string
+    start: string
+    end: string
+    description?: string
+    location?: string
+    isAllDay?: boolean
+    calendarId: string
+  }) => void
+  onCancel: () => void
+  isSaving: boolean
+}) {
+  // Form state - initialize from event or defaults
+  const isEditing = event !== null
+  const now = new Date()
+  const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000)
+
+  const [summary, setSummary] = useState(event?.summary || '')
+  const [description, setDescription] = useState(event?.description || '')
+  const [location, setLocation] = useState(event?.location || '')
+  const [isAllDay, setIsAllDay] = useState(event?.isAllDay || false)
+  const [calendarId, setCalendarId] = useState(event?.calendarId || defaultCalendarId)
+  const [startDate, setStartDate] = useState(
+    event ? formatDateOnly(event.start) : formatDateOnly(now.toISOString())
+  )
+  const [startTime, setStartTime] = useState(
+    event && !event.isAllDay
+      ? formatDateTimeLocal(event.start).slice(11, 16)
+      : now.toTimeString().slice(0, 5)
+  )
+  const [endDate, setEndDate] = useState(
+    event ? formatDateOnly(event.end) : formatDateOnly(oneHourLater.toISOString())
+  )
+  const [endTime, setEndTime] = useState(
+    event && !event.isAllDay
+      ? formatDateTimeLocal(event.end).slice(11, 16)
+      : oneHourLater.toTimeString().slice(0, 5)
+  )
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!summary.trim()) return
+
+    let start: string
+    let end: string
+
+    if (isAllDay) {
+      // All-day events use date strings
+      start = startDate
+      end = endDate
+    } else {
+      // Timed events use full datetime
+      start = new Date(`${startDate}T${startTime}`).toISOString()
+      end = new Date(`${endDate}T${endTime}`).toISOString()
+    }
+
+    onSave({
+      summary: summary.trim(),
+      start,
+      end,
+      description: description.trim() || undefined,
+      location: location.trim() || undefined,
+      isAllDay,
+      calendarId,
+    })
+  }
+
+  return (
+    <div className="event-form-overlay">
+      <form className="event-form" onSubmit={handleSubmit}>
+        <h3 className="event-form-title">
+          {isEditing ? 'Edit Event' : 'New Event'}
+        </h3>
+
+        {/* Calendar selector (only for new events, not editing) */}
+        {!isEditing && calendars.length > 1 && (
+          <div className="form-group">
+            <label htmlFor="event-calendar">Calendar</label>
+            <select
+              id="event-calendar"
+              value={calendarId}
+              onChange={(e) => setCalendarId(e.target.value)}
+              className="calendar-select"
+            >
+              {calendars.map(cal => (
+                <option key={cal.id} value={cal.id}>
+                  {cal.summary}{cal.isPrimary ? ' (Primary)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Summary */}
+        <div className="form-group">
+          <label htmlFor="event-summary">Title</label>
+          <input
+            id="event-summary"
+            type="text"
+            value={summary}
+            onChange={(e) => setSummary(e.target.value)}
+            placeholder="Event title"
+            required
+            autoFocus={!(!isEditing && calendars.length > 1)}
+          />
+        </div>
+
+        {/* All-day toggle */}
+        <div className="form-group checkbox">
+          <label>
+            <input
+              type="checkbox"
+              checked={isAllDay}
+              onChange={(e) => setIsAllDay(e.target.checked)}
+            />
+            All-day event
+          </label>
+        </div>
+
+        {/* Date/Time inputs */}
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="event-start-date">Start Date</label>
+            <input
+              id="event-start-date"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              required
+            />
+          </div>
+          {!isAllDay && (
+            <div className="form-group">
+              <label htmlFor="event-start-time">Start Time</label>
+              <input
+                id="event-start-time"
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                required
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="event-end-date">End Date</label>
+            <input
+              id="event-end-date"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              required
+            />
+          </div>
+          {!isAllDay && (
+            <div className="form-group">
+              <label htmlFor="event-end-time">End Time</label>
+              <input
+                id="event-end-time"
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                required
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Location */}
+        <div className="form-group">
+          <label htmlFor="event-location">Location</label>
+          <input
+            id="event-location"
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Add location"
+          />
+        </div>
+
+        {/* Description */}
+        <div className="form-group">
+          <label htmlFor="event-description">Description</label>
+          <textarea
+            id="event-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Add description"
+            rows={3}
+          />
+        </div>
+
+        {/* Form actions */}
+        <div className="form-actions">
+          <button
+            type="button"
+            className="btn-cancel"
+            onClick={onCancel}
+            disabled={isSaving}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="btn-save"
+            disabled={isSaving || !summary.trim()}
+          >
+            {isSaving ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
 
 // Draggable panel divider component with collapse arrows
 function PanelDivider({
@@ -166,6 +538,10 @@ export function CalendarDashboard({
   setCache: setExternalCache,
   selectedView: externalSelectedView,
   setSelectedView: setExternalSelectedView,
+  tasks = [],
+  tasksLoading = false,
+  onRefreshTasks,
+  onSelectTaskInTasksMode,
 }: CalendarDashboardProps) {
   // Use external state if provided, otherwise use local state
   const [localCache, setLocalCache] = useState<CalendarCacheMap>({
@@ -181,9 +557,15 @@ export function CalendarDashboard({
 
   const [activeTab, setActiveTab] = useState<CalendarTabView>('dashboard')
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
+  const [selectedItem, setSelectedItem] = useState<SelectedItem>(null)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [chatInput, setChatInput] = useState('')
+
+  // Event form state
+  const [showEventForm, setShowEventForm] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
   // Two-panel layout state
   const [calendarPanelCollapsed, setCalendarPanelCollapsed] = useState(false)
@@ -252,14 +634,19 @@ export function CalendarDashboard({
         }
       }
 
+      // Filter out events that have already ended (handles multi-day all-day events
+      // that started before timeMin but overlap with the requested range)
+      const nowTime = now.getTime()
+      const activeEvents = allEvents.filter(e => new Date(e.end).getTime() > nowTime)
+
       // Sort events by start time
-      allEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+      activeEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
 
       setCache(prev => ({
         ...prev,
         [account]: {
           calendars: calendarsResp.calendars,
-          events: allEvents,
+          events: activeEvents,
           settings: settingsResp.settings,
           loaded: true,
           loading: false,
@@ -322,6 +709,22 @@ export function CalendarDashboard({
     return eventsForView.filter(e => e.isMeeting)
   }, [eventsForView])
 
+  // Build unified timeline (events + tasks)
+  const daysAhead = cache.personal.settings?.defaultDaysAhead || 14
+  const unifiedTimeline = useMemo(() => {
+    return buildUnifiedTimeline(eventsForView, tasks, selectedView, daysAhead)
+  }, [eventsForView, tasks, selectedView, daysAhead])
+
+  // Count tasks in timeline
+  const tasksInTimeline = useMemo(() => {
+    return unifiedTimeline.filter(item => item.type === 'task').length
+  }, [unifiedTimeline])
+
+  // Grouped timeline for display
+  const groupedTimeline = useMemo(() => {
+    return groupTimelineByDate(unifiedTimeline)
+  }, [unifiedTimeline])
+
   const isLoading = getAccountsForView(selectedView).some(a => cache[a].loading)
 
   // View switcher tabs
@@ -333,10 +736,12 @@ export function CalendarDashboard({
   ]
 
   // Content tabs - matching email dashboard structure
+  // Tasks tab count shows only tasks within the date window (respects Days to Show setting)
   const contentTabs: { tab: CalendarTabView; label: string; count?: number }[] = [
     { tab: 'dashboard', label: 'Dashboard' },
     { tab: 'events', label: 'Events', count: eventsForView.length },
     { tab: 'meetings', label: 'Meetings', count: meetingsForView.length },
+    { tab: 'tasks', label: 'Tasks', count: tasksInTimeline },
     { tab: 'suggestions', label: 'Suggestions', count: 0 }, // Future: task-event matches
     { tab: 'settings', label: 'Settings' },
   ]
@@ -409,6 +814,81 @@ export function CalendarDashboard({
     const containerWidth = panelsContainerRef.current.offsetWidth
     const deltaPercent = (delta / containerWidth) * 100
     setPanelSplitRatio(prev => Math.max(20, Math.min(80, prev + deltaPercent)))
+  }
+
+  // Handle Edit Event
+  function handleEditEvent(event: CalendarEvent) {
+    setEditingEvent(event)
+    setShowEventForm(true)
+  }
+
+  // Handle New Event
+  function handleNewEvent() {
+    setEditingEvent(null)
+    setShowEventForm(true)
+  }
+
+  // Handle Delete Event
+  async function handleDeleteEvent(event: CalendarEvent) {
+    if (!confirm(`Delete "${event.summary}"?`)) return
+
+    const account: CalendarAccount = event.sourceDomain === 'church' ? 'church' : 'personal'
+
+    setIsSaving(true)
+    try {
+      await deleteCalendarEvent(account, event.id, authConfig, apiBase, event.calendarId)
+      setSelectedEvent(null)
+      // Reload calendar data
+      loadAccountData(account)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete event')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Handle Save Event (create or update)
+  async function handleSaveEvent(eventData: {
+    summary: string
+    start: string
+    end: string
+    description?: string
+    location?: string
+    isAllDay?: boolean
+    calendarId: string
+  }) {
+    // Determine account based on current view
+    const account: CalendarAccount = selectedView === 'church' ? 'church' : 'personal'
+
+    setIsSaving(true)
+    try {
+      if (editingEvent) {
+        // Update existing event (use original calendar)
+        await updateCalendarEvent(
+          account,
+          editingEvent.id,
+          { ...eventData, calendarId: editingEvent.calendarId },
+          authConfig,
+          apiBase
+        )
+      } else {
+        // Create new event (use selected calendar from form)
+        await createCalendarEvent(
+          account,
+          eventData,
+          authConfig,
+          apiBase
+        )
+      }
+      setShowEventForm(false)
+      setEditingEvent(null)
+      // Reload calendar data
+      loadAccountData(account)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save event')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -641,6 +1121,112 @@ export function CalendarDashboard({
               </>
             )}
 
+            {/* Tasks Tab - Unified Timeline View */}
+            {activeTab === 'tasks' && !isLoading && (
+              <>
+                {/* Search and refresh - matching event tab style */}
+                <div className="action-buttons">
+                  <div className="email-search-container">
+                    <input
+                      type="text"
+                      placeholder="Search timeline..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="email-search-input"
+                    />
+                  </div>
+                  <button
+                    className="action-btn"
+                    onClick={() => {
+                      handleRefresh()
+                      onRefreshTasks?.()
+                    }}
+                    disabled={isLoading || tasksLoading}
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {/* Timeline header showing counts */}
+                <div className="timeline-header">
+                  <span className="timeline-count">
+                    {eventsForView.length} events + {tasksInTimeline} tasks
+                  </span>
+                </div>
+
+                {groupedTimeline.size === 0 && (
+                  <div className="empty-state">
+                    No events or tasks in the next {daysAhead} days
+                  </div>
+                )}
+
+                {Array.from(groupedTimeline.entries()).map(([dateKey, items]) => (
+                  <div key={dateKey} className="calendar-date-group">
+                    <div className="calendar-date-header">
+                      {formatEventDate(items[0].type === 'event' ? items[0].event!.start : items[0].task!.due)}
+                    </div>
+                    {items.map(item => (
+                      item.type === 'event' ? (
+                        // Render event item
+                        <div
+                          key={item.id}
+                          onClick={() => {
+                            setSelectedEvent(item.event!)
+                            setSelectedItem({ type: 'event', item: item.event! })
+                          }}
+                          className={`calendar-event-item domain-${item.sourceDomain} ${selectedItem?.type === 'event' && selectedItem.item.id === item.event!.id ? 'selected' : ''}`}
+                        >
+                          <div className="timeline-icon event-icon">📅</div>
+                          <div className="calendar-event-time">
+                            {formatEventTime(item.event!.start, item.event!.isAllDay)}
+                          </div>
+                          <div className="calendar-event-details">
+                            <div className="calendar-event-title">{item.title}</div>
+                            {item.event!.location && (
+                              <div className="calendar-event-location">{item.event!.location}</div>
+                            )}
+                          </div>
+                          {!item.event!.isAllDay && (
+                            <div className="calendar-event-duration">
+                              {formatDuration(item.event!.durationMinutes)}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        // Render task item
+                        <div
+                          key={item.id}
+                          onClick={() => {
+                            setSelectedEvent(null)
+                            setSelectedItem({ type: 'task', item: item.task! })
+                          }}
+                          className={`calendar-task-item domain-${item.sourceDomain} ${selectedItem?.type === 'task' && selectedItem.item.rowId === item.task!.rowId ? 'selected' : ''}`}
+                        >
+                          <div className="timeline-icon task-icon">
+                            {item.task!.done ? '✓' : '☐'}
+                          </div>
+                          <div className="calendar-task-due">
+                            {formatDueLabel(item.task!.due)}
+                          </div>
+                          <div className="calendar-task-details">
+                            <div className="calendar-task-title">{item.title}</div>
+                            {item.task!.project && (
+                              <div className="calendar-task-project">{item.task!.project}</div>
+                            )}
+                          </div>
+                          {item.task!.priority && (
+                            <div className={`calendar-task-priority ${getPriorityClass(item.task!.priority)}`}>
+                              {item.task!.priority}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    ))}
+                  </div>
+                ))}
+              </>
+            )}
+
             {/* Suggestions Tab - Placeholder for future task-event matching */}
             {activeTab === 'suggestions' && !isLoading && (
               <div className="calendar-suggestions-view">
@@ -692,13 +1278,49 @@ export function CalendarDashboard({
           style={{ width: calendarPanelCollapsed ? '100%' : `${100 - panelSplitRatio}%` }}
         >
           <div className="email-assist-content">
-            {/* DATA Header */}
+            {/* DATA Header with New Event button */}
             <div className="email-assist-header">
               <h2>DATA</h2>
+              {selectedView !== 'work' && (
+                <button
+                  className="new-event-btn"
+                  onClick={handleNewEvent}
+                  disabled={isSaving}
+                  title="Create new event"
+                >
+                  + New Event
+                </button>
+              )}
             </div>
 
+            {/* Event Form Modal */}
+            {showEventForm && (() => {
+              const account: CalendarAccount = selectedView === 'church' ? 'church' : 'personal'
+              const accountCache = cache[account]
+              const enabledCalendars = accountCache.calendars.filter(c =>
+                accountCache.settings?.enabledCalendars.includes(c.id)
+              )
+              const availableCalendars = enabledCalendars.length > 0 ? enabledCalendars : accountCache.calendars
+              const primaryCal = availableCalendars.find(c => c.isPrimary) || availableCalendars[0]
+              const defaultCalId = editingEvent?.calendarId || primaryCal?.id || ''
+
+              return (
+                <EventForm
+                  event={editingEvent}
+                  calendars={availableCalendars}
+                  defaultCalendarId={defaultCalId}
+                  onSave={handleSaveEvent}
+                  onCancel={() => {
+                    setShowEventForm(false)
+                    setEditingEvent(null)
+                  }}
+                  isSaving={isSaving}
+                />
+              )
+            })()}
+
             {/* Event Preview - shown when event is selected */}
-            {selectedEvent ? (
+            {selectedEvent && !showEventForm && (!selectedItem || selectedItem.type === 'event') ? (
               <>
                 <div className="calendar-event-preview">
                   {/* Event Title */}
@@ -767,17 +1389,46 @@ export function CalendarDashboard({
                     </div>
                   )}
 
-                  {/* Google Calendar Link */}
-                  {selectedEvent.htmlLink && (
-                    <a
-                      href={selectedEvent.htmlLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="preview-link"
-                    >
-                      <span>🔗</span> Open in Google Calendar
-                    </a>
-                  )}
+                  {/* Compact Action Bar */}
+                  <div className="calendar-action-bar">
+                    {selectedEvent.htmlLink && (
+                      <a
+                        href={selectedEvent.htmlLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="calendar-action-btn open"
+                        title="Open in Google Calendar"
+                      >
+                        <span className="action-icon">🔗</span>
+                        <span className="action-label">Open</span>
+                      </a>
+                    )}
+                    {selectedEvent.sourceDomain !== 'work' && (
+                      <>
+                        <button
+                          className="calendar-action-btn edit"
+                          onClick={() => handleEditEvent(selectedEvent)}
+                          disabled={isSaving}
+                          title="Edit event"
+                        >
+                          <span className="action-icon">✏️</span>
+                          <span className="action-label">Edit</span>
+                        </button>
+                        <button
+                          className="calendar-action-btn delete"
+                          onClick={() => handleDeleteEvent(selectedEvent)}
+                          disabled={isSaving}
+                          title="Delete event"
+                        >
+                          <span className="action-icon">🗑️</span>
+                          <span className="action-label">Delete</span>
+                        </button>
+                      </>
+                    )}
+                    {selectedEvent.sourceDomain === 'work' && (
+                      <span className="calendar-readonly-badge">Read-only</span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Ask DATA section */}
@@ -796,36 +1447,147 @@ export function CalendarDashboard({
                   </div>
                 </div>
               </>
-            ) : (
+            ) : selectedItem?.type === 'task' && !showEventForm ? (
+              // Task Preview - shown when task is selected in Tasks tab
+              <>
+                <div className="calendar-task-preview">
+                  {/* Task Title */}
+                  <h3 className="preview-title">{selectedItem.item.title}</h3>
+
+                  {/* Domain Badge */}
+                  <span className={`calendar-domain-badge ${deriveDomain(selectedItem.item)}`}>
+                    {deriveDomain(selectedItem.item)}
+                  </span>
+
+                  {/* Due Date */}
+                  <div className="preview-row">
+                    <span className="preview-icon">📆</span>
+                    <span className="preview-text">
+                      {formatDueLabel(selectedItem.item.due)}
+                      {' - '}
+                      {new Date(selectedItem.item.due).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+
+                  {/* Status */}
+                  <div className="preview-row">
+                    <span className="preview-icon">📋</span>
+                    <span className="preview-text">
+                      Status: <strong>{selectedItem.item.status || 'Unknown'}</strong>
+                    </span>
+                  </div>
+
+                  {/* Priority */}
+                  {selectedItem.item.priority && (
+                    <div className="preview-row">
+                      <span className="preview-icon">⚡</span>
+                      <span className={`preview-text priority-${getPriorityClass(selectedItem.item.priority)}`}>
+                        Priority: <strong>{selectedItem.item.priority}</strong>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Project */}
+                  {selectedItem.item.project && (
+                    <div className="preview-row">
+                      <span className="preview-icon">📁</span>
+                      <span className="preview-text">{selectedItem.item.project}</span>
+                    </div>
+                  )}
+
+                  {/* Notes */}
+                  {selectedItem.item.notes && (
+                    <div className="preview-description">
+                      <strong>Notes:</strong>
+                      <div className="preview-notes">{selectedItem.item.notes}</div>
+                    </div>
+                  )}
+
+                  {/* Next Step */}
+                  {selectedItem.item.nextStep && (
+                    <div className="preview-description">
+                      <strong>Next Step:</strong>
+                      <div className="preview-next-step">{selectedItem.item.nextStep}</div>
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="calendar-event-actions">
+                    <button
+                      className="calendar-action-btn primary"
+                      onClick={() => {
+                        onSelectTaskInTasksMode?.(selectedItem.item.rowId)
+                      }}
+                      title="Open in Task Management"
+                    >
+                      <span className="action-icon">📝</span>
+                      <span className="action-label">Open Task</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Ask DATA section for tasks */}
+                <div className="calendar-ask-data">
+                  <p className="ask-data-prompt">Ask DATA about this task</p>
+                  <div className="quick-actions">
+                    <button className="quick-action-btn" onClick={() => setChatInput('What should I focus on?')}>
+                      What should I focus on?
+                    </button>
+                    <button className="quick-action-btn" onClick={() => setChatInput('Break this down')}>
+                      Break this down
+                    </button>
+                    <button className="quick-action-btn" onClick={() => setChatInput('Related events?')}>
+                      Related events?
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : !showEventForm ? (
               <div className="calendar-empty-state">
-                <div className="icon">📅</div>
-                <div className="title">Select an event to view details</div>
-                <div className="subtitle">Click on any event in the list to see more information</div>
+                <div className="icon">{activeTab === 'tasks' ? '📋' : '📅'}</div>
+                <div className="title">
+                  {activeTab === 'tasks' ? 'Select an item to view details' : 'Select an event to view details'}
+                </div>
+                <div className="subtitle">
+                  {activeTab === 'tasks'
+                    ? 'Click on any event or task in the timeline to see more information'
+                    : 'Click on any event in the list to see more information'}
+                </div>
               </div>
-            )}
+            ) : null}
 
             {/* Chat Input - always at bottom */}
             <div className="calendar-chat-input">
               <input
                 type="text"
-                placeholder={selectedEvent ? 'Ask DATA about this event...' : 'Select an event to chat'}
+                placeholder={
+                  selectedItem?.type === 'task'
+                    ? 'Ask DATA about this task...'
+                    : selectedEvent
+                    ? 'Ask DATA about this event...'
+                    : 'Select an item to chat'
+                }
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                disabled={!selectedEvent}
+                disabled={!selectedEvent && !selectedItem}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && chatInput.trim() && selectedEvent) {
+                  if (e.key === 'Enter' && chatInput.trim() && (selectedEvent || selectedItem)) {
                     // Future: Send to DATA
-                    console.log('Chat:', chatInput)
+                    console.log('Chat:', chatInput, selectedItem?.type || 'event')
                     setChatInput('')
                   }
                 }}
               />
               <button
                 className="send-btn"
-                disabled={!selectedEvent || !chatInput.trim()}
+                disabled={(!selectedEvent && !selectedItem) || !chatInput.trim()}
                 onClick={() => {
-                  if (chatInput.trim() && selectedEvent) {
-                    console.log('Chat:', chatInput)
+                  if (chatInput.trim() && (selectedEvent || selectedItem)) {
+                    console.log('Chat:', chatInput, selectedItem?.type || 'event')
                     setChatInput('')
                   }
                 }}

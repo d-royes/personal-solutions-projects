@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Task, WorkBadge, FirestoreTask } from '../types'
+import { deriveDomain, PRIORITY_ORDER } from '../utils/domain'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
@@ -11,12 +12,6 @@ const STATUS_CATEGORY: Record<string, number> = {
   'In Progress': 1, 'Follow-up': 1, 'Delivered': 1,                          // A - Active
   'On Hold': 2, 'Awaiting Reply': 2, 'Needs Approval': 2,                    // B - Blocked
   'Scheduled': 3, 'Recurring': 3, 'Validation': 3, 'Create ZD Ticket': 3,   // S - Scheduled
-}
-
-// Priority order for sorting (highest priority first)
-const PRIORITY_ORDER: Record<string, number> = {
-  'Critical': 1, 'Urgent': 2, 'Important': 3, 'Standard': 4, 'Low': 5,
-  '5-Critical': 1, '4-Urgent': 2, '3-Important': 3, '2-Standard': 4, '1-Low': 5
 }
 
 const FILTERS = [
@@ -37,17 +32,8 @@ function previewText(task: Task) {
   return `${textSource.slice(0, PREVIEW_LIMIT)}…`
 }
 
-function deriveDomain(task: Task): 'Personal' | 'Church' | 'Work' {
-  // Use source field if available (from multi-sheet), otherwise derive from project
-  if (task.source === 'work') return 'Work'
-
-  // For personal sheet, derive from project name
-  const project = task.project
-  if (!project) return 'Personal'
-  const value = project.toLowerCase()
-  if (value.includes('church')) return 'Church'
-  return 'Personal'
-}
+// deriveDomain is now imported from '../utils/domain'
+// Returns lowercase domain ('personal' | 'church' | 'work')
 
 function isDueSoon(due: string) {
   const dueDate = new Date(due)
@@ -137,9 +123,9 @@ export function TaskList({
           // Email tasks are handled separately, not in this filter
           return false
         case 'personal':
-          return domain === 'Personal'
+          return domain === 'personal'
         case 'church':
-          return domain === 'Church'
+          return domain === 'church'
         case 'work':
           // Only show work tasks (from work sheet)
           return task.source === 'work'
@@ -297,7 +283,7 @@ export function TaskList({
                 onClick={() => onSelect(task.rowId)}
               >
                 <div className="task-signals">
-                  <span className={`badge domain ${domain.toLowerCase()}`}>{domain}</span>
+                  <span className={`badge domain ${domain}`}>{domain.charAt(0).toUpperCase() + domain.slice(1)}</span>
                   <span className="badge status">{status}</span>
                   {task.priority && (
                     <span className={`badge priority ${task.priority.toLowerCase()}`}>

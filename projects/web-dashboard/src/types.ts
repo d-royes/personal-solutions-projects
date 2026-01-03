@@ -489,3 +489,22 @@ export interface CalendarCacheState {
   error?: string
 }
 
+// =============================================================================
+// Timeline Types (Unified Calendar + Tasks View)
+// =============================================================================
+
+export type TimelineItemType = 'event' | 'task'
+export type TimelineDomain = 'personal' | 'work' | 'church'
+
+export interface TimelineItem {
+  type: TimelineItemType
+  id: string
+  title: string
+  dateKey: string        // For grouping: toDateString()
+  sortTime: Date         // For sorting within a day
+  sortPriority: number   // Secondary sort: 0 for events (by time), 1-5 for tasks (by priority)
+  sourceDomain: TimelineDomain
+  event?: CalendarEvent
+  task?: Task
+}
+
