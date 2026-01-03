@@ -732,12 +732,35 @@ export function CalendarDashboard({
     return unifiedTimeline.filter(item => item.type === 'task').length
   }, [unifiedTimeline])
 
-  // Grouped timeline for display
-  const groupedTimeline = useMemo(() => {
-    return groupTimelineByDate(unifiedTimeline)
-  }, [unifiedTimeline])
+  // Filter unified timeline by search query
+  const filteredUnifiedTimeline = useMemo(() => {
+    if (!searchQuery.trim()) return unifiedTimeline
+    const query = searchQuery.toLowerCase()
+    return unifiedTimeline.filter(item => {
+      // Search in title
+      if (item.title.toLowerCase().includes(query)) return true
+      // For events, also search in description and location
+      if (item.event) {
+        if (item.event.description?.toLowerCase().includes(query)) return true
+        if (item.event.location?.toLowerCase().includes(query)) return true
+      }
+      // For tasks, also search in notes, project, nextStep
+      if (item.task) {
+        if (item.task.notes?.toLowerCase().includes(query)) return true
+        if (item.task.project?.toLowerCase().includes(query)) return true
+        if (item.task.nextStep?.toLowerCase().includes(query)) return true
+      }
+      return false
+    })
+  }, [unifiedTimeline, searchQuery])
 
-  const isLoading = getAccountsForView(selectedView).some(a => cache[a].loading)
+  // Grouped timeline for display (uses filtered timeline)
+  const groupedTimeline = useMemo(() => {
+    return groupTimelineByDate(filteredUnifiedTimeline)
+  }, [filteredUnifiedTimeline])
+
+  // Show loading state if any required account is currently loading OR hasn't been loaded yet
+  const isLoading = getAccountsForView(selectedView).some(a => cache[a].loading || !cache[a].loaded)
 
   // View switcher tabs
   const viewTabs: { view: CalendarView; label: string }[] = [
@@ -1162,7 +1185,10 @@ export function CalendarDashboard({
                 {/* Timeline header showing counts */}
                 <div className="timeline-header">
                   <span className="timeline-count">
-                    {eventsForView.length} events + {tasksInTimeline} tasks
+                    {searchQuery.trim()
+                      ? `${filteredUnifiedTimeline.filter(i => i.type === 'event').length} events + ${filteredUnifiedTimeline.filter(i => i.type === 'task').length} tasks (filtered)`
+                      : `${eventsForView.length} events + ${tasksInTimeline} tasks`
+                    }
                   </span>
                 </div>
 

@@ -3309,6 +3309,7 @@ export async function getCalendarSettings(
 
   const resp = await fetch(url, {
     headers: buildHeaders(auth),
+    cache: 'no-store',  // Prevent browser caching of settings
   })
   if (!resp.ok) {
     const detail = await safeJson(resp)

@@ -114,10 +114,14 @@ export function TaskList({
       // First apply search filter if there's a search term
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase()
-        const matchesSearch = 
-          (task.title?.toLowerCase().includes(term)) ||
-          (task.notes?.toLowerCase().includes(term)) ||
-          (task.project?.toLowerCase().includes(term))
+        const matchesSearch =
+          (task.title?.toLowerCase()?.includes(term)) ||
+          (task.notes?.toLowerCase()?.includes(term)) ||
+          (task.project?.toLowerCase()?.includes(term)) ||
+          (task.nextStep?.toLowerCase()?.includes(term)) ||
+          (task.automationHint?.toLowerCase()?.includes(term)) ||
+          (task.assignedTo?.toLowerCase()?.includes(term)) ||
+          (task.status?.toLowerCase()?.includes(term))
         if (!matchesSearch) return false
       }
       const domain = deriveDomain(task)
