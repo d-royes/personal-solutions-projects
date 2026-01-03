@@ -3062,6 +3062,13 @@ export function EmailDashboard({
                   ) : (
                     chatHistory.map((msg, idx) => (
                       <div key={idx} className={`chat-message ${msg.role}`}>
+                        <button
+                          className="chat-message-delete"
+                          onClick={() => setChatHistory(prev => prev.filter((_, i) => i !== idx))}
+                          title="Delete message"
+                        >
+                          ✕
+                        </button>
                         <div className="chat-message-content">{msg.content}</div>
                       </div>
                     ))

@@ -90,6 +90,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 | **F1c: Privacy Audit Log** | Track what content was masked for transparency and debugging in Haiku analysis. | F1 Future Enhancement |
 | **F4: Microsoft Integration** | Support Outlook ecosystem (MS Graph API) for DATA Cloud multi-tenancy. | [Email Management Plan - F4](../.claude/plans/rippling-discovering-whale.md#f4-microsoft-integration) |
 | **F6: Bulk Email Actions** | Batch archive, label, dismiss operations with pattern recognition. | [Email Management Plan - F6](../.claude/plans/rippling-discovering-whale.md#f6-bulk-email-actions) |
+| **Email Chat Message Deletion Persistence** | Email chat X button only clears local state (messages return on navigation). Calendar chat has full persistence via PUT endpoint. Add same persistence to email if needed. | Backlog 2026-01-03 |
 | **Email Management Settings Page** | Admin settings for attention scanning time window, labels, notifications. | - |
 | Feedback Summary View | Admin menu view for aggregated feedback statistics. | - |
 | Save Contact Feature | Save frequently used contacts for quick email drafting access. | - |
