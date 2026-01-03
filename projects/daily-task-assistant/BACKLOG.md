@@ -65,6 +65,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
+| **Timezone Consistency (Backend)** | Fix remaining UTC/timezone issues in backend: Smartsheet date parsing, rebalancing logic, default due dates, email date extraction. Frontend labels fixed 2026-01-02. | [TIMEZONE_FIX.md](docs/TIMEZONE_FIX.md) |
 | **Attachment Security Hardening** | Add defense-in-depth for attachment handling: (1) PDF download domain validation + size limits, (2) Image download domain validation, (3) Frontend URL sanitization for XSS prevention, (4) Error handling for read toggle cache consistency. | Code Review 2025-12-31 |
 | **Phase A: Smartsheet Decoupling** | Create native Firestore task storage, abstract integrations into provider interfaces, user-scope all data. | [DATA_CLOUD_VISION.md](docs/DATA_CLOUD_VISION.md) |
 | **Move Email Allowlist to Backend-Only** | Remove hardcoded ALLOWED_EMAILS from AuthContext.tsx:9-12. Frontend check is redundant since backend validates. Exposing authorized users in client code is unnecessary info disclosure. | Code Review 2025-12-14 |
