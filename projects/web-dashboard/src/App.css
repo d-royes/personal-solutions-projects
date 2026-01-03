@@ -7340,18 +7340,18 @@ button:not(:disabled):hover {
 /* New Event Button */
 .new-event-btn {
   padding: 0.4rem 0.75rem;
-  background: #22c55e;
+  background: linear-gradient(135deg, #4887cf 0%, #3a6fb0 100%);
   color: white;
   border: none;
   border-radius: 4px;
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 
 .new-event-btn:hover:not(:disabled) {
-  background: #16a34a;
+  background: linear-gradient(135deg, #5a9be0 0%, #4887cf 100%);
 }
 
 .new-event-btn:disabled {

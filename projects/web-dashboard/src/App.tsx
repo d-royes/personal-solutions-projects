@@ -128,6 +128,7 @@ function App() {
   const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
   const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
+  const [autoEngageTaskId, setAutoEngageTaskId] = useState<string | null>(null)  // Auto-engage after selecting from calendar
 
   // Email dashboard state - lifted up to persist across mode switches
   const [emailCache, setEmailCache] = useState<EmailCacheState>({
@@ -246,6 +247,14 @@ function App() {
     }
     void loadGlobalContext()
   }, [authConfig, selectedTaskId, apiBase])
+
+  // Auto-engage when navigating from Calendar Tasks tab
+  useEffect(() => {
+    if (autoEngageTaskId && selectedTaskId === autoEngageTaskId && selectedTask && !isEngaged) {
+      setAutoEngageTaskId(null)  // Clear the flag
+      void engageTask()  // Trigger engagement
+    }
+  }, [autoEngageTaskId, selectedTaskId, selectedTask, isEngaged])
 
   async function refreshTasks(skipAutoSelect = false) {
     if (!authConfig) return
@@ -1238,6 +1247,7 @@ function App() {
             onSelectTaskInTasksMode={(taskId) => {
               setAppMode('tasks')
               handleSelectTask(taskId)
+              setAutoEngageTaskId(taskId)  // Auto-engage after selecting
             }}
           />
         ) : (

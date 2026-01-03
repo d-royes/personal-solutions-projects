@@ -199,10 +199,22 @@ function groupTimelineByDate(items: TimelineItem[]): Map<string, TimelineItem[]>
   return groups
 }
 
+// Parse date string and normalize to local midnight for accurate day comparisons
+function toLocalMidnight(dateStr: string): Date {
+  // Parse as local date by splitting the date string (avoids UTC interpretation)
+  const [year, month, day] = dateStr.split('T')[0].split('-').map(Number)
+  return new Date(year, month - 1, day, 0, 0, 0, 0)
+}
+
+function getTodayMidnight(): Date {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+}
+
 // Format due date label for tasks
 function formatDueLabel(due: string): string {
-  const dueDate = new Date(due)
-  const today = new Date()
+  const dueDate = toLocalMidnight(due)
+  const today = getTodayMidnight()
   const diff = dueDate.getTime() - today.getTime()
   const days = Math.round(diff / (1000 * 60 * 60 * 24))
   if (days < 0) return `Overdue ${Math.abs(days)}d`

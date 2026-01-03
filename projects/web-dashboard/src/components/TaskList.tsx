@@ -35,18 +35,30 @@ function previewText(task: Task) {
 // deriveDomain is now imported from '../utils/domain'
 // Returns lowercase domain ('personal' | 'church' | 'work')
 
-function isDueSoon(due: string) {
-  const dueDate = new Date(due)
+// Parse date string and normalize to local midnight for accurate day comparisons
+function toLocalMidnight(dateStr: string): Date {
+  // Parse as local date by splitting the date string (avoids UTC interpretation)
+  const [year, month, day] = dateStr.split('T')[0].split('-').map(Number)
+  return new Date(year, month - 1, day, 0, 0, 0, 0)
+}
+
+function getTodayMidnight(): Date {
   const now = new Date()
-  const diff = dueDate.getTime() - now.getTime()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+}
+
+function isDueSoon(due: string) {
+  const dueDate = toLocalMidnight(due)
+  const today = getTodayMidnight()
+  const diff = dueDate.getTime() - today.getTime()
   const days = diff / (1000 * 60 * 60 * 24)
   // Only tasks due within the next 3 days (not overdue)
   return days >= 0 && days <= 3
 }
 
 function dueLabel(due: string) {
-  const dueDate = new Date(due)
-  const today = new Date()
+  const dueDate = toLocalMidnight(due)
+  const today = getTodayMidnight()
   const diff = dueDate.getTime() - today.getTime()
   const days = Math.round(diff / (1000 * 60 * 60 * 24))
   if (days < 0) return `Overdue ${Math.abs(days)}d`
