@@ -2198,3 +2198,405 @@ def _convert_to_simple_html(text: str) -> str:
 
     return "".join(html_parts)
 
+
+# =============================================================================
+# Calendar Chat with DATA
+# =============================================================================
+
+CALENDAR_CHAT_SYSTEM_PROMPT = """You are DATA, David's personal AI assistant helping manage calendar and tasks.
+
+Your role is to help David:
+1. Understand his schedule - meetings, events, time blocks
+2. Analyze workload across calendar AND tasks together
+3. Create/edit tasks in Smartsheet to support calendar activities
+4. Create/edit calendar events (Personal & Church domains only)
+5. Prepare for upcoming meetings and identify conflicts
+
+DOMAIN AWARENESS:
+- Personal: David's personal Google Calendar - you CAN create and edit events
+- Church: Southpoint SDA Church calendar - you CAN create and edit events
+- Work: PGA TOUR calendar - READ ONLY (corporate-managed, cannot edit)
+- Combined: All three calendars merged - editing follows per-domain rules
+
+When David asks about events or meetings:
+- Reference specific events by name, time, and attendees
+- Highlight VIP meetings (matched against David's VIP list)
+- Note prep-needed items (meetings in next 48 hours with external attendees)
+
+When David asks about tasks or workload:
+- Consider BOTH calendar events AND tasks together
+- A "busy day" means many meetings AND/OR many task deadlines
+- Help balance task due dates around heavy meeting days
+
+DATE HANDLING (CRITICAL):
+- The context provides the CURRENT TIME at the top (e.g., "Current Time: Sat Jan 03, 2026")
+- Task due dates are shown in format: "(Due: Mon Jan 05, 2026)"
+- Event times are shown in format: "8:00 AM" with dates like "Mon Jan 05"
+- ALWAYS use the dates EXACTLY as shown in the context - do NOT compute or recalculate dates
+- When asked "what day is X due?", read the due date directly from the task line
+- The weekday abbreviation (Mon, Tue, Wed, etc.) in the context is AUTHORITATIVE
+
+TASK MANAGEMENT (via Smartsheet):
+You have full access to create and update tasks. Use the update_task tool for:
+- Creating prep tasks for meetings ("remind me to prepare agenda")
+- Marking tasks complete
+- Pushing due dates ("move this to after Thursday")
+- Changing priority, status, project, notes, etc.
+
+When asked to create a task, use update_task with action="create" and include:
+- task_title (required)
+- due_date (YYYY-MM-DD format)
+- priority (Critical, Urgent, Important, Standard, Low)
+- project (appropriate to domain)
+- notes (context for the task)
+
+CALENDAR EVENTS (Personal & Church only):
+Use the calendar_action tool to:
+- Create new events ("block time for focus work Friday afternoon")
+- Update existing events ("move my dentist appointment to next week")
+- Delete events when explicitly requested
+
+Work calendar events are READ ONLY - inform David he'll need to use Outlook/Teams.
+
+WORKLOAD ANALYSIS:
+When David asks about capacity or overcommitment:
+- Count meetings per day (flag if > 5)
+- Identify task deadlines on heavy meeting days
+- Suggest spreading out tasks or blocking prep time
+- Consider travel time for in-person meetings
+
+Be proactive but not presumptuous - suggest actions but wait for confirmation.
+Keep responses brief and focused. David values efficiency.
+"""
+
+# Calendar action tool for creating/updating/deleting events
+CALENDAR_ACTION_TOOL = {
+    "name": "calendar_action",
+    "description": "Create, update, or delete calendar events. Only works for Personal and Church domains (Work is read-only).",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["create_event", "update_event", "delete_event"],
+                "description": "The action to perform"
+            },
+            "domain": {
+                "type": "string",
+                "enum": ["personal", "church"],
+                "description": "Calendar domain (Work is not allowed)"
+            },
+            "event_id": {
+                "type": "string",
+                "description": "Event ID (required for update_event and delete_event)"
+            },
+            "summary": {
+                "type": "string",
+                "description": "Event title (required for create_event, optional for update_event)"
+            },
+            "start_datetime": {
+                "type": "string",
+                "description": "Start date/time in ISO format (required for create_event)"
+            },
+            "end_datetime": {
+                "type": "string",
+                "description": "End date/time in ISO format (required for create_event)"
+            },
+            "location": {
+                "type": "string",
+                "description": "Event location (optional)"
+            },
+            "description": {
+                "type": "string",
+                "description": "Event description (optional)"
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of why this action is being performed"
+            }
+        },
+        "required": ["action", "domain", "reason"]
+    }
+}
+
+# Create task tool for calendar context (simpler than full update_task)
+CREATE_TASK_TOOL = {
+    "name": "create_task",
+    "description": "Create a new task in Smartsheet, typically for meeting preparation or follow-up.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "task_title": {
+                "type": "string",
+                "description": "Clear, actionable task title"
+            },
+            "due_date": {
+                "type": "string",
+                "description": "Due date in YYYY-MM-DD format"
+            },
+            "priority": {
+                "type": "string",
+                "enum": ["Critical", "Urgent", "Important", "Standard", "Low"],
+                "description": "Task priority"
+            },
+            "domain": {
+                "type": "string",
+                "enum": ["personal", "church", "work"],
+                "description": "Task domain (determines which Smartsheet project)"
+            },
+            "project": {
+                "type": "string",
+                "description": "Project name - select based on domain"
+            },
+            "notes": {
+                "type": "string",
+                "description": "Context or details for the task"
+            },
+            "related_event_id": {
+                "type": "string",
+                "description": "Optional calendar event ID this task relates to"
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of why this task is being created"
+            }
+        },
+        "required": ["task_title", "reason"]
+    }
+}
+
+
+@dataclass(slots=True)
+class CalendarAction:
+    """Structured calendar action from chat."""
+    action: str
+    domain: str
+    reason: str
+    event_id: Optional[str] = None
+    summary: Optional[str] = None
+    start_datetime: Optional[str] = None
+    end_datetime: Optional[str] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+
+
+@dataclass(slots=True)
+class TaskCreation:
+    """Structured task creation from calendar chat."""
+    task_title: str
+    reason: str
+    due_date: Optional[str] = None
+    priority: Optional[str] = None
+    domain: Optional[str] = None
+    project: Optional[str] = None
+    notes: Optional[str] = None
+    related_event_id: Optional[str] = None
+
+
+@dataclass(slots=True)
+class TaskUpdate:
+    """Task update from calendar chat (reuses existing structure)."""
+    row_id: Optional[str]
+    action: str
+    reason: str
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[str] = None
+    comment: Optional[str] = None
+    number: Optional[float] = None
+    contact_flag: Optional[bool] = None
+    recurring: Optional[str] = None
+    project: Optional[str] = None
+    task_title: Optional[str] = None
+    assigned_to: Optional[str] = None
+    notes: Optional[str] = None
+    estimated_hours: Optional[str] = None
+
+
+@dataclass(slots=True)
+class CalendarChatResponse:
+    """Response from calendar chat, may include pending actions."""
+    message: str
+    pending_calendar_action: Optional[CalendarAction] = None
+    pending_task_creation: Optional[TaskCreation] = None
+    pending_task_update: Optional[TaskUpdate] = None
+
+
+def chat_with_calendar(
+    calendar_context: str,
+    user_message: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    *,
+    client: Optional[Anthropic] = None,
+    config: Optional[AnthropicConfig] = None,
+) -> CalendarChatResponse:
+    """Chat with DATA about calendar and tasks with action tool support.
+
+    Args:
+        calendar_context: Formatted string with calendar context (events, attention, tasks)
+        user_message: The user's latest message
+        history: Previous conversation messages
+        client: Optional pre-built Anthropic client
+        config: Optional configuration override
+
+    Returns:
+        CalendarChatResponse with message and optional pending actions
+    """
+    client = client or build_anthropic_client()
+    config = config or resolve_config()
+
+    # Build messages
+    messages: List[Dict[str, Any]] = []
+
+    # Calendar context as priming
+    messages.append({
+        "role": "user",
+        "content": [{"type": "text", "text": calendar_context}]
+    })
+    messages.append({
+        "role": "assistant",
+        "content": [{"type": "text", "text": "I see your calendar and tasks. How can I help you?"}]
+    })
+
+    # Add history
+    if history:
+        for msg in history:
+            messages.append({
+                "role": msg["role"],
+                "content": [{"type": "text", "text": msg["content"]}]
+            })
+
+    # Add current message
+    messages.append({
+        "role": "user",
+        "content": [{"type": "text", "text": user_message}]
+    })
+
+    # Tools available in calendar chat
+    tools = [
+        CALENDAR_ACTION_TOOL,
+        CREATE_TASK_TOOL,
+        PORTFOLIO_TASK_UPDATE_TOOL,  # Full task update capability
+    ]
+
+    try:
+        response = client.messages.create(
+            model=config.model,
+            max_tokens=config.max_output_tokens,
+            temperature=0.5,
+            system=CALENDAR_CHAT_SYSTEM_PROMPT,
+            messages=messages,
+            tools=tools,
+        )
+    except APIStatusError as exc:
+        raise AnthropicError(f"Anthropic API error: {exc}") from exc
+    except Exception as exc:
+        raise AnthropicError(f"Anthropic request failed: {exc}") from exc
+
+    # Extract text and tool use from response
+    text_content = []
+    pending_calendar_action = None
+    pending_task_creation = None
+    pending_task_update = None
+
+    for block in getattr(response, "content", []):
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            text_content.append(getattr(block, "text", ""))
+        elif block_type == "tool_use":
+            tool_name = getattr(block, "name", "")
+            tool_input = getattr(block, "input", {})
+
+            if tool_name == "calendar_action":
+                pending_calendar_action = CalendarAction(
+                    action=tool_input.get("action", ""),
+                    domain=tool_input.get("domain", ""),
+                    reason=tool_input.get("reason", ""),
+                    event_id=tool_input.get("event_id"),
+                    summary=tool_input.get("summary"),
+                    start_datetime=tool_input.get("start_datetime"),
+                    end_datetime=tool_input.get("end_datetime"),
+                    location=tool_input.get("location"),
+                    description=tool_input.get("description"),
+                )
+            elif tool_name == "create_task":
+                pending_task_creation = TaskCreation(
+                    task_title=tool_input.get("task_title", ""),
+                    reason=tool_input.get("reason", ""),
+                    due_date=tool_input.get("due_date"),
+                    priority=tool_input.get("priority"),
+                    domain=tool_input.get("domain"),
+                    project=tool_input.get("project"),
+                    notes=tool_input.get("notes"),
+                    related_event_id=tool_input.get("related_event_id"),
+                )
+            elif tool_name == "update_task":
+                pending_task_update = TaskUpdate(
+                    row_id=tool_input.get("row_id"),
+                    action=tool_input.get("action", ""),
+                    reason=tool_input.get("reason", ""),
+                    status=tool_input.get("status"),
+                    priority=tool_input.get("priority"),
+                    due_date=tool_input.get("due_date"),
+                    comment=tool_input.get("comment"),
+                    number=tool_input.get("number"),
+                    contact_flag=tool_input.get("contact_flag"),
+                    recurring=tool_input.get("recurring"),
+                    project=tool_input.get("project"),
+                    task_title=tool_input.get("task_title"),
+                    assigned_to=tool_input.get("assigned_to"),
+                    notes=tool_input.get("notes"),
+                    estimated_hours=tool_input.get("estimated_hours"),
+                )
+
+    message = "\n".join(text_content).strip()
+
+    # If there's a pending action but no message, generate one
+    if not message:
+        if pending_calendar_action:
+            action_desc = _describe_calendar_action(pending_calendar_action)
+            message = f"I'll {action_desc}. Should I proceed?"
+        elif pending_task_creation:
+            message = f"I'll create a task: '{pending_task_creation.task_title}'. Should I proceed?"
+        elif pending_task_update:
+            action_desc = _describe_task_update(pending_task_update)
+            message = f"I'll {action_desc}. Should I proceed?"
+
+    return CalendarChatResponse(
+        message=message,
+        pending_calendar_action=pending_calendar_action,
+        pending_task_creation=pending_task_creation,
+        pending_task_update=pending_task_update,
+    )
+
+
+def _describe_calendar_action(action: CalendarAction) -> str:
+    """Generate a human-readable description of a calendar action."""
+    if action.action == "create_event":
+        summary = action.summary or "a new event"
+        return f"create '{summary}' on your {action.domain} calendar"
+    elif action.action == "update_event":
+        return f"update this event on your {action.domain} calendar"
+    elif action.action == "delete_event":
+        return f"delete this event from your {action.domain} calendar"
+    return f"perform {action.action} on {action.domain} calendar"
+
+
+def _describe_task_update(update: TaskUpdate) -> str:
+    """Generate a human-readable description of a task update."""
+    if update.action == "mark_complete":
+        return "mark this task as complete"
+    elif update.action == "update_status":
+        return f"update the status to '{update.status}'"
+    elif update.action == "update_priority":
+        return f"change the priority to '{update.priority}'"
+    elif update.action == "update_due_date":
+        return f"change the due date to {update.due_date}"
+    elif update.action == "add_comment":
+        return "add a comment to this task"
+    elif update.action == "update_project":
+        return f"move this task to project '{update.project}'"
+    elif update.action == "update_task":
+        return f"rename this task to '{update.task_title}'"
+    return f"update this task ({update.action})"
+

@@ -6523,3 +6523,457 @@ def update_calendar_settings_endpoint(
         },
     }
 
+
+# =============================================================================
+# Phase CA-1: Calendar Attention Endpoints
+# =============================================================================
+
+
+@app.get("/calendar/{account}/attention")
+def list_calendar_attention(
+    account: Literal["church", "personal", "work"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List active calendar attention items for an account.
+
+    Returns items that need David's attention (VIP meetings, prep needed, etc.)
+    """
+    from daily_task_assistant.calendar import list_active_attention
+
+    records = list_active_attention(account)
+
+    return {
+        "account": account,
+        "items": [r.to_api_dict() for r in records],
+        "count": len(records),
+    }
+
+
+@app.post("/calendar/{account}/attention/{event_id}/viewed")
+def mark_calendar_attention_viewed(
+    account: Literal["church", "personal", "work"],
+    event_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mark a calendar attention item as viewed.
+
+    Records when user first saw this item for quality metrics.
+    """
+    from daily_task_assistant.calendar import mark_viewed
+
+    success = mark_viewed(account, event_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {"status": "viewed", "eventId": event_id}
+
+
+@app.post("/calendar/{account}/attention/{event_id}/dismiss")
+def dismiss_calendar_attention(
+    account: Literal["church", "personal", "work"],
+    event_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Dismiss a calendar attention item.
+
+    Marks item as dismissed and records action for quality metrics.
+    """
+    from daily_task_assistant.calendar import dismiss_attention
+
+    success = dismiss_attention(account, event_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {"status": "dismissed", "eventId": event_id}
+
+
+@app.post("/calendar/{account}/attention/{event_id}/act")
+def act_on_calendar_attention(
+    account: Literal["church", "personal", "work"],
+    event_id: str,
+    action_type: str = "task_linked",
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mark a calendar attention item as acted upon.
+
+    Records action type (task_linked, prep_started) for quality metrics.
+    """
+    from daily_task_assistant.calendar import mark_acted
+
+    success = mark_acted(account, event_id, action_type)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {"status": "acted", "eventId": event_id, "actionType": action_type}
+
+
+@app.get("/calendar/{account}/attention/quality-metrics")
+def get_calendar_attention_quality_metrics(
+    account: Literal["church", "personal", "work"],
+    days: int = 30,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get quality metrics for calendar attention items.
+
+    Returns acceptance rates, dismissal rates, and breakdowns by type.
+    """
+    from daily_task_assistant.calendar import get_quality_metrics
+
+    metrics = get_quality_metrics(account, days)
+
+    return {
+        "account": account,
+        "days": days,
+        "metrics": metrics,
+    }
+
+
+@app.post("/calendar/{account}/attention/analyze")
+def analyze_calendar_events(
+    account: Literal["church", "personal", "work"],
+    days_ahead: int = 7,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Analyze upcoming calendar events and create attention items.
+
+    Scans events in the next N days for VIP meetings, prep needs, etc.
+    """
+    from datetime import datetime, timezone, timedelta
+    from daily_task_assistant.calendar import (
+        load_account_from_env,
+        list_events,
+        analyze_events,
+        get_calendar_settings,
+    )
+
+    try:
+        cal_account = load_account_from_env(account)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Calendar config error: {e}")
+
+    settings = get_calendar_settings(account)
+
+    # Get events for the next N days
+    now = datetime.now(timezone.utc)
+    time_max = now + timedelta(days=days_ahead)
+
+    try:
+        response = list_events(
+            cal_account,
+            calendar_id="primary",
+            time_min=now,
+            time_max=time_max,
+            source_domain=account,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Calendar API error: {e}")
+
+    # Analyze events
+    records = analyze_events(response.events, account, settings)
+
+    return {
+        "account": account,
+        "eventsScanned": len(response.events),
+        "attentionItemsCreated": len(records),
+        "items": [r.to_api_dict() for r in records],
+    }
+
+
+# =============================================================================
+# Calendar Chat Endpoints
+# =============================================================================
+
+class CalendarEventContext(BaseModel):
+    """Event data passed from frontend for chat context."""
+    id: str
+    summary: str
+    start: str
+    end: str
+    location: Optional[str] = None
+    attendees: Optional[List[Dict[str, Any]]] = None
+    description: Optional[str] = None
+    htmlLink: Optional[str] = None
+    isMeeting: bool = False
+    sourceDomain: Optional[str] = None
+
+
+class CalendarAttentionContext(BaseModel):
+    """Attention item passed from frontend for chat context."""
+    eventId: str
+    summary: str
+    start: str
+    attentionType: str
+    reason: str
+    matchedVip: Optional[str] = None
+
+
+class CalendarChatRequestModel(BaseModel):
+    """Request body for calendar chat."""
+    message: str
+    selectedEventId: Optional[str] = None
+    dateRangeStart: Optional[str] = None
+    dateRangeEnd: Optional[str] = None
+    events: Optional[List[CalendarEventContext]] = None
+    attentionItems: Optional[List[CalendarAttentionContext]] = None
+    tasks: Optional[List[Dict[str, Any]]] = None
+    history: Optional[List[Dict[str, str]]] = None
+
+
+@app.post("/calendar/{domain}/chat")
+def chat_about_calendar(
+    domain: Literal["personal", "church", "work", "combined"],
+    request: CalendarChatRequestModel,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Chat with DATA about calendar and tasks.
+
+    DATA can help analyze schedule, suggest task adjustments, create events,
+    and answer questions about workload.
+
+    Conversation is persisted by domain (7-day TTL).
+    """
+    from datetime import datetime, timezone
+    from daily_task_assistant.calendar.chat import (
+        handle_calendar_chat,
+        CalendarChatRequest,
+        CalendarChatError,
+    )
+    from daily_task_assistant.calendar.types import (
+        CalendarEvent,
+        CalendarAttentionRecord,
+        EventAttendee,
+    )
+
+    # Convert frontend events to CalendarEvent objects
+    events = []
+    if request.events:
+        for evt in request.events:
+            # Parse datetimes
+            try:
+                start_dt = datetime.fromisoformat(evt.start.replace("Z", "+00:00"))
+                end_dt = datetime.fromisoformat(evt.end.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                start_dt = datetime.now(timezone.utc)
+                end_dt = datetime.now(timezone.utc)
+
+            # Convert attendees
+            attendees = []
+            if evt.attendees:
+                for att in evt.attendees:
+                    attendees.append(EventAttendee(
+                        email=att.get("email", ""),
+                        display_name=att.get("displayName"),
+                        response_status=att.get("responseStatus"),
+                        is_self=att.get("isSelf", False),
+                    ))
+
+            events.append(CalendarEvent(
+                id=evt.id,
+                calendar_id="primary",  # Default to primary calendar
+                summary=evt.summary,
+                start=start_dt,
+                end=end_dt,
+                location=evt.location,
+                attendees=attendees,
+                description=evt.description,
+                html_link=evt.htmlLink,
+                source_domain=evt.sourceDomain or domain,
+            ))
+
+    # Convert frontend attention items to CalendarAttentionRecord objects
+    attention_items = []
+    if request.attentionItems:
+        for item in request.attentionItems:
+            try:
+                start_dt = datetime.fromisoformat(item.start.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                start_dt = datetime.now(timezone.utc)
+
+            attention_items.append(CalendarAttentionRecord(
+                event_id=item.eventId,
+                calendar_account=domain if domain != "combined" else "personal",
+                calendar_id="primary",
+                summary=item.summary,
+                start=start_dt,
+                end=start_dt,  # Not critical for chat context
+                attendees=[],
+                attention_type=item.attentionType,
+                reason=item.reason,
+                matched_vip=item.matchedVip,
+            ))
+
+    # Parse date range
+    date_range_start = None
+    date_range_end = None
+    if request.dateRangeStart:
+        try:
+            date_range_start = datetime.fromisoformat(
+                request.dateRangeStart.replace("Z", "+00:00")
+            )
+        except ValueError:
+            pass
+    if request.dateRangeEnd:
+        try:
+            date_range_end = datetime.fromisoformat(
+                request.dateRangeEnd.replace("Z", "+00:00")
+            )
+        except ValueError:
+            pass
+
+    # Filter tasks to only include those with due dates within the visible range
+    # This respects the "Days to Show" setting in Calendar settings
+    filtered_tasks = []
+    if request.tasks and date_range_start and date_range_end:
+        for task in request.tasks:
+            # Handle multiple due date field names (due, due_date, dueDate)
+            due_date_str = task.get("due") or task.get("due_date") or task.get("dueDate")
+            if not due_date_str:
+                # Skip tasks without due dates - not date-relevant for calendar context
+                continue
+            try:
+                # Parse due date (handle various formats)
+                if isinstance(due_date_str, str):
+                    # Try ISO format first
+                    if "T" in due_date_str:
+                        task_due = datetime.fromisoformat(
+                            due_date_str.replace("Z", "+00:00")
+                        )
+                        # Ensure timezone-aware (naive datetime can't compare with aware)
+                        if task_due.tzinfo is None:
+                            task_due = task_due.replace(tzinfo=timezone.utc)
+                    else:
+                        # Date-only format (YYYY-MM-DD)
+                        task_due = datetime.strptime(due_date_str, "%Y-%m-%d")
+                        task_due = task_due.replace(tzinfo=timezone.utc)
+                else:
+                    continue
+
+                # Include task if due date is within visible date range
+                if date_range_start <= task_due <= date_range_end:
+                    filtered_tasks.append(task)
+            except (ValueError, TypeError):
+                # Skip tasks with unparseable due dates
+                continue
+    elif request.tasks:
+        # No date range specified - include all tasks (fallback)
+        filtered_tasks = request.tasks
+
+    # Build chat request
+    chat_request = CalendarChatRequest(
+        message=request.message,
+        domain=domain,  # type: ignore
+        selected_event_id=request.selectedEventId,
+        date_range_start=date_range_start,
+        date_range_end=date_range_end,
+        events=events,
+        attention_items=attention_items,
+        tasks=filtered_tasks,
+        history=request.history,
+    )
+
+    # Handle chat
+    try:
+        response = handle_calendar_chat(chat_request, user_email=user)
+    except CalendarChatError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    # Build API response
+    result = {
+        "response": response.response,
+        "domain": response.domain,
+    }
+
+    if response.pending_calendar_action:
+        result["pendingCalendarAction"] = response.pending_calendar_action
+    if response.pending_task_creation:
+        result["pendingTaskCreation"] = response.pending_task_creation
+    if response.pending_task_update:
+        result["pendingTaskUpdate"] = response.pending_task_update
+
+    return result
+
+
+@app.get("/calendar/{domain}/conversation")
+def get_calendar_conversation(
+    domain: Literal["personal", "church", "work", "combined"],
+    limit: int = Query(50, ge=1, le=100, description="Max messages to return"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get conversation history for a calendar domain.
+
+    Returns the persisted conversation history for DATA chat in calendar mode.
+    """
+    from daily_task_assistant.conversations.calendar_history import (
+        fetch_calendar_conversation,
+        get_calendar_conversation_metadata,
+    )
+
+    messages = fetch_calendar_conversation(domain, limit=limit)  # type: ignore
+    metadata = get_calendar_conversation_metadata(domain)  # type: ignore
+
+    return {
+        "domain": domain,
+        "messages": [
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "ts": msg.ts,
+                "eventContext": msg.event_context,
+            }
+            for msg in messages
+        ],
+        "messageCount": len(messages),
+        "metadata": metadata.to_api_dict() if metadata else None,
+    }
+
+
+@app.delete("/calendar/{domain}/conversation")
+def clear_calendar_conversation(
+    domain: Literal["personal", "church", "work", "combined"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Clear conversation history for a calendar domain."""
+    from daily_task_assistant.conversations.calendar_history import (
+        clear_calendar_conversation as do_clear,
+    )
+
+    success = do_clear(domain)  # type: ignore
+
+    return {
+        "domain": domain,
+        "cleared": success,
+    }
+
+
+class UpdateCalendarConversationRequest(BaseModel):
+    """Request body for updating calendar conversation."""
+
+    messages: List[Dict[str, Any]] = Field(
+        ..., description="List of messages with role and content"
+    )
+
+
+@app.put("/calendar/{domain}/conversation")
+def update_calendar_conversation(
+    domain: Literal["personal", "church", "work", "combined"],
+    request: UpdateCalendarConversationRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update/replace conversation history for a calendar domain.
+
+    Used when deleting individual messages from the chat history.
+    """
+    from daily_task_assistant.conversations.calendar_history import (
+        update_calendar_conversation as do_update,
+    )
+
+    success = do_update(domain, request.messages)  # type: ignore
+
+    return {
+        "domain": domain,
+        "updated": success,
+        "message_count": len(request.messages),
+    }

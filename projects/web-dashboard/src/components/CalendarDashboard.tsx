@@ -6,6 +6,7 @@ import type {
   CalendarEvent,
   CalendarInfo,
   CalendarSettings,
+  CalendarAttentionItem,
   Task,
   TimelineItem,
 } from '../types'
@@ -17,8 +18,18 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  getCalendarAttention,
+  analyzeCalendarEvents,
+  chatAboutCalendar,
+  getCalendarConversation,
+  clearCalendarConversation,
+  updateCalendarConversation,
   type ListEventsOptions,
+  type CalendarChatResponse,
+  type CalendarEventContext,
+  type CalendarAttentionContext,
 } from '../api'
+import CalendarAttentionPanel from './CalendarAttentionPanel'
 import { deriveDomain, getTaskPriority } from '../utils/domain'
 
 // Per-account cache structure - exported for App.tsx to manage
@@ -26,6 +37,7 @@ export interface CalendarAccountCache {
   calendars: CalendarInfo[]
   events: CalendarEvent[]
   settings: CalendarSettings | null
+  attentionItems: CalendarAttentionItem[]
   loaded: boolean
   loading: boolean
   error?: string
@@ -35,6 +47,7 @@ export const emptyCalendarCache = (): CalendarAccountCache => ({
   calendars: [],
   events: [],
   settings: null,
+  attentionItems: [],
   loaded: false,
   loading: false,
 })
@@ -59,7 +72,7 @@ interface CalendarDashboardProps {
   onSelectTaskInTasksMode?: (taskId: string) => void
 }
 
-type CalendarTabView = 'dashboard' | 'events' | 'meetings' | 'tasks' | 'suggestions' | 'settings'
+type CalendarTabView = 'dashboard' | 'events' | 'meetings' | 'tasks' | 'attention' | 'suggestions' | 'settings'
 
 // Selected item type for DATA panel (either event or task)
 type SelectedItem =
@@ -573,6 +586,10 @@ export function CalendarDashboard({
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [chatInput, setChatInput] = useState('')
+  const [chatMessages, setChatMessages] = useState<Array<{ role: string; content: string }>>([])
+  const [chatLoading, setChatLoading] = useState(false)
+  const [pendingAction, setPendingAction] = useState<CalendarChatResponse | null>(null)
+  const [detailCollapsed, setDetailCollapsed] = useState(false)
 
   // Event form state
   const [showEventForm, setShowEventForm] = useState(false)
@@ -654,12 +671,22 @@ export function CalendarDashboard({
       // Sort events by start time
       activeEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
 
+      // Load attention items
+      let attentionItems: CalendarAttentionItem[] = []
+      try {
+        const attentionResp = await getCalendarAttention(account, authConfig, apiBase)
+        attentionItems = attentionResp.items
+      } catch (err) {
+        console.warn(`Failed to load attention items for ${account}:`, err)
+      }
+
       setCache(prev => ({
         ...prev,
         [account]: {
           calendars: calendarsResp.calendars,
           events: activeEvents,
           settings: settingsResp.settings,
+          attentionItems,
           loaded: true,
           loading: false,
         },
@@ -771,12 +798,196 @@ export function CalendarDashboard({
   ]
 
   // Content tabs - matching email dashboard structure
+  // Get attention items count for current view
+  const attentionItemsCount = useMemo(() => {
+    const accounts = getAccountsForView(selectedView)
+    return accounts.reduce((sum, account) => sum + (cache[account]?.attentionItems?.length || 0), 0)
+  }, [selectedView, cache, getAccountsForView])
+
+  // Get attention items for current view (flattened from all relevant accounts)
+  const attentionItemsForView = useMemo(() => {
+    const accounts = getAccountsForView(selectedView)
+    const items: CalendarAttentionItem[] = []
+    for (const account of accounts) {
+      items.push(...(cache[account]?.attentionItems || []))
+    }
+    // Sort by start time (nearest first)
+    items.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+    return items
+  }, [selectedView, cache, getAccountsForView])
+
+  // State for attention loading
+  const [loadingAttention, setLoadingAttention] = useState(false)
+
+  // Analyze events to find attention items
+  const handleAnalyzeEvents = useCallback(async () => {
+    const accounts = getAccountsForView(selectedView)
+    setLoadingAttention(true)
+    try {
+      for (const account of accounts) {
+        const response = await analyzeCalendarEvents(account, authConfig, apiBase, 7)
+        setCache(prev => ({
+          ...prev,
+          [account]: {
+            ...prev[account],
+            attentionItems: response.items,
+          },
+        }))
+      }
+    } catch (err) {
+      console.error('Failed to analyze events:', err)
+      setError(err instanceof Error ? err.message : 'Failed to analyze events')
+    } finally {
+      setLoadingAttention(false)
+    }
+  }, [selectedView, getAccountsForView, authConfig, apiBase, setCache])
+
+  // Handle attention item dismiss
+  const handleAttentionDismiss = useCallback((eventId: string) => {
+    // Remove from all relevant accounts in cache
+    const accounts = getAccountsForView(selectedView)
+    for (const account of accounts) {
+      setCache(prev => ({
+        ...prev,
+        [account]: {
+          ...prev[account],
+          attentionItems: prev[account].attentionItems.filter(item => item.eventId !== eventId),
+        },
+      }))
+    }
+  }, [selectedView, getAccountsForView, setCache])
+
+  // Handle attention item acted
+  const handleAttentionAct = useCallback((eventId: string, _actionType: 'task_linked' | 'prep_started') => {
+    // Remove from all relevant accounts in cache (item is now "acted upon")
+    const accounts = getAccountsForView(selectedView)
+    for (const account of accounts) {
+      setCache(prev => ({
+        ...prev,
+        [account]: {
+          ...prev[account],
+          attentionItems: prev[account].attentionItems.filter(item => item.eventId !== eventId),
+        },
+      }))
+    }
+  }, [selectedView, getAccountsForView, setCache])
+
+  // Handle sending chat message to DATA
+  const handleSendChatMessage = useCallback(async () => {
+    if (!chatInput.trim() || chatLoading) return
+
+    const message = chatInput.trim()
+    setChatInput('')
+    setChatLoading(true)
+    setPendingAction(null)
+
+    // Add user message to display
+    setChatMessages(prev => [...prev, { role: 'user', content: message }])
+
+    try {
+      // Build context for the API
+      const eventContext: CalendarEventContext[] = eventsForView.map(e => ({
+        id: e.id,
+        summary: e.summary,
+        start: e.start,
+        end: e.end,
+        location: e.location,
+        attendees: e.attendees?.map(a => ({
+          email: a.email,
+          displayName: a.displayName,
+          responseStatus: a.responseStatus,
+          isSelf: a.isSelf,
+        })),
+        description: e.description,
+        htmlLink: e.htmlLink,
+        isMeeting: e.isMeeting,
+        sourceDomain: e.sourceDomain,
+      }))
+
+      const attentionContext: CalendarAttentionContext[] = attentionItemsForView.map(item => ({
+        eventId: item.eventId,
+        summary: item.summary,
+        start: item.start,
+        attentionType: item.attentionType,
+        reason: item.reason,
+        matchedVip: item.matchedVip,
+      }))
+
+      // Filter tasks by domain (matching how events are filtered)
+      const filteredTasks = selectedView === 'combined'
+        ? tasks
+        : tasks.filter(task => {
+            const taskDomain = deriveDomain(task)
+            return taskDomain === selectedView
+          })
+
+      // Compute date range for task filtering (same logic as event fetching)
+      const now = new Date()
+      const futureDate = new Date()
+      futureDate.setDate(futureDate.getDate() + daysAhead)
+
+      const response = await chatAboutCalendar(
+        selectedView,
+        {
+          message,
+          selectedEventId: selectedEvent?.id,
+          dateRangeStart: now.toISOString(),
+          dateRangeEnd: futureDate.toISOString(),
+          events: eventContext,
+          attentionItems: attentionContext,
+          tasks: filteredTasks as unknown as Array<Record<string, unknown>>,
+          history: chatMessages,
+        },
+        authConfig,
+        apiBase
+      )
+
+      // Add assistant response
+      setChatMessages(prev => [...prev, { role: 'assistant', content: response.response }])
+
+      // Store pending action if any
+      if (response.pendingCalendarAction || response.pendingTaskCreation || response.pendingTaskUpdate) {
+        setPendingAction(response)
+      }
+    } catch (err) {
+      console.error('Chat error:', err)
+      setChatMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: `Sorry, I encountered an error: ${err instanceof Error ? err.message : 'Unknown error'}` }
+      ])
+    } finally {
+      setChatLoading(false)
+    }
+  }, [chatInput, chatLoading, eventsForView, attentionItemsForView, tasks, selectedEvent, selectedView, chatMessages, authConfig, apiBase])
+
+  // Load conversation history when view changes
+  useEffect(() => {
+    const loadConversation = async () => {
+      try {
+        const response = await getCalendarConversation(selectedView, authConfig, apiBase, 50)
+        setChatMessages(response.messages.map(m => ({ role: m.role, content: m.content })))
+      } catch (err) {
+        console.error('Failed to load conversation:', err)
+        // Silent fail - just start with empty conversation
+        setChatMessages([])
+      }
+    }
+    loadConversation()
+  }, [selectedView, authConfig, apiBase])
+
+  // Get primary account for attention panel (for API calls)
+  const primaryAccountForAttention = useMemo((): CalendarAccount => {
+    const accounts = getAccountsForView(selectedView)
+    return accounts[0] || 'personal'
+  }, [selectedView, getAccountsForView])
+
   // Tasks tab count shows only tasks within the date window (respects Days to Show setting)
   const contentTabs: { tab: CalendarTabView; label: string; count?: number }[] = [
     { tab: 'dashboard', label: 'Dashboard' },
     { tab: 'events', label: 'Events', count: eventsForView.length },
     { tab: 'meetings', label: 'Meetings', count: meetingsForView.length },
     { tab: 'tasks', label: 'Tasks', count: tasksInTimeline },
+    { tab: 'attention', label: 'Attention', count: attentionItemsCount },
     { tab: 'suggestions', label: 'Suggestions', count: 0 }, // Future: task-event matches
     { tab: 'settings', label: 'Settings' },
   ]
@@ -1265,6 +1476,40 @@ export function CalendarDashboard({
               </>
             )}
 
+            {/* Attention Tab - Calendar items needing attention (Phase CA-1) */}
+            {activeTab === 'attention' && !isLoading && (
+              <div className="calendar-attention-view">
+                <div className="attention-header">
+                  <button
+                    className="analyze-btn"
+                    onClick={handleAnalyzeEvents}
+                    disabled={loadingAttention}
+                  >
+                    {loadingAttention ? 'Analyzing...' : 'Analyze Events'}
+                  </button>
+                  <span className="help-text">
+                    Scan upcoming events for VIP meetings and prep needs
+                  </span>
+                </div>
+                <CalendarAttentionPanel
+                  items={attentionItemsForView}
+                  account={primaryAccountForAttention}
+                  authConfig={authConfig}
+                  apiBase={apiBase}
+                  onDismiss={handleAttentionDismiss}
+                  onAct={handleAttentionAct}
+                  onSelectEvent={(eventId) => {
+                    // Find the event and select it
+                    const event = eventsForView.find(e => e.id === eventId)
+                    if (event) {
+                      setSelectedItem({ type: 'event', item: event })
+                    }
+                  }}
+                  loading={loadingAttention}
+                />
+              </div>
+            )}
+
             {/* Suggestions Tab - Placeholder for future task-event matching */}
             {activeTab === 'suggestions' && !isLoading && (
               <div className="calendar-suggestions-view">
@@ -1316,19 +1561,37 @@ export function CalendarDashboard({
           style={{ width: calendarPanelCollapsed ? '100%' : `${100 - panelSplitRatio}%` }}
         >
           <div className="email-assist-content">
-            {/* DATA Header with New Event button */}
+            {/* DATA Header with Clear Chat and New Event buttons */}
             <div className="email-assist-header">
               <h2>DATA</h2>
-              {selectedView !== 'work' && (
-                <button
-                  className="new-event-btn"
-                  onClick={handleNewEvent}
-                  disabled={isSaving}
-                  title="Create new event"
-                >
-                  + New Event
-                </button>
-              )}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                {chatMessages.length > 0 && (
+                  <button
+                    className="clear-chat-btn"
+                    onClick={async () => {
+                      setChatMessages([])
+                      try {
+                        await clearCalendarConversation(selectedView, authConfig, apiBase)
+                      } catch (err) {
+                        console.error('Failed to clear conversation:', err)
+                      }
+                    }}
+                    title="Clear chat history"
+                  >
+                    Clear Chat
+                  </button>
+                )}
+                {selectedView !== 'work' && (
+                  <button
+                    className="new-event-btn"
+                    onClick={handleNewEvent}
+                    disabled={isSaving}
+                    title="Create new event"
+                  >
+                    + New Event
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Event Form Modal */}
@@ -1361,13 +1624,51 @@ export function CalendarDashboard({
             {selectedEvent && !showEventForm && (!selectedItem || selectedItem.type === 'event') ? (
               <>
                 <div className="calendar-event-preview">
-                  {/* Event Title */}
-                  <h3 className="preview-title">{selectedEvent.summary}</h3>
+                  {/* Header with title, controls */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h3 className="preview-title" style={{ margin: 0 }}>{selectedEvent.summary}</h3>
+                      <span className={`calendar-domain-badge ${selectedEvent.sourceDomain}`} style={{ marginTop: '4px' }}>
+                        {selectedEvent.sourceDomain}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                      <button
+                        onClick={() => setDetailCollapsed(!detailCollapsed)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          fontSize: '12px',
+                        }}
+                        title={detailCollapsed ? 'Expand details' : 'Collapse details'}
+                      >
+                        {detailCollapsed ? '▼' : '▲'}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedEvent(null); setSelectedItem(null); }}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          fontSize: '12px',
+                        }}
+                        title="Close and use full chat"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
 
-                  {/* Domain Badge */}
-                  <span className={`calendar-domain-badge ${selectedEvent.sourceDomain}`}>
-                    {selectedEvent.sourceDomain}
-                  </span>
+                  {/* Collapsible detail content */}
+                  {!detailCollapsed && (
+                    <>
 
                   {/* Date & Time */}
                   <div className="preview-row">
@@ -1467,36 +1768,61 @@ export function CalendarDashboard({
                       <span className="calendar-readonly-badge">Read-only</span>
                     )}
                   </div>
+                  </>
+                  )}
                 </div>
 
-                {/* Ask DATA section */}
-                <div className="calendar-ask-data">
-                  <p className="ask-data-prompt">Ask DATA about this event</p>
-                  <div className="quick-actions">
-                    <button className="quick-action-btn" onClick={() => setChatInput('What should I do with this?')}>
-                      What should I do with this?
-                    </button>
-                    <button className="quick-action-btn" onClick={() => setChatInput('Summarize')}>
-                      Summarize
-                    </button>
-                    <button className="quick-action-btn" onClick={() => setChatInput('Should I archive?')}>
-                      Should I archive?
-                    </button>
-                  </div>
-                </div>
+{/* Quick action buttons removed - chat area below handles DATA interaction */}
               </>
             ) : selectedItem?.type === 'task' && !showEventForm ? (
               // Task Preview - shown when task is selected in Tasks tab
               <>
                 <div className="calendar-task-preview">
-                  {/* Task Title */}
-                  <h3 className="preview-title">{selectedItem.item.title}</h3>
+                  {/* Header with title, controls */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h3 className="preview-title" style={{ margin: 0 }}>{selectedItem.item.title}</h3>
+                      <span className={`calendar-domain-badge ${deriveDomain(selectedItem.item)}`} style={{ marginTop: '4px' }}>
+                        {deriveDomain(selectedItem.item)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                      <button
+                        onClick={() => setDetailCollapsed(!detailCollapsed)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          fontSize: '12px',
+                        }}
+                        title={detailCollapsed ? 'Expand details' : 'Collapse details'}
+                      >
+                        {detailCollapsed ? '▼' : '▲'}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedEvent(null); setSelectedItem(null); }}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          fontSize: '12px',
+                        }}
+                        title="Close and use full chat"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
 
-                  {/* Domain Badge */}
-                  <span className={`calendar-domain-badge ${deriveDomain(selectedItem.item)}`}>
-                    {deriveDomain(selectedItem.item)}
-                  </span>
-
+                  {/* Collapsible detail content */}
+                  {!detailCollapsed && (
+                  <>
                   {/* Due Date */}
                   <div className="preview-row">
                     <span className="preview-icon">📆</span>
@@ -1566,25 +1892,14 @@ export function CalendarDashboard({
                       <span className="action-label">Open Task</span>
                     </button>
                   </div>
+                  </>
+                  )}
                 </div>
 
-                {/* Ask DATA section for tasks */}
-                <div className="calendar-ask-data">
-                  <p className="ask-data-prompt">Ask DATA about this task</p>
-                  <div className="quick-actions">
-                    <button className="quick-action-btn" onClick={() => setChatInput('What should I focus on?')}>
-                      What should I focus on?
-                    </button>
-                    <button className="quick-action-btn" onClick={() => setChatInput('Break this down')}>
-                      Break this down
-                    </button>
-                    <button className="quick-action-btn" onClick={() => setChatInput('Related events?')}>
-                      Related events?
-                    </button>
-                  </div>
-                </div>
+{/* Quick action buttons removed - chat area below handles DATA interaction */}
               </>
-            ) : !showEventForm ? (
+            ) : !showEventForm && chatMessages.length === 0 ? (
+              // Only show empty state when no event selected AND no chat messages
               <div className="calendar-empty-state">
                 <div className="icon">{activeTab === 'tasks' ? '📋' : '📅'}</div>
                 <div className="title">
@@ -1598,39 +1913,63 @@ export function CalendarDashboard({
               </div>
             ) : null}
 
-            {/* Chat Input - always at bottom */}
-            <div className="calendar-chat-input">
+            {/* Chat Messages - styled to match Email DATA panel */}
+            <div className="email-chat-messages">
+              {chatMessages.length === 0 && !chatLoading ? (
+                <div className="chat-empty-state">
+                  <div className="chat-empty-icon">💬</div>
+                  <p>Ask DATA about your calendar, events, or tasks</p>
+                </div>
+              ) : (
+                <>
+                  {chatMessages.map((msg, idx) => (
+                    <div key={idx} className={`chat-message ${msg.role}`}>
+                      <button
+                        className="chat-message-delete"
+                        onClick={async () => {
+                          const newMessages = chatMessages.filter((_, i) => i !== idx)
+                          setChatMessages(newMessages)
+                          try {
+                            await updateCalendarConversation(selectedView, newMessages, authConfig, apiBase)
+                          } catch (err) {
+                            console.error('Failed to update conversation:', err)
+                          }
+                        }}
+                        title="Delete message"
+                      >
+                        ✕
+                      </button>
+                      <div className="chat-message-content">{msg.content}</div>
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="chat-message assistant loading">
+                      <div className="chat-message-content">DATA is thinking...</div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Chat Input - styled to match Email DATA panel */}
+            <div className="email-chat-input">
               <input
                 type="text"
-                placeholder={
-                  selectedItem?.type === 'task'
-                    ? 'Ask DATA about this task...'
-                    : selectedEvent
-                    ? 'Ask DATA about this event...'
-                    : 'Select an item to chat'
-                }
+                placeholder="Ask DATA about your calendar or tasks..."
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                disabled={!selectedEvent && !selectedItem}
+                disabled={chatLoading}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && chatInput.trim() && (selectedEvent || selectedItem)) {
-                    // Future: Send to DATA
-                    console.log('Chat:', chatInput, selectedItem?.type || 'event')
-                    setChatInput('')
+                  if (e.key === 'Enter' && chatInput.trim() && !chatLoading) {
+                    handleSendChatMessage()
                   }
                 }}
               />
               <button
-                className="send-btn"
-                disabled={(!selectedEvent && !selectedItem) || !chatInput.trim()}
-                onClick={() => {
-                  if (chatInput.trim() && (selectedEvent || selectedItem)) {
-                    console.log('Chat:', chatInput, selectedItem?.type || 'event')
-                    setChatInput('')
-                  }
-                }}
+                disabled={!chatInput.trim() || chatLoading}
+                onClick={handleSendChatMessage}
               >
-                Send
+                {chatLoading ? '...' : 'Send'}
               </button>
             </div>
           </div>

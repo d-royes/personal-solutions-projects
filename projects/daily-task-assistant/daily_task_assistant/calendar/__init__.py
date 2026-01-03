@@ -17,6 +17,11 @@ from .types import (
     CalendarSettings,
     CalendarListResponse,
     EventListResponse,
+    # Phase CA-1: Calendar Attention
+    CalendarAttentionRecord,
+    CalendarAttentionType,
+    CalendarAttentionStatus,
+    CalendarActionType,
 )
 
 from .google_calendar import (
@@ -39,6 +44,22 @@ from .calendar_store import (
     DEFAULT_CALENDAR_SETTINGS,
 )
 
+from .attention_store import (
+    save_attention,
+    get_attention,
+    list_active_attention,
+    dismiss_attention,
+    mark_acted,
+    mark_viewed,
+    get_quality_metrics,
+    purge_expired_records,
+)
+
+from .analyzer import (
+    analyze_events,
+    detect_overcommitment,
+)
+
 
 __all__ = [
     # Types
@@ -48,6 +69,11 @@ __all__ = [
     "CalendarSettings",
     "CalendarListResponse",
     "EventListResponse",
+    # Phase CA-1: Attention Types
+    "CalendarAttentionRecord",
+    "CalendarAttentionType",
+    "CalendarAttentionStatus",
+    "CalendarActionType",
     # API Client
     "CalendarError",
     "CalendarAccountConfig",
@@ -64,4 +90,16 @@ __all__ = [
     "get_calendar_settings",
     "save_calendar_settings",
     "DEFAULT_CALENDAR_SETTINGS",
+    # Attention Store
+    "save_attention",
+    "get_attention",
+    "list_active_attention",
+    "dismiss_attention",
+    "mark_acted",
+    "mark_viewed",
+    "get_quality_metrics",
+    "purge_expired_records",
+    # Analyzer
+    "analyze_events",
+    "detect_overcommitment",
 ]

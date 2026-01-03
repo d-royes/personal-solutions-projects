@@ -22,6 +22,10 @@ import type {
   UpdateEventRequest,
   QuickAddEventRequest,
   UpdateCalendarSettingsRequest,
+  // Phase CA-1: Calendar Attention
+  CalendarAttentionListResponse,
+  CalendarAttentionAnalyzeResponse,
+  CalendarAttentionQualityMetrics,
 } from './types'
 import type { AuthConfig } from './auth/types'
 
@@ -2312,7 +2316,7 @@ export async function getPendingActionSuggestions(
 // Email Full Message and Reply API Functions
 // =============================================================================
 
-import type { EmailReplyDraft } from './types'
+import type { EmailReplyDraft, CalendarView } from './types'
 
 export interface FullMessageResponse {
   account: EmailAccount
@@ -3340,6 +3344,371 @@ export async function updateCalendarSettings(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Update calendar settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Calendar Attention API Functions (Phase CA-1)
+// =============================================================================
+
+/**
+ * Get active calendar attention items for an account.
+ */
+export async function getCalendarAttention(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<CalendarAttentionListResponse> {
+  const url = new URL(`/calendar/${account}/attention`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get calendar attention failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Mark a calendar attention item as viewed.
+ * Phase 1A: Records first_viewed_at for response latency metrics.
+ */
+export async function markCalendarAttentionViewed(
+  account: CalendarAccount,
+  eventId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ success: boolean; eventId: string; account: string }> {
+  const url = new URL(`/calendar/${account}/attention/${eventId}/viewed`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Mark calendar attention viewed failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Dismiss a calendar attention item.
+ */
+export async function dismissCalendarAttention(
+  account: CalendarAccount,
+  eventId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ success: boolean; eventId: string; account: string }> {
+  const url = new URL(`/calendar/${account}/attention/${eventId}/dismiss`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Dismiss calendar attention failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Mark a calendar attention item as acted upon.
+ */
+export async function markCalendarAttentionActed(
+  account: CalendarAccount,
+  eventId: string,
+  actionType: 'task_linked' | 'prep_started' = 'task_linked',
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ success: boolean; eventId: string; account: string; actionType: string }> {
+  const url = new URL(`/calendar/${account}/attention/${eventId}/act`, baseUrl)
+  url.searchParams.set('action_type', actionType)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Mark calendar attention acted failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get quality metrics for calendar attention items.
+ * Phase 1A: Returns acceptance rates, dismissal rates, and breakdowns.
+ */
+export async function getCalendarAttentionQualityMetrics(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  days = 30,
+): Promise<CalendarAttentionQualityMetrics> {
+  const url = new URL(`/calendar/${account}/attention/quality-metrics`, baseUrl)
+  url.searchParams.set('days', String(days))
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get calendar attention metrics failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Analyze upcoming calendar events and create attention items.
+ */
+export async function analyzeCalendarEvents(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  daysAhead = 7,
+): Promise<CalendarAttentionAnalyzeResponse> {
+  const url = new URL(`/calendar/${account}/attention/analyze`, baseUrl)
+  url.searchParams.set('days_ahead', String(daysAhead))
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Analyze calendar events failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Calendar Chat (DATA Calendar Integration)
+// =============================================================================
+
+export interface CalendarEventContext {
+  id: string
+  summary: string
+  start: string  // ISO datetime
+  end: string    // ISO datetime
+  location?: string
+  attendees?: Array<{
+    email: string
+    displayName?: string
+    responseStatus?: string
+    isSelf?: boolean
+  }>
+  description?: string
+  htmlLink?: string
+  isMeeting?: boolean
+  sourceDomain?: string
+}
+
+export interface CalendarAttentionContext {
+  eventId: string
+  summary: string
+  start: string  // ISO datetime
+  attentionType: string
+  reason: string
+  matchedVip?: string
+}
+
+export interface CalendarChatRequest {
+  message: string
+  selectedEventId?: string
+  dateRangeStart?: string  // ISO datetime
+  dateRangeEnd?: string    // ISO datetime
+  events?: CalendarEventContext[]
+  attentionItems?: CalendarAttentionContext[]
+  tasks?: Array<Record<string, unknown>>
+  history?: Array<{ role: string; content: string }>
+}
+
+export interface CalendarPendingAction {
+  action: string
+  domain: string
+  reason: string
+  eventId?: string
+  summary?: string
+  startDatetime?: string
+  endDatetime?: string
+  location?: string
+  description?: string
+}
+
+export interface CalendarPendingTaskCreation {
+  taskTitle: string
+  reason: string
+  dueDate?: string
+  priority?: string
+  domain?: string
+  project?: string
+  notes?: string
+  relatedEventId?: string
+}
+
+export interface CalendarPendingTaskUpdate {
+  action: string
+  reason: string
+  rowId?: string
+  status?: string
+  priority?: string
+  dueDate?: string
+  comment?: string
+  number?: number
+  contactFlag?: boolean
+  recurring?: string
+  project?: string
+  taskTitle?: string
+  assignedTo?: string
+  notes?: string
+  estimatedHours?: string
+}
+
+export interface CalendarChatResponse {
+  response: string
+  domain: string
+  pendingCalendarAction?: CalendarPendingAction
+  pendingTaskCreation?: CalendarPendingTaskCreation
+  pendingTaskUpdate?: CalendarPendingTaskUpdate
+}
+
+export interface CalendarConversationMessage {
+  role: string
+  content: string
+  ts: string
+  eventContext?: string
+}
+
+export interface CalendarConversationMetadata {
+  domain: string
+  createdAt: string
+  expiresAt?: string
+  messageCount: number
+  lastMessageAt?: string
+}
+
+export interface CalendarConversationResponse {
+  domain: string
+  messages: CalendarConversationMessage[]
+  messageCount: number
+  metadata?: CalendarConversationMetadata
+}
+
+/**
+ * Chat with DATA about calendar and tasks.
+ *
+ * DATA can help analyze schedule, suggest task adjustments, create events,
+ * and answer questions about workload.
+ */
+export async function chatAboutCalendar(
+  domain: CalendarView,
+  request: CalendarChatRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<CalendarChatResponse> {
+  const url = new URL(`/calendar/${domain}/chat`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Calendar chat failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get conversation history for a calendar domain.
+ */
+export async function getCalendarConversation(
+  domain: CalendarView,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  limit: number = 50,
+): Promise<CalendarConversationResponse> {
+  const url = new URL(`/calendar/${domain}/conversation`, baseUrl)
+  url.searchParams.append('limit', limit.toString())
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get calendar conversation failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Clear conversation history for a calendar domain.
+ */
+export async function clearCalendarConversation(
+  domain: CalendarView,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ domain: string; cleared: boolean }> {
+  const url = new URL(`/calendar/${domain}/conversation`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Clear calendar conversation failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update/replace calendar conversation messages.
+ * Used when deleting individual messages from chat history.
+ */
+export async function updateCalendarConversation(
+  domain: CalendarView,
+  messages: Array<{ role: string; content: string }>,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ domain: string; updated: boolean; message_count: number }> {
+  const url = new URL(`/calendar/${domain}/conversation`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ messages }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update calendar conversation failed: ${resp.statusText}`)
   }
   return resp.json()
 }

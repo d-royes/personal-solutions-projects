@@ -508,3 +508,54 @@ export interface TimelineItem {
   task?: Task
 }
 
+// =============================================================================
+// Phase CA-1: Calendar Attention Types
+// =============================================================================
+
+export type CalendarAttentionType = 'vip_meeting' | 'prep_needed' | 'task_conflict' | 'overcommitment'
+export type CalendarAttentionStatus = 'active' | 'dismissed' | 'acted' | 'expired'
+export type CalendarActionType = 'viewed' | 'dismissed' | 'task_linked' | 'prep_started'
+
+export interface CalendarAttentionItem {
+  eventId: string
+  calendarAccount: string
+  calendarId: string
+  summary: string
+  start: string  // ISO datetime
+  end: string    // ISO datetime
+  attendees: string[]
+  location?: string
+  htmlLink?: string
+  attentionType: CalendarAttentionType
+  reason: string
+  confidence: number
+  matchedVip?: string
+  status: CalendarAttentionStatus
+  dismissedAt?: string
+  firstViewedAt?: string
+  actionTakenAt?: string
+  actionType?: CalendarActionType
+}
+
+export interface CalendarAttentionListResponse {
+  account: string
+  items: CalendarAttentionItem[]
+  count: number
+}
+
+export interface CalendarAttentionAnalyzeResponse {
+  account: string
+  eventsScanned: number
+  attentionItemsCreated: number
+  items: CalendarAttentionItem[]
+}
+
+export interface CalendarAttentionQualityMetrics {
+  total: number
+  byStatus: Record<string, number>
+  byType: Record<string, number>
+  byAction: Record<string, number>
+  acceptanceRate: number
+  dismissedRate: number
+}
+
