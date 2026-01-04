@@ -154,7 +154,7 @@ class CalendarChatContext:
         return "\n".join(parts)
 
     def _format_event_brief(self, event: CalendarEvent) -> str:
-        """Format event as a brief one-liner."""
+        """Format event as a brief one-liner with ID for update/delete operations."""
         time_str = _format_time(event.start)
         duration = _format_duration(event.duration_minutes)
 
@@ -168,6 +168,8 @@ class CalendarChatContext:
             parts.append(attendee_count)
         if event.location:
             parts.append(f"@ {event.location}")
+        # Include event ID so DATA can reference it for update/delete operations
+        parts.append(f"[ID: {event.id}]")
 
         return " ".join(parts)
 
