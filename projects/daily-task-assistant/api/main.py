@@ -6984,45 +6984,13 @@ def chat_about_calendar(
         "domain": response.domain,
     }
 
-    # Convert dataclasses to camelCase dicts for frontend
+    # Pass through pending action dicts (already formatted by chat.py)
     if response.pending_calendar_action:
-        action = response.pending_calendar_action
-        result["pendingCalendarAction"] = {
-            "action": action.action,
-            "domain": action.domain,
-            "reason": action.reason,
-            "eventId": action.event_id,  # snake_case -> camelCase
-            "summary": action.summary,
-            "startDatetime": action.start_datetime,
-            "endDatetime": action.end_datetime,
-            "location": action.location,
-            "description": action.description,
-        }
+        result["pendingCalendarAction"] = response.pending_calendar_action
     if response.pending_task_creation:
-        task = response.pending_task_creation
-        result["pendingTaskCreation"] = {
-            "taskTitle": task.task_title,
-            "reason": task.reason,
-            "dueDate": task.due_date,
-            "priority": task.priority,
-            "domain": task.domain,
-            "project": task.project,
-            "notes": task.notes,
-            "relatedEventId": task.related_event_id,
-        }
+        result["pendingTaskCreation"] = response.pending_task_creation
     if response.pending_task_update:
-        update = response.pending_task_update
-        result["pendingTaskUpdate"] = {
-            "taskId": update.task_id,
-            "action": update.action,
-            "reason": update.reason,
-            "status": update.status,
-            "priority": update.priority,
-            "dueDate": update.due_date,
-            "comment": update.comment,
-            "project": update.project,
-            "taskTitle": update.task_title,
-        }
+        result["pendingTaskUpdate"] = response.pending_task_update
 
     return result
 
