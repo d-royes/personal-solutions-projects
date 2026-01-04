@@ -995,6 +995,12 @@ export function CalendarDashboard({
           content: `Done - created "${action.summary}" on your ${action.domain || 'personal'} calendar ✓`
         }])
 
+        // Refresh events to show the new event
+        setCache(prev => ({
+          ...prev,
+          [account]: { ...prev[account], loaded: false },
+        }))
+
       } else if (action.action === 'update_event' && action.eventId) {
         await updateCalendarEvent(
           account,
@@ -1018,6 +1024,12 @@ export function CalendarDashboard({
           content: `Done - updated "${eventName}" ✓`
         }])
 
+        // Refresh events to show the update
+        setCache(prev => ({
+          ...prev,
+          [account]: { ...prev[account], loaded: false },
+        }))
+
       } else if (action.action === 'delete_event' && action.eventId) {
         // Get event name before deleting
         const eventName = action.summary || (selectedItem?.type === 'event' ? selectedItem.item.summary : 'event')
@@ -1035,6 +1047,12 @@ export function CalendarDashboard({
           role: 'assistant',
           content: `Done - deleted "${eventName}" ✓`
         }])
+
+        // Refresh events to remove the deleted event
+        setCache(prev => ({
+          ...prev,
+          [account]: { ...prev[account], loaded: false },
+        }))
 
       } else {
         setChatMessages(prev => [...prev, {
