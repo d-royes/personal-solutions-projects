@@ -65,6 +65,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
+| **Timezone Consistency (Backend)** | Fix remaining UTC/timezone issues in backend: Smartsheet date parsing, rebalancing logic, default due dates, email date extraction. Frontend labels fixed 2026-01-02. | [TIMEZONE_FIX.md](docs/TIMEZONE_FIX.md) |
 | **Attachment Security Hardening** | Add defense-in-depth for attachment handling: (1) PDF download domain validation + size limits, (2) Image download domain validation, (3) Frontend URL sanitization for XSS prevention, (4) Error handling for read toggle cache consistency. | Code Review 2025-12-31 |
 | **Phase A: Smartsheet Decoupling** | Create native Firestore task storage, abstract integrations into provider interfaces, user-scope all data. | [DATA_CLOUD_VISION.md](docs/DATA_CLOUD_VISION.md) |
 | **Move Email Allowlist to Backend-Only** | Remove hardcoded ALLOWED_EMAILS from AuthContext.tsx:9-12. Frontend check is redundant since backend validates. Exposing authorized users in client code is unnecessary info disclosure. | Code Review 2025-12-14 |
@@ -89,6 +90,7 @@ Earned autonomy through demonstrated understanding and tracked success.
 | **F1c: Privacy Audit Log** | Track what content was masked for transparency and debugging in Haiku analysis. | F1 Future Enhancement |
 | **F4: Microsoft Integration** | Support Outlook ecosystem (MS Graph API) for DATA Cloud multi-tenancy. | [Email Management Plan - F4](../.claude/plans/rippling-discovering-whale.md#f4-microsoft-integration) |
 | **F6: Bulk Email Actions** | Batch archive, label, dismiss operations with pattern recognition. | [Email Management Plan - F6](../.claude/plans/rippling-discovering-whale.md#f6-bulk-email-actions) |
+| **Email Chat Message Deletion Persistence** | Email chat X button only clears local state (messages return on navigation). Calendar chat has full persistence via PUT endpoint. Add same persistence to email if needed. | Backlog 2026-01-03 |
 | **Email Management Settings Page** | Admin settings for attention scanning time window, labels, notifications. | - |
 | Feedback Summary View | Admin menu view for aggregated feedback statistics. | - |
 | Save Contact Feature | Save frequently used contacts for quick email drafting access. | - |

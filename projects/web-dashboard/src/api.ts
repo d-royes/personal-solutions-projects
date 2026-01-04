@@ -12,6 +12,20 @@ import type {
   SuggestionStats,
   RejectionPatternsResponse,
   AddPatternResponse,
+  // Calendar types
+  CalendarAccount,
+  CalendarListResponse,
+  EventListResponse,
+  CalendarEventResponse,
+  CalendarSettingsResponse,
+  CreateEventRequest,
+  UpdateEventRequest,
+  QuickAddEventRequest,
+  UpdateCalendarSettingsRequest,
+  // Phase CA-1: Calendar Attention
+  CalendarAttentionListResponse,
+  CalendarAttentionAnalyzeResponse,
+  CalendarAttentionQualityMetrics,
 } from './types'
 import type { AuthConfig } from './auth/types'
 
@@ -773,6 +787,59 @@ export interface TaskUpdateResponse {
   action?: TaskUpdateAction
   changes?: Record<string, unknown>
   message?: string
+}
+
+// Smartsheet Task Creation (for Calendar mode)
+export interface SmartsheetTaskCreateRequest {
+  source: 'personal' | 'work'
+  task: string
+  project: string
+  dueDate: string
+  priority?: string
+  status?: string
+  assignedTo?: string
+  estimatedHours?: string
+  notes?: string
+  confirmed: boolean
+}
+
+export interface SmartsheetTaskCreateResponse {
+  status: 'preview' | 'created'
+  message: string
+  task?: Record<string, unknown>
+  result?: Record<string, unknown>
+}
+
+export async function createSmartsheetTask(
+  request: SmartsheetTaskCreateRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SmartsheetTaskCreateResponse> {
+  const url = new URL('/tasks/create', baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: request.source,
+      task: request.task,
+      project: request.project,
+      due_date: request.dueDate,
+      priority: request.priority || 'Standard',
+      status: request.status || 'Scheduled',
+      assigned_to: request.assignedTo || 'david.a.royes@gmail.com',
+      estimated_hours: request.estimatedHours || '1',
+      notes: request.notes,
+      confirmed: request.confirmed,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Create task failed: ${resp.statusText}`)
+  }
+  return resp.json()
 }
 
 export async function updateTask(
@@ -2302,7 +2369,7 @@ export async function getPendingActionSuggestions(
 // Email Full Message and Reply API Functions
 // =============================================================================
 
-import type { EmailReplyDraft } from './types'
+import type { EmailReplyDraft, CalendarView } from './types'
 
 export interface FullMessageResponse {
   account: EmailAccount
@@ -3085,6 +3152,618 @@ export async function getHaikuUsage(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `Get Haiku usage failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Calendar API Functions
+// =============================================================================
+
+/**
+ * List all calendars accessible by this account.
+ */
+export async function listCalendars(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  showHidden = false,
+): Promise<CalendarListResponse> {
+  const url = new URL(`/calendar/${account}/calendars`, baseUrl)
+  if (showHidden) {
+    url.searchParams.set('showHidden', 'true')
+  }
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `List calendars failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface ListEventsOptions {
+  calendarId?: string
+  timeMin?: string  // ISO datetime
+  timeMax?: string  // ISO datetime
+  maxResults?: number
+  pageToken?: string
+  sourceDomain?: 'personal' | 'work' | 'church'
+}
+
+/**
+ * List events from a calendar.
+ */
+export async function listEvents(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: ListEventsOptions = {},
+): Promise<EventListResponse> {
+  const url = new URL(`/calendar/${account}/events`, baseUrl)
+
+  if (options.calendarId) url.searchParams.set('calendarId', options.calendarId)
+  if (options.timeMin) url.searchParams.set('timeMin', options.timeMin)
+  if (options.timeMax) url.searchParams.set('timeMax', options.timeMax)
+  if (options.maxResults) url.searchParams.set('maxResults', String(options.maxResults))
+  if (options.pageToken) url.searchParams.set('pageToken', options.pageToken)
+  if (options.sourceDomain) url.searchParams.set('sourceDomain', options.sourceDomain)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `List events failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get a specific calendar event by ID.
+ */
+export async function getCalendarEvent(
+  account: CalendarAccount,
+  eventId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  calendarId = 'primary',
+  sourceDomain: 'personal' | 'work' | 'church' = 'personal',
+): Promise<CalendarEventResponse> {
+  const url = new URL(`/calendar/${account}/events/${eventId}`, baseUrl)
+  url.searchParams.set('calendarId', calendarId)
+  url.searchParams.set('sourceDomain', sourceDomain)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Create a new calendar event.
+ */
+export async function createCalendarEvent(
+  account: CalendarAccount,
+  request: CreateEventRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; event: CalendarEventResponse['event'] }> {
+  const url = new URL(`/calendar/${account}/events`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Create event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update an existing calendar event.
+ */
+export async function updateCalendarEvent(
+  account: CalendarAccount,
+  eventId: string,
+  request: UpdateEventRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; event: CalendarEventResponse['event'] }> {
+  const url = new URL(`/calendar/${account}/events/${eventId}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Delete a calendar event.
+ */
+export async function deleteCalendarEvent(
+  account: CalendarAccount,
+  eventId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  calendarId = 'primary',
+  sendNotifications = true,
+): Promise<{ status: string; account: string; eventId: string; calendarId: string }> {
+  const url = new URL(`/calendar/${account}/events/${eventId}`, baseUrl)
+  url.searchParams.set('calendarId', calendarId)
+  url.searchParams.set('sendNotifications', String(sendNotifications))
+
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Delete event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Create an event using natural language.
+ * Google Calendar will parse the text to create an event.
+ * Example: "Meeting with Doug tomorrow at 2pm"
+ */
+export async function quickAddCalendarEvent(
+  account: CalendarAccount,
+  request: QuickAddEventRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; event: CalendarEventResponse['event'] }> {
+  const url = new URL(`/calendar/${account}/quick-add`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Quick add event failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get calendar display settings for an account.
+ */
+export async function getCalendarSettings(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<CalendarSettingsResponse> {
+  const url = new URL(`/calendar/${account}/settings`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+    cache: 'no-store',  // Prevent browser caching of settings
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get calendar settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update calendar display settings for an account.
+ */
+export async function updateCalendarSettings(
+  account: CalendarAccount,
+  request: UpdateCalendarSettingsRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; account: string; settings: CalendarSettingsResponse['settings'] }> {
+  const url = new URL(`/calendar/${account}/settings`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update calendar settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Calendar Attention API Functions (Phase CA-1)
+// =============================================================================
+
+/**
+ * Get active calendar attention items for an account.
+ */
+export async function getCalendarAttention(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<CalendarAttentionListResponse> {
+  const url = new URL(`/calendar/${account}/attention`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get calendar attention failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Mark a calendar attention item as viewed.
+ * Phase 1A: Records first_viewed_at for response latency metrics.
+ */
+export async function markCalendarAttentionViewed(
+  account: CalendarAccount,
+  eventId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ success: boolean; eventId: string; account: string }> {
+  const url = new URL(`/calendar/${account}/attention/${eventId}/viewed`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Mark calendar attention viewed failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Dismiss a calendar attention item.
+ */
+export async function dismissCalendarAttention(
+  account: CalendarAccount,
+  eventId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ success: boolean; eventId: string; account: string }> {
+  const url = new URL(`/calendar/${account}/attention/${eventId}/dismiss`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Dismiss calendar attention failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Mark a calendar attention item as acted upon.
+ */
+export async function markCalendarAttentionActed(
+  account: CalendarAccount,
+  eventId: string,
+  actionType: 'task_linked' | 'prep_started' = 'task_linked',
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ success: boolean; eventId: string; account: string; actionType: string }> {
+  const url = new URL(`/calendar/${account}/attention/${eventId}/act`, baseUrl)
+  url.searchParams.set('action_type', actionType)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Mark calendar attention acted failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get quality metrics for calendar attention items.
+ * Phase 1A: Returns acceptance rates, dismissal rates, and breakdowns.
+ */
+export async function getCalendarAttentionQualityMetrics(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  days = 30,
+): Promise<CalendarAttentionQualityMetrics> {
+  const url = new URL(`/calendar/${account}/attention/quality-metrics`, baseUrl)
+  url.searchParams.set('days', String(days))
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get calendar attention metrics failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Analyze upcoming calendar events and create attention items.
+ */
+export async function analyzeCalendarEvents(
+  account: CalendarAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  daysAhead = 7,
+): Promise<CalendarAttentionAnalyzeResponse> {
+  const url = new URL(`/calendar/${account}/attention/analyze`, baseUrl)
+  url.searchParams.set('days_ahead', String(daysAhead))
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Analyze calendar events failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
+// =============================================================================
+// Calendar Chat (DATA Calendar Integration)
+// =============================================================================
+
+export interface CalendarEventContext {
+  id: string
+  summary: string
+  start: string  // ISO datetime
+  end: string    // ISO datetime
+  location?: string
+  attendees?: Array<{
+    email: string
+    displayName?: string
+    responseStatus?: string
+    isSelf?: boolean
+  }>
+  description?: string
+  htmlLink?: string
+  isMeeting?: boolean
+  sourceDomain?: string
+}
+
+export interface CalendarAttentionContext {
+  eventId: string
+  summary: string
+  start: string  // ISO datetime
+  attentionType: string
+  reason: string
+  matchedVip?: string
+}
+
+export interface CalendarChatRequest {
+  message: string
+  selectedEventId?: string
+  selectedTaskId?: string  // Row ID of selected task in DATA panel
+  dateRangeStart?: string  // ISO datetime
+  dateRangeEnd?: string    // ISO datetime
+  events?: CalendarEventContext[]
+  attentionItems?: CalendarAttentionContext[]
+  tasks?: Array<Record<string, unknown>>
+  history?: Array<{ role: string; content: string }>
+}
+
+export interface CalendarPendingAction {
+  action: string
+  domain: string
+  reason: string
+  eventId?: string
+  summary?: string
+  startDatetime?: string
+  endDatetime?: string
+  location?: string
+  description?: string
+}
+
+export interface CalendarPendingTaskCreation {
+  taskTitle: string
+  reason: string
+  dueDate?: string
+  priority?: string
+  domain?: string
+  project?: string
+  notes?: string
+  relatedEventId?: string
+}
+
+export interface CalendarPendingTaskUpdate {
+  action: TaskUpdateAction
+  reason: string
+  rowId?: string
+  source?: 'personal' | 'work'  // Which Smartsheet to update
+  status?: string
+  priority?: string
+  dueDate?: string
+  comment?: string
+  number?: number
+  contactFlag?: boolean
+  recurring?: string
+  project?: string
+  taskTitle?: string
+  assignedTo?: string
+  notes?: string
+  estimatedHours?: string
+}
+
+export interface CalendarChatResponse {
+  response: string
+  domain: string
+  pendingCalendarAction?: CalendarPendingAction
+  pendingTaskCreation?: CalendarPendingTaskCreation
+  pendingTaskUpdate?: CalendarPendingTaskUpdate
+}
+
+export interface CalendarConversationMessage {
+  role: string
+  content: string
+  ts: string
+  eventContext?: string
+}
+
+export interface CalendarConversationMetadata {
+  domain: string
+  createdAt: string
+  expiresAt?: string
+  messageCount: number
+  lastMessageAt?: string
+}
+
+export interface CalendarConversationResponse {
+  domain: string
+  messages: CalendarConversationMessage[]
+  messageCount: number
+  metadata?: CalendarConversationMetadata
+}
+
+/**
+ * Chat with DATA about calendar and tasks.
+ *
+ * DATA can help analyze schedule, suggest task adjustments, create events,
+ * and answer questions about workload.
+ */
+export async function chatAboutCalendar(
+  domain: CalendarView,
+  request: CalendarChatRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<CalendarChatResponse> {
+  const url = new URL(`/calendar/${domain}/chat`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Calendar chat failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get conversation history for a calendar domain.
+ */
+export async function getCalendarConversation(
+  domain: CalendarView,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  limit: number = 50,
+): Promise<CalendarConversationResponse> {
+  const url = new URL(`/calendar/${domain}/conversation`, baseUrl)
+  url.searchParams.append('limit', limit.toString())
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get calendar conversation failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Clear conversation history for a calendar domain.
+ */
+export async function clearCalendarConversation(
+  domain: CalendarView,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ domain: string; cleared: boolean }> {
+  const url = new URL(`/calendar/${domain}/conversation`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Clear calendar conversation failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update/replace calendar conversation messages.
+ * Used when deleting individual messages from chat history.
+ */
+export async function updateCalendarConversation(
+  domain: CalendarView,
+  messages: Array<{ role: string; content: string }>,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ domain: string; updated: boolean; message_count: number }> {
+  const url = new URL(`/calendar/${domain}/conversation`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ messages }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update calendar conversation failed: ${resp.statusText}`)
   }
   return resp.json()
 }
