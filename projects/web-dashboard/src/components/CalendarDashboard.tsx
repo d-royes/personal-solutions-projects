@@ -130,7 +130,11 @@ function buildUnifiedTimeline(
   selectedView: CalendarView,
   daysAhead: number
 ): TimelineItem[] {
-  const now = new Date()
+  // Use start of today (midnight) for task date comparison, not current time
+  // This ensures tasks due TODAY are included (their due date is midnight)
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+
   const futureDate = new Date()
   futureDate.setDate(futureDate.getDate() + daysAhead)
 
@@ -156,8 +160,8 @@ function buildUnifiedTimeline(
     if (!task.due) continue
 
     const dueDate = new Date(task.due)
-    // Skip tasks outside the date range
-    if (dueDate < now || dueDate > futureDate) continue
+    // Skip tasks outside the date range (use startOfToday to include today's tasks)
+    if (dueDate < startOfToday || dueDate > futureDate) continue
 
     const taskDomain = deriveDomain(task)
 

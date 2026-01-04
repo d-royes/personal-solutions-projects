@@ -15,6 +15,7 @@ from dataclasses import asdict
 from functools import lru_cache
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -6922,8 +6923,19 @@ def chat_about_calendar(
 
     # Filter tasks to only include those with due dates within the visible range
     # This respects the "Days to Show" setting in Calendar settings
+    # NOTE: Task due dates are LOCAL dates (David's timezone), not UTC
+    _LOCAL_TZ = ZoneInfo("America/New_York")
     filtered_tasks = []
     if request.tasks and date_range_start and date_range_end:
+        # Convert date range to local timezone for comparison
+        # date_range_start/end come from frontend as UTC ISO strings
+        local_range_start = date_range_start.astimezone(_LOCAL_TZ).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        local_range_end = date_range_end.astimezone(_LOCAL_TZ).replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        )
+
         for task in request.tasks:
             # Handle multiple due date field names (due, due_date, dueDate)
             due_date_str = task.get("due") or task.get("due_date") or task.get("dueDate")
@@ -6931,25 +6943,22 @@ def chat_about_calendar(
                 # Skip tasks without due dates - not date-relevant for calendar context
                 continue
             try:
-                # Parse due date (handle various formats)
+                # Parse due date - treat as LOCAL date (not UTC)
                 if isinstance(due_date_str, str):
-                    # Try ISO format first
                     if "T" in due_date_str:
-                        task_due = datetime.fromisoformat(
-                            due_date_str.replace("Z", "+00:00")
-                        )
-                        # Ensure timezone-aware (naive datetime can't compare with aware)
-                        if task_due.tzinfo is None:
-                            task_due = task_due.replace(tzinfo=timezone.utc)
+                        # ISO format with time - extract just the date part
+                        date_part = due_date_str.split("T")[0]
+                        task_due = datetime.strptime(date_part, "%Y-%m-%d")
                     else:
                         # Date-only format (YYYY-MM-DD)
                         task_due = datetime.strptime(due_date_str, "%Y-%m-%d")
-                        task_due = task_due.replace(tzinfo=timezone.utc)
+                    # Treat as local timezone (task due dates are local, not UTC)
+                    task_due = task_due.replace(tzinfo=_LOCAL_TZ)
                 else:
                     continue
 
                 # Include task if due date is within visible date range
-                if date_range_start <= task_due <= date_range_end:
+                if local_range_start <= task_due <= local_range_end:
                     filtered_tasks.append(task)
             except (ValueError, TypeError):
                 # Skip tasks with unparseable due dates
