@@ -5478,6 +5478,102 @@ def clear_workspace_endpoint(
     }
 
 
+class TaskCreateRequest(BaseModel):
+    """Request body for creating a new task in Smartsheet."""
+    source: Literal["personal", "work"] = "personal"  # Which Smartsheet to add to
+    task: str = Field(..., description="Task title (required)")
+    project: str = Field(..., description="Project name (must match allowed values)")
+    due_date: str = Field(..., description="Due date in YYYY-MM-DD format")
+    priority: str = Field("Standard", description="Priority level")
+    status: str = Field("Scheduled", description="Initial status")
+    assigned_to: str = Field("david.a.royes@gmail.com", description="Assignee email")
+    estimated_hours: str = Field("1", description="Estimated hours")
+    notes: Optional[str] = Field(None, description="Optional notes")
+    confirmed: bool = Field(False, description="User has confirmed this action")
+
+
+@app.post("/tasks/create")
+def create_task(
+    request: TaskCreateRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create a new task in Smartsheet.
+
+    Requires confirmation=True to execute. If not confirmed, returns a preview
+    of the proposed task for user confirmation.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient, SmartsheetAPIError
+
+    settings = _get_settings()
+
+    # Validate project against allowed values
+    valid_projects = VALID_PROJECTS_PERSONAL if request.source == "personal" else VALID_PROJECTS_WORK
+    if request.project not in valid_projects:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid project '{request.project}'. Valid: {valid_projects}"
+        )
+
+    # Validate priority
+    valid_priorities = VALID_PRIORITIES if request.source == "personal" else VALID_PRIORITIES_WORK
+    if request.priority not in valid_priorities:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid priority '{request.priority}'. Valid: {valid_priorities}"
+        )
+
+    # Validate estimated hours
+    if request.estimated_hours not in VALID_ESTIMATED_HOURS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid estimated_hours '{request.estimated_hours}'. Valid: {VALID_ESTIMATED_HOURS}"
+        )
+
+    # If not confirmed, return preview
+    if not request.confirmed:
+        return {
+            "status": "preview",
+            "message": f"Will create task: '{request.task}' in {request.project}",
+            "task": {
+                "task": request.task,
+                "project": request.project,
+                "due_date": request.due_date,
+                "priority": request.priority,
+                "status": request.status,
+                "assigned_to": request.assigned_to,
+                "estimated_hours": request.estimated_hours,
+                "notes": request.notes,
+            }
+        }
+
+    # Execute the creation
+    try:
+        client = SmartsheetClient(settings)
+        task_data = {
+            "task": request.task,
+            "project": request.project,
+            "due_date": request.due_date,
+            "priority": request.priority,
+            "status": request.status,
+            "assigned_to": request.assigned_to,
+            "estimated_hours": request.estimated_hours,
+        }
+        if request.notes:
+            task_data["notes"] = request.notes
+
+        result = client.create_row(task_data, source=request.source)
+
+        return {
+            "status": "created",
+            "message": f"Created task: '{request.task}'",
+            "result": result,
+        }
+    except SmartsheetAPIError as exc:
+        raise HTTPException(status_code=502, detail=f"Smartsheet error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 class TaskUpdateRequest(BaseModel):
     """Request body for task update endpoint."""
     source: Literal["personal", "work"] = "personal"  # Which Smartsheet to update

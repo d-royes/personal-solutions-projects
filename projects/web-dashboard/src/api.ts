@@ -789,6 +789,59 @@ export interface TaskUpdateResponse {
   message?: string
 }
 
+// Smartsheet Task Creation (for Calendar mode)
+export interface SmartsheetTaskCreateRequest {
+  source: 'personal' | 'work'
+  task: string
+  project: string
+  dueDate: string
+  priority?: string
+  status?: string
+  assignedTo?: string
+  estimatedHours?: string
+  notes?: string
+  confirmed: boolean
+}
+
+export interface SmartsheetTaskCreateResponse {
+  status: 'preview' | 'created'
+  message: string
+  task?: Record<string, unknown>
+  result?: Record<string, unknown>
+}
+
+export async function createSmartsheetTask(
+  request: SmartsheetTaskCreateRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SmartsheetTaskCreateResponse> {
+  const url = new URL('/tasks/create', baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: request.source,
+      task: request.task,
+      project: request.project,
+      due_date: request.dueDate,
+      priority: request.priority || 'Standard',
+      status: request.status || 'Scheduled',
+      assigned_to: request.assignedTo || 'david.a.royes@gmail.com',
+      estimated_hours: request.estimatedHours || '1',
+      notes: request.notes,
+      confirmed: request.confirmed,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Create task failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 export async function updateTask(
   taskId: string,
   request: TaskUpdateRequest,
@@ -3568,9 +3621,10 @@ export interface CalendarPendingTaskCreation {
 }
 
 export interface CalendarPendingTaskUpdate {
-  action: string
+  action: TaskUpdateAction
   reason: string
   rowId?: string
+  source?: 'personal' | 'work'  // Which Smartsheet to update
   status?: string
   priority?: string
   dueDate?: string

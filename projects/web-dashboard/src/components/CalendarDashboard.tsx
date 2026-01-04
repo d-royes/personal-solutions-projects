@@ -26,11 +26,11 @@ import {
   clearCalendarConversation,
   updateCalendarConversation,
   updateTask,
+  createSmartsheetTask,
   type ListEventsOptions,
   type CalendarChatResponse,
   type CalendarEventContext,
   type CalendarAttentionContext,
-  type CalendarPendingTaskUpdate,
 } from '../api'
 import CalendarAttentionPanel from './CalendarAttentionPanel'
 import { deriveDomain, getTaskPriority } from '../utils/domain'
@@ -1122,6 +1122,106 @@ export function CalendarDashboard({
       setChatLoading(false)
     }
   }, [pendingAction, authConfig, apiBase, onRefreshTasks])
+
+  // Valid values from smartsheet.yml
+  const VALID_PROJECTS_PERSONAL = [
+    'Around The House', 'Church Tasks', 'Family Time', 'Shopping',
+    'Sm. Projects & Tasks', 'Zendesk Ticket'
+  ]
+  const VALID_PROJECTS_WORK = [
+    'Atlassian (Jira/Confluence)', 'Crafter Studio', 'Internal Application Support',
+    'Team Management', 'Strategic Planning', 'Stakeholder Relations',
+    'Process Improvement', 'Daily Operations', 'Zendesk Support',
+    'Intranet Management', 'Vendor Management', 'AI/Automation Projects',
+    'DTS Transformation', 'New Technology Evaluation'
+  ]
+  const VALID_PRIORITIES_PERSONAL = ['Critical', 'Urgent', 'Important', 'Standard', 'Low']
+  const VALID_PRIORITIES_WORK = ['5-Critical', '4-Urgent', '3-Important', '2-Standard', '1-Low']
+
+  // Handle confirming a pending task creation (Smartsheet)
+  const handleConfirmTaskCreation = useCallback(async () => {
+    if (!pendingAction?.pendingTaskCreation) return
+
+    const creation = pendingAction.pendingTaskCreation
+    if (!creation.taskTitle) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '⚠️ Cannot create task: missing task title'
+      }])
+      setPendingAction(null)
+      return
+    }
+
+    setChatLoading(true)
+
+    try {
+      // Determine source and apply smart defaults based on domain
+      const domain = creation.domain || selectedView
+      const source = domain === 'work' ? 'work' : 'personal'
+
+      // Smart project defaults based on domain (from smartsheet.yml)
+      let defaultProject: string
+      let defaultPriority: string
+      if (source === 'work') {
+        defaultProject = 'Daily Operations'
+        defaultPriority = '2-Standard'
+      } else if (domain === 'church') {
+        defaultProject = 'Church Tasks'
+        defaultPriority = 'Standard'
+      } else {
+        defaultProject = 'Sm. Projects & Tasks'
+        defaultPriority = 'Standard'
+      }
+
+      // Validate project against allowed values - use default if invalid
+      const validProjects = source === 'work' ? VALID_PROJECTS_WORK : VALID_PROJECTS_PERSONAL
+      const project = creation.project && validProjects.includes(creation.project)
+        ? creation.project
+        : defaultProject
+
+      // Validate priority against allowed values - use default if invalid
+      const validPriorities = source === 'work' ? VALID_PRIORITIES_WORK : VALID_PRIORITIES_PERSONAL
+      const priority = creation.priority && validPriorities.includes(creation.priority)
+        ? creation.priority
+        : defaultPriority
+
+      // Use today as default due date if not provided
+      const dueDate = creation.dueDate || new Date().toISOString().split('T')[0]
+
+      await createSmartsheetTask(
+        {
+          source,
+          task: creation.taskTitle,
+          project,  // Already validated against allowed values
+          dueDate,
+          priority,  // Already validated against allowed values
+          status: 'Scheduled',
+          assignedTo: 'david.a.royes@gmail.com',
+          estimatedHours: '1',
+          notes: creation.notes,
+          confirmed: true,
+        },
+        authConfig,
+        apiBase
+      )
+
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Done - created task "${creation.taskTitle}" ✓`
+      }])
+
+      // Refresh tasks
+      onRefreshTasks?.()
+    } catch (err) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `⚠️ Failed to create task: ${err instanceof Error ? err.message : 'Unknown error'}`
+      }])
+    } finally {
+      setPendingAction(null)
+      setChatLoading(false)
+    }
+  }, [pendingAction, selectedView, authConfig, apiBase, onRefreshTasks])
 
   // Handle canceling a pending action
   const handleCancelPendingAction = useCallback(() => {
@@ -2216,6 +2316,56 @@ export function CalendarDashboard({
               </div>
             )}
 
+            {/* Pending Task Creation Confirmation */}
+            {pendingAction?.pendingTaskCreation && (
+              <div className="pending-action-card">
+                <div className="pending-action-header">
+                  <span className="pending-icon">📝</span>
+                  <strong>Create Task</strong>
+                </div>
+                <div className="pending-action-content">
+                  <p className="pending-action-description">
+                    {pendingAction.pendingTaskCreation.taskTitle}
+                  </p>
+                  {pendingAction.pendingTaskCreation.dueDate && (
+                    <p className="pending-action-details">
+                      Due: {new Date(pendingAction.pendingTaskCreation.dueDate).toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </p>
+                  )}
+                  {pendingAction.pendingTaskCreation.project && (
+                    <p className="pending-action-details">
+                      Project: {pendingAction.pendingTaskCreation.project}
+                    </p>
+                  )}
+                  {pendingAction.pendingTaskCreation.reason && (
+                    <p className="pending-action-reason">
+                      {pendingAction.pendingTaskCreation.reason}
+                    </p>
+                  )}
+                </div>
+                <div className="pending-action-buttons">
+                  <button
+                    className="confirm-btn"
+                    onClick={handleConfirmTaskCreation}
+                    disabled={chatLoading}
+                  >
+                    ✓ Create
+                  </button>
+                  <button
+                    className="cancel-btn"
+                    onClick={handleCancelPendingAction}
+                    disabled={chatLoading}
+                  >
+                    ✕ Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Chat Input - styled to match Email DATA panel */}
             <div className="email-chat-input">
               <input
@@ -2223,7 +2373,7 @@ export function CalendarDashboard({
                 placeholder="Ask DATA about your calendar or tasks..."
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                disabled={chatLoading || !!pendingAction?.pendingCalendarAction || !!pendingAction?.pendingTaskUpdate}
+                disabled={chatLoading || !!pendingAction?.pendingCalendarAction || !!pendingAction?.pendingTaskUpdate || !!pendingAction?.pendingTaskCreation}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && chatInput.trim() && !chatLoading) {
                     handleSendChatMessage()
