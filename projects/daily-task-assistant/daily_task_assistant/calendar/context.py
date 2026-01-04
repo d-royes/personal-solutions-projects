@@ -76,6 +76,7 @@ class CalendarChatContext:
         attention_items: Active attention items (VIP meetings, prep needed)
         tasks: Tasks from the Task tab (with calendar-relevant fields)
         selected_event: The currently selected event, if any
+        selected_task: The currently selected task, if any
         date_range_start: Start of the view range
         date_range_end: End of the view range
     """
@@ -84,6 +85,7 @@ class CalendarChatContext:
     attention_items: List[CalendarAttentionRecord]
     tasks: List[Dict[str, Any]]
     selected_event: Optional[CalendarEvent] = None
+    selected_task: Optional[Dict[str, Any]] = None
     date_range_start: Optional[datetime] = None
     date_range_end: Optional[datetime] = None
 
@@ -105,6 +107,12 @@ class CalendarChatContext:
         if self.selected_event:
             parts.append("=== SELECTED EVENT ===")
             parts.append(self._format_event_detail(self.selected_event))
+            parts.append("")
+
+        # Selected task (if any)
+        if self.selected_task:
+            parts.append("=== SELECTED TASK ===")
+            parts.append(self._format_task_detail(self.selected_task))
             parts.append("")
 
         # Attention items
@@ -167,6 +175,7 @@ class CalendarChatContext:
         """Format event with full details."""
         lines = []
         lines.append(f"Title: {event.summary}")
+        lines.append(f"Event ID: {event.id}")  # Required for update/delete actions
         lines.append(f"When: {_format_datetime(event.start)} - {_format_time(event.end)}")
         lines.append(f"Duration: {_format_duration(event.duration_minutes)}")
 
@@ -263,6 +272,59 @@ class CalendarChatContext:
 
         return " ".join(parts)
 
+    def _format_task_detail(self, task: Dict[str, Any]) -> str:
+        """Format task with full details for selected task context."""
+        lines = []
+
+        title = task.get("task") or task.get("title") or "Untitled"
+        lines.append(f"Title: {title}")
+
+        row_id = task.get("row_id") or task.get("rowId")
+        if row_id:
+            lines.append(f"Task ID: {row_id}")
+
+        status = task.get("status", "Unknown")
+        lines.append(f"Status: {status}")
+
+        priority = task.get("priority", "Standard")
+        lines.append(f"Priority: {priority}")
+
+        # Handle multiple due date field names
+        due_date = task.get("due") or task.get("due_date") or task.get("dueDate")
+        if due_date:
+            if isinstance(due_date, str):
+                try:
+                    if "T" in due_date:
+                        date_part = due_date.split("T")[0]
+                        parsed = datetime.strptime(date_part, "%Y-%m-%d")
+                        due_str = parsed.strftime("%a %b %d, %Y")
+                    else:
+                        parsed = datetime.strptime(due_date, "%Y-%m-%d")
+                        due_str = parsed.strftime("%a %b %d, %Y")
+                except (ValueError, TypeError):
+                    due_str = due_date
+            elif isinstance(due_date, datetime):
+                due_str = due_date.strftime("%a %b %d, %Y")
+            else:
+                due_str = str(due_date)
+            lines.append(f"Due Date: {due_str}")
+
+        domain = task.get("domain", "personal")
+        lines.append(f"Domain: {domain}")
+
+        project = task.get("project")
+        if project:
+            lines.append(f"Project: {project}")
+
+        notes = task.get("notes")
+        if notes:
+            lines.append(f"Notes: {notes}")
+
+        source = task.get("source", "personal")
+        lines.append(f"Source: {source}")
+
+        return "\n".join(lines)
+
 
 def build_calendar_context(
     domain: DomainType,
@@ -270,6 +332,7 @@ def build_calendar_context(
     attention_items: Optional[List[CalendarAttentionRecord]] = None,
     tasks: Optional[List[Dict[str, Any]]] = None,
     selected_event: Optional[CalendarEvent] = None,
+    selected_task: Optional[Dict[str, Any]] = None,
     date_range_start: Optional[datetime] = None,
     date_range_end: Optional[datetime] = None,
 ) -> str:
@@ -281,6 +344,7 @@ def build_calendar_context(
         attention_items: Active attention items
         tasks: Tasks from Task tab
         selected_event: Currently selected event
+        selected_task: Currently selected task
         date_range_start: Start of view range
         date_range_end: End of view range
 
@@ -293,6 +357,7 @@ def build_calendar_context(
         attention_items=attention_items or [],
         tasks=tasks or [],
         selected_event=selected_event,
+        selected_task=selected_task,
         date_range_start=date_range_start,
         date_range_end=date_range_end,
     )

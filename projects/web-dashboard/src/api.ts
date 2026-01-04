@@ -3535,6 +3535,7 @@ export interface CalendarAttentionContext {
 export interface CalendarChatRequest {
   message: string
   selectedEventId?: string
+  selectedTaskId?: string  // Row ID of selected task in DATA panel
   dateRangeStart?: string  // ISO datetime
   dateRangeEnd?: string    // ISO datetime
   events?: CalendarEventContext[]

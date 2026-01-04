@@ -645,10 +645,7 @@ class SmartsheetClient:
                         self._cell_value(cell_map, "estimated_hours", allow_optional=True, schema=schema)
                     ),
                     notes=self._cell_value(cell_map, "notes", allow_optional=True, schema=schema),
-                    next_step=self._cell_value(
-                        cell_map, "notes", allow_optional=True, schema=schema
-                    )
-                    or "Review notes",
+                    next_step=None,  # No next_step column in Smartsheet schema
                     automation_hint=self._derive_hint(cell_map, schema=schema),
                     source=source_key,
                     done=is_done,

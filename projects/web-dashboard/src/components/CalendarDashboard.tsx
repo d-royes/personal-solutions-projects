@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { renderMarkdown } from '../utils/renderMarkdown'
 import type { AuthConfig } from '../auth/types'
 import type {
   CalendarAccount,
@@ -24,10 +25,12 @@ import {
   getCalendarConversation,
   clearCalendarConversation,
   updateCalendarConversation,
+  updateTask,
   type ListEventsOptions,
   type CalendarChatResponse,
   type CalendarEventContext,
   type CalendarAttentionContext,
+  type CalendarPendingTaskUpdate,
 } from '../api'
 import CalendarAttentionPanel from './CalendarAttentionPanel'
 import { deriveDomain, getTaskPriority } from '../utils/domain'
@@ -930,7 +933,8 @@ export function CalendarDashboard({
         selectedView,
         {
           message,
-          selectedEventId: selectedEvent?.id,
+          selectedEventId: selectedItem?.type === 'event' ? selectedItem.item.id : undefined,
+          selectedTaskId: selectedItem?.type === 'task' ? selectedItem.item.rowId : undefined,
           dateRangeStart: now.toISOString(),
           dateRangeEnd: futureDate.toISOString(),
           events: eventContext,
@@ -958,7 +962,175 @@ export function CalendarDashboard({
     } finally {
       setChatLoading(false)
     }
-  }, [chatInput, chatLoading, eventsForView, attentionItemsForView, tasks, selectedEvent, selectedView, chatMessages, authConfig, apiBase])
+  }, [chatInput, chatLoading, eventsForView, attentionItemsForView, tasks, selectedItem, selectedView, chatMessages, authConfig, apiBase])
+
+  // Handle confirming a pending calendar action (create/update/delete event)
+  const handleConfirmCalendarAction = useCallback(async () => {
+    if (!pendingAction?.pendingCalendarAction) return
+
+    const action = pendingAction.pendingCalendarAction
+    setChatLoading(true)
+
+    try {
+      // Map domain to account
+      const account: CalendarAccount = action.domain === 'work' ? 'personal' : (action.domain as CalendarAccount) || 'personal'
+
+      if (action.action === 'create_event' && action.summary && action.startDatetime && action.endDatetime) {
+        await createCalendarEvent(
+          account,
+          {
+            summary: action.summary,
+            start: action.startDatetime,
+            end: action.endDatetime,
+            description: action.description,
+            location: action.location,
+            calendarId: 'primary',
+          },
+          authConfig,
+          apiBase
+        )
+
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Done - created "${action.summary}" on your ${action.domain || 'personal'} calendar ✓`
+        }])
+
+      } else if (action.action === 'update_event' && action.eventId) {
+        await updateCalendarEvent(
+          account,
+          action.eventId,
+          {
+            summary: action.summary,
+            start: action.startDatetime,
+            end: action.endDatetime,
+            description: action.description,
+            location: action.location,
+            calendarId: 'primary',
+          },
+          authConfig,
+          apiBase
+        )
+
+        // Get event name from action or selected item
+        const eventName = action.summary || (selectedItem?.type === 'event' ? selectedItem.item.summary : 'event')
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Done - updated "${eventName}" ✓`
+        }])
+
+      } else if (action.action === 'delete_event' && action.eventId) {
+        // Get event name before deleting
+        const eventName = action.summary || (selectedItem?.type === 'event' ? selectedItem.item.summary : 'event')
+
+        await deleteCalendarEvent(
+          account,
+          action.eventId,
+          authConfig,
+          apiBase,
+          'primary',
+          true
+        )
+
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Done - deleted "${eventName}" ✓`
+        }])
+
+      } else {
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `⚠️ Cannot execute ${action.action}: missing required details`
+        }])
+      }
+    } catch (err) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `⚠️ Failed to ${action.action}: ${err instanceof Error ? err.message : 'Unknown error'}`
+      }])
+    } finally {
+      setPendingAction(null)
+      setChatLoading(false)
+    }
+  }, [pendingAction, selectedItem, authConfig, apiBase])
+
+  // Handle confirming a pending task update (Smartsheet)
+  const handleConfirmTaskUpdate = useCallback(async () => {
+    if (!pendingAction?.pendingTaskUpdate) return
+
+    const update = pendingAction.pendingTaskUpdate
+    if (!update.rowId) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '⚠️ Cannot update task: missing task ID'
+      }])
+      setPendingAction(null)
+      return
+    }
+
+    setChatLoading(true)
+
+    try {
+      await updateTask(
+        update.rowId,
+        {
+          source: update.source || 'personal',
+          action: update.action,
+          status: update.status,
+          priority: update.priority,
+          dueDate: update.dueDate,
+          comment: update.comment,
+          number: update.number,
+          contactFlag: update.contactFlag,
+          recurring: update.recurring,
+          project: update.project,
+          taskTitle: update.taskTitle,
+          assignedTo: update.assignedTo,
+          notes: update.notes,
+          estimatedHours: update.estimatedHours,
+          confirmed: true,
+        },
+        authConfig,
+        apiBase
+      )
+
+      // Format success message based on action
+      let successMsg = 'Done - task updated ✓'
+      if (update.action === 'update_due_date' && update.dueDate) {
+        successMsg = `Done - due date moved to ${update.dueDate} ✓`
+      } else if (update.action === 'update_status' && update.status) {
+        successMsg = `Done - status changed to "${update.status}" ✓`
+      } else if (update.action === 'update_priority' && update.priority) {
+        successMsg = `Done - priority changed to "${update.priority}" ✓`
+      } else if (update.action === 'mark_complete') {
+        successMsg = 'Done - task marked complete ✓'
+      }
+
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: successMsg
+      }])
+
+      // Refresh tasks
+      onRefreshTasks?.()
+    } catch (err) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `⚠️ Failed to update task: ${err instanceof Error ? err.message : 'Unknown error'}`
+      }])
+    } finally {
+      setPendingAction(null)
+      setChatLoading(false)
+    }
+  }, [pendingAction, authConfig, apiBase, onRefreshTasks])
+
+  // Handle canceling a pending action
+  const handleCancelPendingAction = useCallback(() => {
+    setChatMessages(prev => [...prev, {
+      role: 'assistant',
+      content: 'Action cancelled.'
+    }])
+    setPendingAction(null)
+  }, [])
 
   // Load conversation history when view changes
   useEffect(() => {
@@ -1871,14 +2043,6 @@ export function CalendarDashboard({
                     </div>
                   )}
 
-                  {/* Next Step */}
-                  {selectedItem.item.nextStep && (
-                    <div className="preview-description">
-                      <strong>Next Step:</strong>
-                      <div className="preview-next-step">{selectedItem.item.nextStep}</div>
-                    </div>
-                  )}
-
                   {/* Action Buttons */}
                   <div className="calendar-event-actions">
                     <button
@@ -1939,7 +2103,7 @@ export function CalendarDashboard({
                       >
                         ✕
                       </button>
-                      <div className="chat-message-content">{msg.content}</div>
+                      <div className="chat-message-content">{msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}</div>
                     </div>
                   ))}
                   {chatLoading && (
@@ -1951,6 +2115,107 @@ export function CalendarDashboard({
               )}
             </div>
 
+            {/* Pending Calendar Action Confirmation - matching Task mode style */}
+            {pendingAction?.pendingCalendarAction && (
+              <div className="pending-action-card">
+                <div className="pending-action-header">
+                  <span className="pending-icon">📅</span>
+                  <strong>Confirm</strong>
+                </div>
+                <div className="pending-action-content">
+                  <p className="pending-action-description">
+                    {pendingAction.pendingCalendarAction.action === 'create_event'
+                      ? `Create "${pendingAction.pendingCalendarAction.summary}" on ${pendingAction.pendingCalendarAction.domain || 'personal'} calendar`
+                      : pendingAction.pendingCalendarAction.action === 'update_event'
+                      ? `Update "${pendingAction.pendingCalendarAction.summary || 'event'}"`
+                      : pendingAction.pendingCalendarAction.action === 'delete_event'
+                      ? `Delete "${pendingAction.pendingCalendarAction.summary || 'event'}"`
+                      : pendingAction.pendingCalendarAction.action}
+                  </p>
+                  {pendingAction.pendingCalendarAction.startDatetime && (
+                    <p className="pending-action-details">
+                      {new Date(pendingAction.pendingCalendarAction.startDatetime).toLocaleString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit'
+                      })}
+                      {pendingAction.pendingCalendarAction.endDatetime && ` - ${new Date(pendingAction.pendingCalendarAction.endDatetime).toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit'
+                      })}`}
+                    </p>
+                  )}
+                  {pendingAction.pendingCalendarAction.reason && (
+                    <p className="pending-action-reason">
+                      {pendingAction.pendingCalendarAction.reason}
+                    </p>
+                  )}
+                </div>
+                <div className="pending-action-buttons">
+                  <button
+                    className="confirm-btn"
+                    onClick={handleConfirmCalendarAction}
+                    disabled={chatLoading}
+                  >
+                    ✓ Confirm
+                  </button>
+                  <button
+                    className="cancel-btn"
+                    onClick={handleCancelPendingAction}
+                    disabled={chatLoading}
+                  >
+                    ✕ Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Pending Task Update Confirmation - matching Task mode style */}
+            {pendingAction?.pendingTaskUpdate && (
+              <div className="pending-action-card">
+                <div className="pending-action-header">
+                  <span className="pending-icon">⚡</span>
+                  <strong>Confirm</strong>
+                </div>
+                <div className="pending-action-content">
+                  <p className="pending-action-description">
+                    {pendingAction.pendingTaskUpdate.action === 'update_due_date'
+                      ? `Change due date to ${pendingAction.pendingTaskUpdate.dueDate}`
+                      : pendingAction.pendingTaskUpdate.action === 'update_status'
+                      ? `Change status to "${pendingAction.pendingTaskUpdate.status}"`
+                      : pendingAction.pendingTaskUpdate.action === 'update_priority'
+                      ? `Change priority to "${pendingAction.pendingTaskUpdate.priority}"`
+                      : pendingAction.pendingTaskUpdate.action === 'mark_complete'
+                      ? 'Mark task as complete'
+                      : pendingAction.pendingTaskUpdate.action}
+                  </p>
+                  {pendingAction.pendingTaskUpdate.reason && (
+                    <p className="pending-action-reason">
+                      {pendingAction.pendingTaskUpdate.reason}
+                    </p>
+                  )}
+                </div>
+                <div className="pending-action-buttons">
+                  <button
+                    className="confirm-btn"
+                    onClick={handleConfirmTaskUpdate}
+                    disabled={chatLoading}
+                  >
+                    ✓ Confirm
+                  </button>
+                  <button
+                    className="cancel-btn"
+                    onClick={handleCancelPendingAction}
+                    disabled={chatLoading}
+                  >
+                    ✕ Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Chat Input - styled to match Email DATA panel */}
             <div className="email-chat-input">
               <input
@@ -1958,7 +2223,7 @@ export function CalendarDashboard({
                 placeholder="Ask DATA about your calendar or tasks..."
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                disabled={chatLoading}
+                disabled={chatLoading || !!pendingAction?.pendingCalendarAction || !!pendingAction?.pendingTaskUpdate}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && chatInput.trim() && !chatLoading) {
                     handleSendChatMessage()

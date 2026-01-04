@@ -4,12 +4,13 @@ This module handles the chat flow for calendar mode, including:
 - Building calendar context for DATA
 - Managing conversation persistence
 - Calling the LLM
-- Processing pending actions
+- Executing task actions immediately
 
 No privacy tiers like email - calendar is fully visible to DATA.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
@@ -21,6 +22,9 @@ from ..conversations.calendar_history import (
     fetch_calendar_conversation,
     get_calendar_conversation_metadata,
 )
+from ..smartsheet_client import SmartsheetClient, SmartsheetAPIError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,6 +35,7 @@ class CalendarChatRequest:
         message: User's message
         domain: Calendar domain (personal, church, work, combined)
         selected_event_id: Event being discussed (optional)
+        selected_task_id: Task being discussed (optional, row ID)
         date_range_start: Start of visible date range (optional)
         date_range_end: End of visible date range (optional)
         events: Events in current view
@@ -40,6 +45,7 @@ class CalendarChatRequest:
     message: str
     domain: DomainType
     selected_event_id: Optional[str] = None
+    selected_task_id: Optional[str] = None
     date_range_start: Optional[datetime] = None
     date_range_end: Optional[datetime] = None
     events: List[CalendarEvent] = field(default_factory=list)
@@ -100,6 +106,15 @@ def handle_calendar_chat(
                 selected_event = event
                 break
 
+    # Find selected task if specified
+    selected_task = None
+    if request.selected_task_id:
+        for task in request.tasks:
+            # Tasks are dicts with rowId key
+            if str(task.get("rowId")) == str(request.selected_task_id):
+                selected_task = task
+                break
+
     # Build context string for DATA
     context = build_calendar_context(
         domain=request.domain,
@@ -107,6 +122,7 @@ def handle_calendar_chat(
         attention_items=request.attention_items,
         tasks=request.tasks,
         selected_event=selected_event,
+        selected_task=selected_task,
         date_range_start=request.date_range_start,
         date_range_end=request.date_range_end,
     )
@@ -190,6 +206,7 @@ def handle_calendar_chat(
         if task.related_event_id:
             response.pending_task_creation["relatedEventId"] = task.related_event_id
 
+    # Return pending task updates for frontend confirmation (matching Task mode pattern)
     if llm_response.pending_task_update:
         update = llm_response.pending_task_update
         response.pending_task_update = {
@@ -198,6 +215,8 @@ def handle_calendar_chat(
         }
         if update.row_id:
             response.pending_task_update["rowId"] = update.row_id
+        if update.source:
+            response.pending_task_update["source"] = update.source
         if update.status:
             response.pending_task_update["status"] = update.status
         if update.priority:
@@ -229,3 +248,102 @@ def handle_calendar_chat(
 class CalendarChatError(Exception):
     """Error during calendar chat processing."""
     pass
+
+
+def _execute_task_update(update) -> Dict[str, Any]:
+    """Execute a task update via SmartsheetClient.
+
+    Args:
+        update: TaskUpdate from LLM response with action and field values
+
+    Returns:
+        Dict with success boolean and message describing the result
+    """
+    from ..config import load_settings
+
+    # Get settings for SmartsheetClient
+    settings = load_settings()
+    client = SmartsheetClient(settings)
+
+    row_id = update.row_id
+    source = getattr(update, "source", "personal")
+    action = update.action
+
+    try:
+        # Handle mark_complete specially - uses dedicated method with recurring logic
+        if action == "mark_complete":
+            client.mark_complete(row_id, source=source)
+            return {"success": True, "message": "Done - task marked complete ✓"}
+
+        # Build update_data based on action
+        update_data = {}
+        description = ""
+
+        if action == "update_status":
+            update_data["status"] = update.status
+            # Terminal statuses also mark done
+            if update.status in ("Completed", "Cancelled", "Delegated", "Ticket Created"):
+                update_data["done"] = True
+            description = f"status updated to '{update.status}'"
+
+        elif action == "update_priority":
+            update_data["priority"] = update.priority
+            description = f"priority changed to '{update.priority}'"
+
+        elif action == "update_due_date":
+            update_data["due_date"] = update.due_date
+            description = f"due date moved to {update.due_date}"
+
+        elif action == "add_comment":
+            # Comments use post_comment method
+            client.post_comment(row_id, update.comment, source=source)
+            return {"success": True, "message": f"Done - comment added ✓"}
+
+        elif action == "update_number":
+            update_data["number"] = update.number
+            description = f"task number set to {update.number}"
+
+        elif action == "update_contact_flag":
+            update_data["contact_flag"] = update.contact_flag
+            flag_text = "checked" if update.contact_flag else "unchecked"
+            description = f"contact flag {flag_text}"
+
+        elif action == "update_recurring":
+            update_data["recurring_pattern"] = update.recurring
+            description = f"recurring pattern set to '{update.recurring}'"
+
+        elif action == "update_project":
+            update_data["project"] = update.project
+            description = f"moved to project '{update.project}'"
+
+        elif action == "update_task":
+            update_data["task"] = update.task_title
+            description = f"renamed to '{update.task_title}'"
+
+        elif action == "update_assigned_to":
+            update_data["assigned_to"] = update.assigned_to
+            description = f"assigned to '{update.assigned_to}'"
+
+        elif action == "update_notes":
+            update_data["notes"] = update.notes
+            description = "notes updated"
+
+        elif action == "update_estimated_hours":
+            update_data["estimated_hours"] = update.estimated_hours
+            description = f"estimated hours set to {update.estimated_hours}"
+
+        else:
+            return {"success": False, "message": f"Unknown action: {action}"}
+
+        # Execute the update
+        if update_data:
+            client.update_row(row_id, update_data, source=source)
+
+        return {"success": True, "message": f"Done - {description} ✓"}
+
+    except SmartsheetAPIError as exc:
+        logger.error(f"Smartsheet API error: {exc}")
+        return {"success": False, "message": f"Smartsheet error: {exc}"}
+    except ValueError as exc:
+        logger.error(f"Validation error: {exc}")
+        return {"success": False, "message": f"Validation error: {exc}"}

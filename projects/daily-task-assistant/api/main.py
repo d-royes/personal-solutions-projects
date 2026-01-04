@@ -6714,6 +6714,7 @@ class CalendarChatRequestModel(BaseModel):
     """Request body for calendar chat."""
     message: str
     selectedEventId: Optional[str] = None
+    selectedTaskId: Optional[str] = None  # Row ID of selected task in DATA panel
     dateRangeStart: Optional[str] = None
     dateRangeEnd: Optional[str] = None
     events: Optional[List[CalendarEventContext]] = None
@@ -6866,6 +6867,7 @@ def chat_about_calendar(
         message=request.message,
         domain=domain,  # type: ignore
         selected_event_id=request.selectedEventId,
+        selected_task_id=request.selectedTaskId,
         date_range_start=date_range_start,
         date_range_end=date_range_end,
         events=events,

@@ -215,7 +215,7 @@ def _extract_planning_preferences(full_preferences: str) -> str:
 _DATA_PREFERENCES = _load_data_preferences()
 _PLANNING_PREFERENCES = _extract_planning_preferences(_DATA_PREFERENCES)
 
-DEFAULT_MODEL = "claude-opus-4-20250514"
+DEFAULT_MODEL = "claude-opus-4-5-20251101"
 SYSTEM_PROMPT = """You are the Daily Task Assistant, a diligent chief of staff.
 Produce concise, actionable guidance and respect the user's time.
 
@@ -780,12 +780,17 @@ PORTFOLIO_TASK_UPDATE_TOOL = {
                 "enum": [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"],
                 "description": "Estimated hours (required for update_estimated_hours)"
             },
+            "source": {
+                "type": "string",
+                "enum": ["personal", "work"],
+                "description": "Which Smartsheet to update - use 'personal' for Personal/Church tasks, 'work' for PGA TOUR tasks. Get from task's domain in context."
+            },
             "reason": {
                 "type": "string",
                 "description": "Brief explanation of why this update is being made"
             }
         },
-        "required": ["row_id", "action", "reason"]
+        "required": ["row_id", "action", "source", "reason"]
     }
 }
 
@@ -2236,6 +2241,15 @@ DATE HANDLING (CRITICAL):
 - When asked "what day is X due?", read the due date directly from the task line
 - The weekday abbreviation (Mon, Tue, Wed, etc.) in the context is AUTHORITATIVE
 
+EVENTS vs MEETINGS (CRITICAL):
+- EVENTS are all calendar items (focus time, appointments, meetings, etc.)
+- MEETINGS are events with attendees, marked with [Meeting] in the context
+- To count meetings, count ONLY events that have the [Meeting] marker
+- Events WITHOUT [Meeting] are personal blocks (focus time, lunch, etc.)
+- When reporting meeting counts, count the [Meeting] markers - do NOT estimate or infer
+- Example: "8:00 AM (2h): Focus time" = NOT a meeting (no [Meeting] marker)
+- Example: "10:00 AM (45m): DTS PM Weekly Jira Review [Meeting]" = IS a meeting
+
 TASK MANAGEMENT (via Smartsheet):
 You have full access to create and update tasks. Use the update_task tool for:
 - Creating prep tasks for meetings ("remind me to prepare agenda")
@@ -2256,6 +2270,9 @@ Use the calendar_action tool to:
 - Update existing events ("move my dentist appointment to next week")
 - Delete events when explicitly requested
 
+IMPORTANT: For update_event and delete_event actions, you MUST include the event_id.
+When a "SELECTED EVENT" section is in context, use that event's "Event ID" value.
+
 Work calendar events are READ ONLY - inform David he'll need to use Outlook/Teams.
 
 WORKLOAD ANALYSIS:
@@ -2265,8 +2282,18 @@ When David asks about capacity or overcommitment:
 - Suggest spreading out tasks or blocking prep time
 - Consider travel time for in-person meetings
 
-Be proactive but not presumptuous - suggest actions but wait for confirmation.
-Keep responses brief and focused. David values efficiency.
+ACTION EXECUTION (IMPORTANT):
+When David gives a clear directive like "move this task to Thursday" or "mark this done":
+- Execute the action immediately using the appropriate tool
+- Do NOT ask "Should I proceed?" or request confirmation
+- Just do it and confirm what you did: "Done - moved SecOps task to Thursday (Jan 8)"
+
+Only ask for clarification when there is genuine ambiguity:
+- Multiple tasks match the description
+- The target date/value is unclear
+- The action could have unintended consequences (like deleting something)
+
+David values efficiency. Clear requests get immediate action.
 """
 
 # Calendar action tool for creating/updating/deleting events
@@ -2399,6 +2426,7 @@ class TaskUpdate:
     row_id: Optional[str]
     action: str
     reason: str
+    source: str = "personal"  # personal or work
     status: Optional[str] = None
     priority: Optional[str] = None
     due_date: Optional[str] = None
@@ -2535,6 +2563,7 @@ def chat_with_calendar(
                     row_id=tool_input.get("row_id"),
                     action=tool_input.get("action", ""),
                     reason=tool_input.get("reason", ""),
+                    source=tool_input.get("source", "personal"),
                     status=tool_input.get("status"),
                     priority=tool_input.get("priority"),
                     due_date=tool_input.get("due_date"),
@@ -2559,8 +2588,9 @@ def chat_with_calendar(
         elif pending_task_creation:
             message = f"I'll create a task: '{pending_task_creation.task_title}'. Should I proceed?"
         elif pending_task_update:
+            # Task updates are executed immediately - no confirmation needed
             action_desc = _describe_task_update(pending_task_update)
-            message = f"I'll {action_desc}. Should I proceed?"
+            message = f"Updating task: {action_desc}..."
 
     return CalendarChatResponse(
         message=message,

@@ -462,8 +462,10 @@ def create_event(
         body["start"] = {"date": start.strftime("%Y-%m-%d")}
         body["end"] = {"date": end.strftime("%Y-%m-%d")}
     else:
-        body["start"] = {"dateTime": start.isoformat()}
-        body["end"] = {"dateTime": end.isoformat()}
+        # Google Calendar API requires timezone - use America/New_York as default
+        timezone = "America/New_York"
+        body["start"] = {"dateTime": start.isoformat(), "timeZone": timezone}
+        body["end"] = {"dateTime": end.isoformat(), "timeZone": timezone}
 
     if description:
         body["description"] = description
