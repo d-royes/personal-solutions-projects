@@ -15,6 +15,7 @@ from dataclasses import asdict
 from functools import lru_cache
 from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -5478,6 +5479,102 @@ def clear_workspace_endpoint(
     }
 
 
+class TaskCreateRequest(BaseModel):
+    """Request body for creating a new task in Smartsheet."""
+    source: Literal["personal", "work"] = "personal"  # Which Smartsheet to add to
+    task: str = Field(..., description="Task title (required)")
+    project: str = Field(..., description="Project name (must match allowed values)")
+    due_date: str = Field(..., description="Due date in YYYY-MM-DD format")
+    priority: str = Field("Standard", description="Priority level")
+    status: str = Field("Scheduled", description="Initial status")
+    assigned_to: str = Field("david.a.royes@gmail.com", description="Assignee email")
+    estimated_hours: str = Field("1", description="Estimated hours")
+    notes: Optional[str] = Field(None, description="Optional notes")
+    confirmed: bool = Field(False, description="User has confirmed this action")
+
+
+@app.post("/tasks/create")
+def create_task(
+    request: TaskCreateRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create a new task in Smartsheet.
+
+    Requires confirmation=True to execute. If not confirmed, returns a preview
+    of the proposed task for user confirmation.
+    """
+    from daily_task_assistant.smartsheet_client import SmartsheetClient, SmartsheetAPIError
+
+    settings = _get_settings()
+
+    # Validate project against allowed values
+    valid_projects = VALID_PROJECTS_PERSONAL if request.source == "personal" else VALID_PROJECTS_WORK
+    if request.project not in valid_projects:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid project '{request.project}'. Valid: {valid_projects}"
+        )
+
+    # Validate priority
+    valid_priorities = VALID_PRIORITIES if request.source == "personal" else VALID_PRIORITIES_WORK
+    if request.priority not in valid_priorities:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid priority '{request.priority}'. Valid: {valid_priorities}"
+        )
+
+    # Validate estimated hours
+    if request.estimated_hours not in VALID_ESTIMATED_HOURS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid estimated_hours '{request.estimated_hours}'. Valid: {VALID_ESTIMATED_HOURS}"
+        )
+
+    # If not confirmed, return preview
+    if not request.confirmed:
+        return {
+            "status": "preview",
+            "message": f"Will create task: '{request.task}' in {request.project}",
+            "task": {
+                "task": request.task,
+                "project": request.project,
+                "due_date": request.due_date,
+                "priority": request.priority,
+                "status": request.status,
+                "assigned_to": request.assigned_to,
+                "estimated_hours": request.estimated_hours,
+                "notes": request.notes,
+            }
+        }
+
+    # Execute the creation
+    try:
+        client = SmartsheetClient(settings)
+        task_data = {
+            "task": request.task,
+            "project": request.project,
+            "due_date": request.due_date,
+            "priority": request.priority,
+            "status": request.status,
+            "assigned_to": request.assigned_to,
+            "estimated_hours": request.estimated_hours,
+        }
+        if request.notes:
+            task_data["notes"] = request.notes
+
+        result = client.create_row(task_data, source=request.source)
+
+        return {
+            "status": "created",
+            "message": f"Created task: '{request.task}'",
+            "result": result,
+        }
+    except SmartsheetAPIError as exc:
+        raise HTTPException(status_code=502, detail=f"Smartsheet error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 class TaskUpdateRequest(BaseModel):
     """Request body for task update endpoint."""
     source: Literal["personal", "work"] = "personal"  # Which Smartsheet to update
@@ -6029,3 +6126,962 @@ def update_profile_endpoint(
     }
 
 
+# =============================================================================
+# Calendar API Endpoints
+# =============================================================================
+
+
+class CreateEventRequest(BaseModel):
+    """Request body for creating a calendar event."""
+    summary: str = Field(..., description="Event title")
+    start: str = Field(..., description="Start time (ISO format)")
+    end: str = Field(..., description="End time (ISO format)")
+    description: Optional[str] = Field(None, description="Event description")
+    location: Optional[str] = Field(None, description="Event location")
+    attendees: Optional[List[str]] = Field(None, description="List of attendee email addresses")
+    is_all_day: bool = Field(False, alias="isAllDay", description="Whether this is an all-day event")
+    send_notifications: bool = Field(True, alias="sendNotifications", description="Whether to send notifications")
+    calendar_id: str = Field("primary", alias="calendarId", description="Calendar ID (defaults to primary)")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class UpdateEventRequest(BaseModel):
+    """Request body for updating a calendar event."""
+    summary: Optional[str] = Field(None, description="New event title")
+    start: Optional[str] = Field(None, description="New start time (ISO format)")
+    end: Optional[str] = Field(None, description="New end time (ISO format)")
+    description: Optional[str] = Field(None, description="New event description")
+    location: Optional[str] = Field(None, description="New event location")
+    send_notifications: bool = Field(True, alias="sendNotifications", description="Whether to send notifications")
+    calendar_id: str = Field("primary", alias="calendarId", description="Calendar ID")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class QuickAddEventRequest(BaseModel):
+    """Request body for quick-add event using natural language."""
+    text: str = Field(..., description="Natural language description (e.g., 'Meeting with Doug tomorrow at 2pm')")
+    calendar_id: str = Field("primary", alias="calendarId", description="Calendar ID")
+    send_notifications: bool = Field(True, alias="sendNotifications", description="Whether to send notifications")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class UpdateCalendarSettingsRequest(BaseModel):
+    """Request body for updating calendar settings."""
+    enabled_calendars: Optional[List[str]] = Field(None, alias="enabledCalendars", description="List of enabled calendar IDs")
+    work_calendar_id: Optional[str] = Field(None, alias="workCalendarId", description="Calendar ID designated as 'work'")
+    show_declined_events: Optional[bool] = Field(None, alias="showDeclinedEvents", description="Whether to show declined events")
+    show_all_day_events: Optional[bool] = Field(None, alias="showAllDayEvents", description="Whether to show all-day events")
+    default_days_ahead: Optional[int] = Field(None, alias="defaultDaysAhead", description="Default number of days to show ahead")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+def _serialize_calendar_event(event) -> dict:
+    """Serialize a CalendarEvent to API response format."""
+    return {
+        "id": event.id,
+        "calendarId": event.calendar_id,
+        "summary": event.summary,
+        "start": event.start.isoformat(),
+        "end": event.end.isoformat(),
+        "description": event.description,
+        "location": event.location,
+        "colorId": event.color_id,
+        "startTimezone": event.start_timezone,
+        "endTimezone": event.end_timezone,
+        "isAllDay": event.is_all_day,
+        "status": event.status,
+        "attendees": [
+            {
+                "email": a.email,
+                "displayName": a.display_name,
+                "responseStatus": a.response_status,
+                "isOrganizer": a.is_organizer,
+                "isSelf": a.is_self,
+            }
+            for a in event.attendees
+        ],
+        "organizerEmail": event.organizer_email,
+        "creatorEmail": event.creator_email,
+        "recurringEventId": event.recurring_event_id,
+        "recurrence": event.recurrence,
+        "htmlLink": event.html_link,
+        "hangoutLink": event.hangout_link,
+        "created": event.created.isoformat() if event.created else None,
+        "updated": event.updated.isoformat() if event.updated else None,
+        "sourceDomain": event.source_domain,
+        "isMeeting": event.is_meeting,
+        "attendeeCount": event.attendee_count,
+        "durationMinutes": event.duration_minutes,
+    }
+
+
+def _serialize_calendar_info(cal) -> dict:
+    """Serialize a CalendarInfo to API response format."""
+    return {
+        "id": cal.id,
+        "summary": cal.summary,
+        "description": cal.description,
+        "colorId": cal.color_id,
+        "backgroundColor": cal.background_color,
+        "foregroundColor": cal.foreground_color,
+        "isPrimary": cal.is_primary,
+        "accessRole": cal.access_role,
+        "isWritable": cal.is_writable,
+    }
+
+
+@app.get("/calendar/{account}/calendars")
+def list_calendars_endpoint(
+    account: Literal["church", "personal"],
+    show_hidden: bool = Query(False, alias="showHidden"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List all calendars accessible by this account.
+
+    Returns calendar metadata including ID, name, color, and access role.
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        list_calendars,
+    )
+
+    try:
+        config = load_account_from_env(account)
+        response = list_calendars(config, show_hidden=show_hidden)
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+
+    return {
+        "account": account,
+        "calendars": [_serialize_calendar_info(cal) for cal in response.calendars],
+        "nextPageToken": response.next_page_token,
+    }
+
+
+@app.get("/calendar/{account}/events")
+def list_events_endpoint(
+    account: Literal["church", "personal"],
+    calendar_id: str = Query("primary", alias="calendarId"),
+    time_min: Optional[str] = Query(None, alias="timeMin", description="Start time (ISO format)"),
+    time_max: Optional[str] = Query(None, alias="timeMax", description="End time (ISO format)"),
+    max_results: int = Query(100, alias="maxResults", ge=1, le=2500),
+    page_token: Optional[str] = Query(None, alias="pageToken"),
+    source_domain: str = Query("personal", alias="sourceDomain"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List events from a calendar.
+
+    Args:
+        account: Email account (church or personal)
+        calendar_id: Calendar ID or "primary"
+        time_min: Lower bound for event start time (defaults to now)
+        time_max: Upper bound for event start time
+        max_results: Maximum events to return (1-2500)
+        page_token: Token for pagination
+        source_domain: Domain label for events (personal, work, church)
+
+    Returns:
+        List of calendar events with pagination token
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        list_events,
+    )
+
+    try:
+        config = load_account_from_env(account)
+
+        # Parse datetime strings if provided
+        time_min_dt = datetime.fromisoformat(time_min) if time_min else None
+        time_max_dt = datetime.fromisoformat(time_max) if time_max else None
+
+        response = list_events(
+            config,
+            calendar_id=calendar_id,
+            time_min=time_min_dt,
+            time_max=time_max_dt,
+            max_results=max_results,
+            page_token=page_token,
+            source_domain=source_domain,
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}")
+
+    return {
+        "account": account,
+        "calendarId": calendar_id,
+        "events": [_serialize_calendar_event(e) for e in response.events],
+        "nextPageToken": response.next_page_token,
+        "nextSyncToken": response.next_sync_token,
+    }
+
+
+@app.get("/calendar/{account}/events/{event_id}")
+def get_event_endpoint(
+    account: Literal["church", "personal"],
+    event_id: str,
+    calendar_id: str = Query("primary", alias="calendarId"),
+    source_domain: str = Query("personal", alias="sourceDomain"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get a specific calendar event by ID.
+
+    Args:
+        account: Email account (church or personal)
+        event_id: Event ID
+        calendar_id: Calendar ID
+        source_domain: Domain label for the event
+
+    Returns:
+        Calendar event details
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        get_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+        event = get_event(config, calendar_id, event_id, source_domain=source_domain)
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+
+    return {
+        "account": account,
+        "event": _serialize_calendar_event(event),
+    }
+
+
+@app.post("/calendar/{account}/events")
+def create_event_endpoint(
+    account: Literal["church", "personal"],
+    request: CreateEventRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create a new calendar event.
+
+    Args:
+        account: Email account (church or personal)
+        request: Event details
+
+    Returns:
+        Created calendar event
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        create_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+
+        # Parse datetime strings
+        start_dt = datetime.fromisoformat(request.start)
+        end_dt = datetime.fromisoformat(request.end)
+
+        event = create_event(
+            config,
+            request.calendar_id,
+            summary=request.summary,
+            start=start_dt,
+            end=end_dt,
+            description=request.description,
+            location=request.location,
+            attendees=request.attendees,
+            is_all_day=request.is_all_day,
+            send_notifications=request.send_notifications,
+            source_domain=account,  # Use account as source domain for new events
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}")
+
+    return {
+        "status": "created",
+        "account": account,
+        "event": _serialize_calendar_event(event),
+    }
+
+
+@app.put("/calendar/{account}/events/{event_id}")
+def update_event_endpoint(
+    account: Literal["church", "personal"],
+    event_id: str,
+    request: UpdateEventRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update an existing calendar event.
+
+    Args:
+        account: Email account (church or personal)
+        event_id: Event ID to update
+        request: Fields to update
+
+    Returns:
+        Updated calendar event
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        update_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+
+        # Parse datetime strings if provided
+        start_dt = datetime.fromisoformat(request.start) if request.start else None
+        end_dt = datetime.fromisoformat(request.end) if request.end else None
+
+        event = update_event(
+            config,
+            request.calendar_id,
+            event_id,
+            summary=request.summary,
+            start=start_dt,
+            end=end_dt,
+            description=request.description,
+            location=request.location,
+            send_notifications=request.send_notifications,
+            source_domain=account,
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}")
+
+    return {
+        "status": "updated",
+        "account": account,
+        "event": _serialize_calendar_event(event),
+    }
+
+
+@app.delete("/calendar/{account}/events/{event_id}")
+def delete_event_endpoint(
+    account: Literal["church", "personal"],
+    event_id: str,
+    calendar_id: str = Query("primary", alias="calendarId"),
+    send_notifications: bool = Query(True, alias="sendNotifications"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Delete a calendar event.
+
+    Args:
+        account: Email account (church or personal)
+        event_id: Event ID to delete
+        calendar_id: Calendar ID
+        send_notifications: Whether to send notifications to attendees
+
+    Returns:
+        Deletion confirmation
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        delete_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+        delete_event(config, calendar_id, event_id, send_notifications=send_notifications)
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+
+    return {
+        "status": "deleted",
+        "account": account,
+        "eventId": event_id,
+        "calendarId": calendar_id,
+    }
+
+
+@app.post("/calendar/{account}/quick-add")
+def quick_add_event_endpoint(
+    account: Literal["church", "personal"],
+    request: QuickAddEventRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create an event using natural language.
+
+    Google Calendar will parse the text to create an event.
+    Example: "Meeting with Doug tomorrow at 2pm"
+
+    Args:
+        account: Email account (church or personal)
+        request: Natural language event description
+
+    Returns:
+        Created calendar event
+    """
+    from daily_task_assistant.calendar import (
+        CalendarError,
+        load_account_from_env,
+        quick_add_event,
+    )
+
+    try:
+        config = load_account_from_env(account)
+        event = quick_add_event(
+            config,
+            request.calendar_id,
+            request.text,
+            send_notifications=request.send_notifications,
+            source_domain=account,
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar API error: {exc}")
+
+    return {
+        "status": "created",
+        "account": account,
+        "event": _serialize_calendar_event(event),
+    }
+
+
+@app.get("/calendar/{account}/settings")
+def get_calendar_settings_endpoint(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get calendar display settings for an account.
+
+    Returns enabled calendars, work calendar designation, and display preferences.
+    """
+    from daily_task_assistant.calendar import get_calendar_settings
+
+    settings = get_calendar_settings(account)
+
+    return {
+        "account": account,
+        "settings": {
+            "enabledCalendars": settings.enabled_calendars,
+            "workCalendarId": settings.work_calendar_id,
+            "showDeclinedEvents": settings.show_declined_events,
+            "showAllDayEvents": settings.show_all_day_events,
+            "defaultDaysAhead": settings.default_days_ahead,
+            "lastSyncedAt": settings.last_synced_at.isoformat() if settings.last_synced_at else None,
+        },
+    }
+
+
+@app.put("/calendar/{account}/settings")
+def update_calendar_settings_endpoint(
+    account: Literal["church", "personal"],
+    request: UpdateCalendarSettingsRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update calendar display settings for an account.
+
+    Only provided fields are updated; others remain unchanged.
+    """
+    from daily_task_assistant.calendar import (
+        get_calendar_settings,
+        save_calendar_settings,
+    )
+
+    settings = get_calendar_settings(account)
+
+    # Update only provided fields
+    if request.enabled_calendars is not None:
+        settings.enabled_calendars = request.enabled_calendars
+    if request.work_calendar_id is not None:
+        settings.work_calendar_id = request.work_calendar_id if request.work_calendar_id else None
+    if request.show_declined_events is not None:
+        settings.show_declined_events = request.show_declined_events
+    if request.show_all_day_events is not None:
+        settings.show_all_day_events = request.show_all_day_events
+    if request.default_days_ahead is not None:
+        settings.default_days_ahead = request.default_days_ahead
+
+    save_calendar_settings(account, settings)
+
+    return {
+        "status": "updated",
+        "account": account,
+        "settings": {
+            "enabledCalendars": settings.enabled_calendars,
+            "workCalendarId": settings.work_calendar_id,
+            "showDeclinedEvents": settings.show_declined_events,
+            "showAllDayEvents": settings.show_all_day_events,
+            "defaultDaysAhead": settings.default_days_ahead,
+            "lastSyncedAt": settings.last_synced_at.isoformat() if settings.last_synced_at else None,
+        },
+    }
+
+
+# =============================================================================
+# Phase CA-1: Calendar Attention Endpoints
+# =============================================================================
+
+
+@app.get("/calendar/{account}/attention")
+def list_calendar_attention(
+    account: Literal["church", "personal", "work"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """List active calendar attention items for an account.
+
+    Returns items that need David's attention (VIP meetings, prep needed, etc.)
+    """
+    from daily_task_assistant.calendar import list_active_attention
+
+    records = list_active_attention(account)
+
+    return {
+        "account": account,
+        "items": [r.to_api_dict() for r in records],
+        "count": len(records),
+    }
+
+
+@app.post("/calendar/{account}/attention/{event_id}/viewed")
+def mark_calendar_attention_viewed(
+    account: Literal["church", "personal", "work"],
+    event_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mark a calendar attention item as viewed.
+
+    Records when user first saw this item for quality metrics.
+    """
+    from daily_task_assistant.calendar import mark_viewed
+
+    success = mark_viewed(account, event_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {"status": "viewed", "eventId": event_id}
+
+
+@app.post("/calendar/{account}/attention/{event_id}/dismiss")
+def dismiss_calendar_attention(
+    account: Literal["church", "personal", "work"],
+    event_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Dismiss a calendar attention item.
+
+    Marks item as dismissed and records action for quality metrics.
+    """
+    from daily_task_assistant.calendar import dismiss_attention
+
+    success = dismiss_attention(account, event_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {"status": "dismissed", "eventId": event_id}
+
+
+@app.post("/calendar/{account}/attention/{event_id}/act")
+def act_on_calendar_attention(
+    account: Literal["church", "personal", "work"],
+    event_id: str,
+    action_type: str = "task_linked",
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Mark a calendar attention item as acted upon.
+
+    Records action type (task_linked, prep_started) for quality metrics.
+    """
+    from daily_task_assistant.calendar import mark_acted
+
+    success = mark_acted(account, event_id, action_type)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Attention item not found")
+
+    return {"status": "acted", "eventId": event_id, "actionType": action_type}
+
+
+@app.get("/calendar/{account}/attention/quality-metrics")
+def get_calendar_attention_quality_metrics(
+    account: Literal["church", "personal", "work"],
+    days: int = 30,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get quality metrics for calendar attention items.
+
+    Returns acceptance rates, dismissal rates, and breakdowns by type.
+    """
+    from daily_task_assistant.calendar import get_quality_metrics
+
+    metrics = get_quality_metrics(account, days)
+
+    return {
+        "account": account,
+        "days": days,
+        "metrics": metrics,
+    }
+
+
+@app.post("/calendar/{account}/attention/analyze")
+def analyze_calendar_events(
+    account: Literal["church", "personal", "work"],
+    days_ahead: int = 7,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Analyze upcoming calendar events and create attention items.
+
+    Scans events in the next N days for VIP meetings, prep needs, etc.
+    """
+    from datetime import datetime, timezone, timedelta
+    from daily_task_assistant.calendar import (
+        load_account_from_env,
+        list_events,
+        analyze_events,
+        get_calendar_settings,
+    )
+
+    try:
+        cal_account = load_account_from_env(account)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Calendar config error: {e}")
+
+    settings = get_calendar_settings(account)
+
+    # Get events for the next N days
+    now = datetime.now(timezone.utc)
+    time_max = now + timedelta(days=days_ahead)
+
+    try:
+        response = list_events(
+            cal_account,
+            calendar_id="primary",
+            time_min=now,
+            time_max=time_max,
+            source_domain=account,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Calendar API error: {e}")
+
+    # Analyze events
+    records = analyze_events(response.events, account, settings)
+
+    return {
+        "account": account,
+        "eventsScanned": len(response.events),
+        "attentionItemsCreated": len(records),
+        "items": [r.to_api_dict() for r in records],
+    }
+
+
+# =============================================================================
+# Calendar Chat Endpoints
+# =============================================================================
+
+class CalendarEventContext(BaseModel):
+    """Event data passed from frontend for chat context."""
+    id: str
+    summary: str
+    start: str
+    end: str
+    location: Optional[str] = None
+    attendees: Optional[List[Dict[str, Any]]] = None
+    description: Optional[str] = None
+    htmlLink: Optional[str] = None
+    isMeeting: bool = False
+    sourceDomain: Optional[str] = None
+
+
+class CalendarAttentionContext(BaseModel):
+    """Attention item passed from frontend for chat context."""
+    eventId: str
+    summary: str
+    start: str
+    attentionType: str
+    reason: str
+    matchedVip: Optional[str] = None
+
+
+class CalendarChatRequestModel(BaseModel):
+    """Request body for calendar chat."""
+    message: str
+    selectedEventId: Optional[str] = None
+    selectedTaskId: Optional[str] = None  # Row ID of selected task in DATA panel
+    dateRangeStart: Optional[str] = None
+    dateRangeEnd: Optional[str] = None
+    events: Optional[List[CalendarEventContext]] = None
+    attentionItems: Optional[List[CalendarAttentionContext]] = None
+    tasks: Optional[List[Dict[str, Any]]] = None
+    history: Optional[List[Dict[str, str]]] = None
+
+
+@app.post("/calendar/{domain}/chat")
+def chat_about_calendar(
+    domain: Literal["personal", "church", "work", "combined"],
+    request: CalendarChatRequestModel,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Chat with DATA about calendar and tasks.
+
+    DATA can help analyze schedule, suggest task adjustments, create events,
+    and answer questions about workload.
+
+    Conversation is persisted by domain (7-day TTL).
+    """
+    from datetime import datetime, timezone
+    from daily_task_assistant.calendar.chat import (
+        handle_calendar_chat,
+        CalendarChatRequest,
+        CalendarChatError,
+    )
+    from daily_task_assistant.calendar.types import (
+        CalendarEvent,
+        CalendarAttentionRecord,
+        EventAttendee,
+    )
+
+    # Convert frontend events to CalendarEvent objects
+    events = []
+    if request.events:
+        for evt in request.events:
+            # Parse datetimes
+            try:
+                start_dt = datetime.fromisoformat(evt.start.replace("Z", "+00:00"))
+                end_dt = datetime.fromisoformat(evt.end.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                start_dt = datetime.now(timezone.utc)
+                end_dt = datetime.now(timezone.utc)
+
+            # Convert attendees
+            attendees = []
+            if evt.attendees:
+                for att in evt.attendees:
+                    attendees.append(EventAttendee(
+                        email=att.get("email", ""),
+                        display_name=att.get("displayName"),
+                        response_status=att.get("responseStatus"),
+                        is_self=att.get("isSelf", False),
+                    ))
+
+            events.append(CalendarEvent(
+                id=evt.id,
+                calendar_id="primary",  # Default to primary calendar
+                summary=evt.summary,
+                start=start_dt,
+                end=end_dt,
+                location=evt.location,
+                attendees=attendees,
+                description=evt.description,
+                html_link=evt.htmlLink,
+                source_domain=evt.sourceDomain or domain,
+            ))
+
+    # Convert frontend attention items to CalendarAttentionRecord objects
+    attention_items = []
+    if request.attentionItems:
+        for item in request.attentionItems:
+            try:
+                start_dt = datetime.fromisoformat(item.start.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                start_dt = datetime.now(timezone.utc)
+
+            attention_items.append(CalendarAttentionRecord(
+                event_id=item.eventId,
+                calendar_account=domain if domain != "combined" else "personal",
+                calendar_id="primary",
+                summary=item.summary,
+                start=start_dt,
+                end=start_dt,  # Not critical for chat context
+                attendees=[],
+                attention_type=item.attentionType,
+                reason=item.reason,
+                matched_vip=item.matchedVip,
+            ))
+
+    # Parse date range
+    date_range_start = None
+    date_range_end = None
+    if request.dateRangeStart:
+        try:
+            date_range_start = datetime.fromisoformat(
+                request.dateRangeStart.replace("Z", "+00:00")
+            )
+        except ValueError:
+            pass
+    if request.dateRangeEnd:
+        try:
+            date_range_end = datetime.fromisoformat(
+                request.dateRangeEnd.replace("Z", "+00:00")
+            )
+        except ValueError:
+            pass
+
+    # Filter tasks to only include those with due dates within the visible range
+    # This respects the "Days to Show" setting in Calendar settings
+    # NOTE: Task due dates are LOCAL dates (David's timezone), not UTC
+    _LOCAL_TZ = ZoneInfo("America/New_York")
+    filtered_tasks = []
+    if request.tasks and date_range_start and date_range_end:
+        # Convert date range to local timezone for comparison
+        # date_range_start/end come from frontend as UTC ISO strings
+        local_range_start = date_range_start.astimezone(_LOCAL_TZ).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        local_range_end = date_range_end.astimezone(_LOCAL_TZ).replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        )
+
+        for task in request.tasks:
+            # Handle multiple due date field names (due, due_date, dueDate)
+            due_date_str = task.get("due") or task.get("due_date") or task.get("dueDate")
+            if not due_date_str:
+                # Skip tasks without due dates - not date-relevant for calendar context
+                continue
+            try:
+                # Parse due date - treat as LOCAL date (not UTC)
+                if isinstance(due_date_str, str):
+                    if "T" in due_date_str:
+                        # ISO format with time - extract just the date part
+                        date_part = due_date_str.split("T")[0]
+                        task_due = datetime.strptime(date_part, "%Y-%m-%d")
+                    else:
+                        # Date-only format (YYYY-MM-DD)
+                        task_due = datetime.strptime(due_date_str, "%Y-%m-%d")
+                    # Treat as local timezone (task due dates are local, not UTC)
+                    task_due = task_due.replace(tzinfo=_LOCAL_TZ)
+                else:
+                    continue
+
+                # Include task if due date is within visible date range
+                if local_range_start <= task_due <= local_range_end:
+                    filtered_tasks.append(task)
+            except (ValueError, TypeError):
+                # Skip tasks with unparseable due dates
+                continue
+    elif request.tasks:
+        # No date range specified - include all tasks (fallback)
+        filtered_tasks = request.tasks
+
+    # Build chat request
+    chat_request = CalendarChatRequest(
+        message=request.message,
+        domain=domain,  # type: ignore
+        selected_event_id=request.selectedEventId,
+        selected_task_id=request.selectedTaskId,
+        date_range_start=date_range_start,
+        date_range_end=date_range_end,
+        events=events,
+        attention_items=attention_items,
+        tasks=filtered_tasks,
+        history=request.history,
+    )
+
+    # Handle chat
+    try:
+        response = handle_calendar_chat(chat_request, user_email=user)
+    except CalendarChatError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    # Build API response
+    result = {
+        "response": response.response,
+        "domain": response.domain,
+    }
+
+    # Pass through pending action dicts (already formatted by chat.py)
+    if response.pending_calendar_action:
+        result["pendingCalendarAction"] = response.pending_calendar_action
+    if response.pending_task_creation:
+        result["pendingTaskCreation"] = response.pending_task_creation
+    if response.pending_task_update:
+        result["pendingTaskUpdate"] = response.pending_task_update
+
+    return result
+
+
+@app.get("/calendar/{domain}/conversation")
+def get_calendar_conversation(
+    domain: Literal["personal", "church", "work", "combined"],
+    limit: int = Query(50, ge=1, le=100, description="Max messages to return"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get conversation history for a calendar domain.
+
+    Returns the persisted conversation history for DATA chat in calendar mode.
+    """
+    from daily_task_assistant.conversations.calendar_history import (
+        fetch_calendar_conversation,
+        get_calendar_conversation_metadata,
+    )
+
+    messages = fetch_calendar_conversation(domain, limit=limit)  # type: ignore
+    metadata = get_calendar_conversation_metadata(domain)  # type: ignore
+
+    return {
+        "domain": domain,
+        "messages": [
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "ts": msg.ts,
+                "eventContext": msg.event_context,
+            }
+            for msg in messages
+        ],
+        "messageCount": len(messages),
+        "metadata": metadata.to_api_dict() if metadata else None,
+    }
+
+
+@app.delete("/calendar/{domain}/conversation")
+def clear_calendar_conversation(
+    domain: Literal["personal", "church", "work", "combined"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Clear conversation history for a calendar domain."""
+    from daily_task_assistant.conversations.calendar_history import (
+        clear_calendar_conversation as do_clear,
+    )
+
+    success = do_clear(domain)  # type: ignore
+
+    return {
+        "domain": domain,
+        "cleared": success,
+    }
+
+
+class UpdateCalendarConversationRequest(BaseModel):
+    """Request body for updating calendar conversation."""
+
+    messages: List[Dict[str, Any]] = Field(
+        ..., description="List of messages with role and content"
+    )
+
+
+@app.put("/calendar/{domain}/conversation")
+def update_calendar_conversation(
+    domain: Literal["personal", "church", "work", "combined"],
+    request: UpdateCalendarConversationRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update/replace conversation history for a calendar domain.
+
+    Used when deleting individual messages from the chat history.
+    """
+    from daily_task_assistant.conversations.calendar_history import (
+        update_calendar_conversation as do_update,
+    )
+
+    success = do_update(domain, request.messages)  # type: ignore
+
+    return {
+        "domain": domain,
+        "updated": success,
+        "message_count": len(request.messages),
+    }

@@ -6,6 +6,7 @@ import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import { RebalancingEditor } from './components/RebalancingEditor'
 import { EmailDashboard, emptyEmailCache, type EmailCacheState } from './components/EmailDashboard'
+import { CalendarDashboard, emptyCalendarCache, type CalendarCacheState } from './components/CalendarDashboard'
 import { ProfileSettings } from './components/ProfileSettings'
 import {
   clearGlobalHistory,
@@ -51,6 +52,7 @@ import type {
   ActivityEntry,
   AppMode,
   AssistPlan,
+  CalendarView,
   ConversationMessage,
   DataSource,
   FirestoreTask,
@@ -126,6 +128,7 @@ function App() {
   const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
   const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
+  const [autoEngageTaskId, setAutoEngageTaskId] = useState<string | null>(null)  // Auto-engage after selecting from calendar
 
   // Email dashboard state - lifted up to persist across mode switches
   const [emailCache, setEmailCache] = useState<EmailCacheState>({
@@ -133,6 +136,13 @@ function App() {
     church: emptyEmailCache(),
   })
   const [emailSelectedAccount, setEmailSelectedAccount] = useState<'personal' | 'church'>('personal')
+
+  // Calendar dashboard state - lifted up to persist across mode switches
+  const [calendarCache, setCalendarCache] = useState<CalendarCacheState>({
+    personal: emptyCalendarCache(),
+    church: emptyCalendarCache(),
+  })
+  const [calendarSelectedView, setCalendarSelectedView] = useState<CalendarView>('combined')
 
   // Global Mode state
   const [globalPerspective, setGlobalPerspective] = useState<Perspective>('personal')
@@ -237,6 +247,14 @@ function App() {
     }
     void loadGlobalContext()
   }, [authConfig, selectedTaskId, apiBase])
+
+  // Auto-engage when navigating from Calendar Tasks tab
+  useEffect(() => {
+    if (autoEngageTaskId && selectedTaskId === autoEngageTaskId && selectedTask && !isEngaged) {
+      setAutoEngageTaskId(null)  // Clear the flag
+      void engageTask()  // Trigger engagement
+    }
+  }, [autoEngageTaskId, selectedTaskId, selectedTask, isEngaged])
 
   async function refreshTasks(skipAutoSelect = false) {
     if (!authConfig) return
@@ -1070,6 +1088,14 @@ function App() {
               >
                 <img src="/Selector_Email_v1.png" alt="Email" className="mode-card-img" />
               </button>
+              <button
+                className={`mode-card ${appMode === 'calendar' ? 'active' : ''}`}
+                onClick={() => setAppMode('calendar')}
+                aria-label="Calendar"
+                title="Calendar"
+              >
+                <img src="/Selector_Calendar_v1.png" alt="Calendar" className="mode-card-img" />
+              </button>
             </div>
           )}
           <button
@@ -1205,6 +1231,24 @@ function App() {
             setCache={setEmailCache}
             selectedAccount={emailSelectedAccount}
             setSelectedAccount={setEmailSelectedAccount}
+          />
+        ) : appMode === 'calendar' ? (
+          <CalendarDashboard
+            authConfig={authConfig}
+            apiBase={apiBase}
+            onBack={() => setAppMode('tasks')}
+            cache={calendarCache}
+            setCache={setCalendarCache}
+            selectedView={calendarSelectedView}
+            setSelectedView={setCalendarSelectedView}
+            tasks={tasks}
+            tasksLoading={tasksLoading}
+            onRefreshTasks={() => refreshTasks(true)}
+            onSelectTaskInTasksMode={(taskId) => {
+              setAppMode('tasks')
+              handleSelectTask(taskId)
+              setAutoEngageTaskId(taskId)  // Auto-engage after selecting
+            }}
           />
         ) : (
           <>

@@ -207,7 +207,7 @@ export interface HaikuUsage {
 }
 
 // App mode for navigation
-export type AppMode = 'tasks' | 'email'
+export type AppMode = 'tasks' | 'email' | 'calendar'
 
 // User Profile types (for email management intelligence)
 export interface UserProfile {
@@ -351,5 +351,211 @@ export interface AddPatternResponse {
   account: string
   pattern: string
   message: string
+}
+
+// =============================================================================
+// Calendar Types
+// =============================================================================
+
+export type CalendarAccount = 'church' | 'personal'
+export type CalendarView = 'personal' | 'work' | 'church' | 'combined'
+
+export interface EventAttendee {
+  email: string
+  displayName?: string
+  responseStatus: 'needsAction' | 'declined' | 'tentative' | 'accepted'
+  isOrganizer: boolean
+  isSelf: boolean
+}
+
+export interface CalendarEvent {
+  id: string
+  calendarId: string
+  summary: string
+  start: string  // ISO datetime
+  end: string    // ISO datetime
+  description?: string
+  location?: string
+  colorId?: string
+  startTimezone?: string
+  endTimezone?: string
+  isAllDay: boolean
+  status: 'confirmed' | 'tentative' | 'cancelled'
+  attendees: EventAttendee[]
+  organizerEmail?: string
+  creatorEmail?: string
+  recurringEventId?: string
+  recurrence?: string[]
+  htmlLink?: string
+  hangoutLink?: string
+  created?: string
+  updated?: string
+  sourceDomain: 'personal' | 'work' | 'church'
+  // Computed properties from API
+  isMeeting: boolean
+  attendeeCount: number
+  durationMinutes: number
+}
+
+export interface CalendarInfo {
+  id: string
+  summary: string
+  description?: string
+  colorId?: string
+  backgroundColor?: string
+  foregroundColor?: string
+  isPrimary: boolean
+  accessRole: 'owner' | 'writer' | 'reader' | 'freeBusyReader'
+  isWritable: boolean
+}
+
+export interface CalendarSettings {
+  enabledCalendars: string[]
+  workCalendarId?: string
+  showDeclinedEvents: boolean
+  showAllDayEvents: boolean
+  defaultDaysAhead: number
+  lastSyncedAt?: string
+}
+
+// API Response types
+export interface CalendarListResponse {
+  account: string
+  calendars: CalendarInfo[]
+  nextPageToken?: string
+}
+
+export interface EventListResponse {
+  account: string
+  calendarId: string
+  events: CalendarEvent[]
+  nextPageToken?: string
+  nextSyncToken?: string
+}
+
+export interface CalendarEventResponse {
+  account: string
+  event: CalendarEvent
+}
+
+export interface CalendarSettingsResponse {
+  account: string
+  settings: CalendarSettings
+}
+
+export interface CreateEventRequest {
+  summary: string
+  start: string  // ISO datetime
+  end: string    // ISO datetime
+  description?: string
+  location?: string
+  attendees?: string[]
+  isAllDay?: boolean
+  sendNotifications?: boolean
+  calendarId?: string
+}
+
+export interface UpdateEventRequest {
+  summary?: string
+  start?: string
+  end?: string
+  description?: string
+  location?: string
+  sendNotifications?: boolean
+  calendarId: string
+}
+
+export interface QuickAddEventRequest {
+  text: string
+  calendarId?: string
+  sendNotifications?: boolean
+}
+
+export interface UpdateCalendarSettingsRequest {
+  enabledCalendars?: string[]
+  workCalendarId?: string
+  showDeclinedEvents?: boolean
+  showAllDayEvents?: boolean
+  defaultDaysAhead?: number
+}
+
+// Calendar cache state (for lifting to App.tsx)
+export interface CalendarCacheState {
+  calendars: CalendarInfo[]
+  events: CalendarEvent[]
+  settings: CalendarSettings | null
+  loaded: boolean
+  loading: boolean
+  error?: string
+}
+
+// =============================================================================
+// Timeline Types (Unified Calendar + Tasks View)
+// =============================================================================
+
+export type TimelineItemType = 'event' | 'task'
+export type TimelineDomain = 'personal' | 'work' | 'church'
+
+export interface TimelineItem {
+  type: TimelineItemType
+  id: string
+  title: string
+  dateKey: string        // For grouping: toDateString()
+  sortTime: Date         // For sorting within a day
+  sortPriority: number   // Secondary sort: 0 for events (by time), 1-5 for tasks (by priority)
+  sourceDomain: TimelineDomain
+  event?: CalendarEvent
+  task?: Task
+}
+
+// =============================================================================
+// Phase CA-1: Calendar Attention Types
+// =============================================================================
+
+export type CalendarAttentionType = 'vip_meeting' | 'prep_needed' | 'task_conflict' | 'overcommitment'
+export type CalendarAttentionStatus = 'active' | 'dismissed' | 'acted' | 'expired'
+export type CalendarActionType = 'viewed' | 'dismissed' | 'task_linked' | 'prep_started'
+
+export interface CalendarAttentionItem {
+  eventId: string
+  calendarAccount: string
+  calendarId: string
+  summary: string
+  start: string  // ISO datetime
+  end: string    // ISO datetime
+  attendees: string[]
+  location?: string
+  htmlLink?: string
+  attentionType: CalendarAttentionType
+  reason: string
+  confidence: number
+  matchedVip?: string
+  status: CalendarAttentionStatus
+  dismissedAt?: string
+  firstViewedAt?: string
+  actionTakenAt?: string
+  actionType?: CalendarActionType
+}
+
+export interface CalendarAttentionListResponse {
+  account: string
+  items: CalendarAttentionItem[]
+  count: number
+}
+
+export interface CalendarAttentionAnalyzeResponse {
+  account: string
+  eventsScanned: number
+  attentionItemsCreated: number
+  items: CalendarAttentionItem[]
+}
+
+export interface CalendarAttentionQualityMetrics {
+  total: number
+  byStatus: Record<string, number>
+  byType: Record<string, number>
+  byAction: Record<string, number>
+  acceptanceRate: number
+  dismissedRate: number
 }
 
