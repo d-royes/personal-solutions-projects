@@ -3,11 +3,7 @@ import { GoogleSignInButton, useAuth } from '../auth/AuthContext'
 
 const devAuthEnabled = import.meta.env.VITE_DEV_AUTH_ENABLED !== '0'
 
-interface AuthPanelProps {
-  onClose?: () => void
-}
-
-export function AuthPanel({ onClose }: AuthPanelProps) {
+export function AuthPanel() {
   const {
     state,
     authConfig,
@@ -51,11 +47,6 @@ export function AuthPanel({ onClose }: AuthPanelProps) {
               : 'Sign in to call the API'}
           </p>
         </div>
-        {onClose && (
-          <button className="icon-button" onClick={onClose} aria-label="Close menu">
-            ×
-          </button>
-        )}
       </div>
 
       {displayError && <p className="warning">{displayError}</p>}
@@ -66,7 +57,6 @@ export function AuthPanel({ onClose }: AuthPanelProps) {
             const allowed = setGoogleCredential(token, email)
             if (allowed) {
               setError(null)
-              onClose?.()
             }
             // If not allowed, authError will be set by context
           }}
@@ -100,7 +90,6 @@ export function AuthPanel({ onClose }: AuthPanelProps) {
                   if (typeof window !== 'undefined') {
                     window.localStorage.setItem('dta-dev-email', devEmail)
                   }
-                  onClose?.()
                 }
                 // If not allowed, authError will be set by context
               } else {

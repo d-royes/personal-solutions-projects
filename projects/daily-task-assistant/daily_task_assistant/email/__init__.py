@@ -1,0 +1,268 @@
+"""Email analysis and management package."""
+
+from .analyzer import (
+    EmailAnalyzer,
+    RuleSuggestion,
+    AttentionItem,
+    EmailActionSuggestion,
+    EmailActionType,
+    analyze_inbox_patterns,
+    suggest_label_rules,
+    detect_attention_items,
+    generate_action_suggestions,
+    # Profile-aware analysis
+    is_vip_sender,
+    matches_not_actionable,
+    analyze_with_profile,
+    detect_attention_with_profile,
+    # Haiku-enhanced analysis
+    detect_attention_with_haiku,
+    analyze_email_with_haiku_safe,
+    get_haiku_usage_for_user,
+    generate_action_suggestions_with_haiku,
+    generate_rule_suggestions_with_haiku,
+)
+
+from .attention_store import (
+    AttentionRecord,
+    save_attention,
+    get_attention,
+    list_active_attention,
+    dismiss_attention,
+    snooze_attention,
+    link_task,
+    is_already_analyzed,
+    purge_expired_records,
+    get_dismissed_email_ids,
+)
+
+from .suggestion_store import (
+    SuggestionRecord,
+    save_suggestion,
+    get_suggestion,
+    list_pending_suggestions,
+    has_pending_suggestion_for_email,
+    record_suggestion_decision,
+    create_suggestion,
+    get_approval_stats,
+    purge_old_suggestions,
+    cleanup_duplicate_suggestions,
+)
+
+from .memory import (
+    CategoryPattern,
+    SenderProfile,
+    TimingPatterns,
+    ResponseTimeRecord,
+    PatternType,
+    RelationshipType,
+    ResponseExpectation,
+    # Category operations
+    record_category_approval,
+    record_category_dismissal,
+    get_category_pattern,
+    get_category_patterns,
+    suggest_category_for_email,
+    # Sender operations
+    get_sender_profile,
+    save_sender_profile,
+    list_sender_profiles,
+    is_vip_sender,
+    # Timing operations
+    get_timing_patterns,
+    save_timing_patterns,
+    record_response_time,
+    get_average_response_time,
+    # Seed data
+    seed_sender_profiles_from_memory_graph,
+)
+
+from .haiku_analyzer import (
+    # Result dataclasses
+    HaikuAnalysisResult,
+    HaikuAttentionResult,
+    HaikuActionResult,
+    HaikuRuleResult,
+    PrivacySanitizeResult,
+    # Privacy functions
+    is_sensitive_domain,
+    sanitize_content,
+    prepare_email_for_haiku,
+    # Main analysis
+    analyze_email_with_haiku,
+)
+
+from .rule_store import (
+    RuleSuggestionRecord,
+    save_rule_suggestion,
+    get_rule_suggestion,
+    list_pending_rules,
+    decide_rule_suggestion,
+    create_rule_suggestion,
+    get_rule_approval_stats,
+    purge_expired_rules,
+    has_pending_rule_for_pattern,
+)
+
+from .haiku_usage import (
+    # Dataclasses
+    HaikuSettings,
+    HaikuUsage,
+    # Settings operations
+    get_settings as get_haiku_settings,
+    save_settings as save_haiku_settings,
+    # Usage operations
+    get_usage as get_haiku_usage,
+    save_usage as save_haiku_usage,
+    increment_usage as increment_haiku_usage,
+    # Combined operations
+    can_use_haiku,
+    get_usage_summary as get_haiku_usage_summary,
+)
+
+from .analysis_store import (
+    LastAnalysisRecord,
+    save_last_analysis,
+    get_last_analysis,
+)
+
+from .privacy import (
+    PrivacyCheckResult,
+    check_email_privacy,
+    can_data_see_email,
+    build_email_context_for_data,
+    get_privacy_summary_for_email,
+    SENSITIVE_LABEL_NAME,
+)
+
+from .sync import (
+    email_exists,
+    batch_check_emails,
+    validate_attention_items,
+    dismiss_stale_attention,
+    validate_suggestion_items,
+    expire_stale_suggestions,
+    sync_stale_items,
+    verify_email_for_interaction,
+)
+
+__all__ = [
+    # Analyzer
+    "EmailAnalyzer",
+    "RuleSuggestion",
+    "AttentionItem",
+    "EmailActionSuggestion",
+    "EmailActionType",
+    "analyze_inbox_patterns",
+    "suggest_label_rules",
+    "detect_attention_items",
+    "generate_action_suggestions",
+    # Profile-aware analysis
+    "is_vip_sender",
+    "matches_not_actionable",
+    "analyze_with_profile",
+    "detect_attention_with_profile",
+    # Haiku-enhanced analysis
+    "detect_attention_with_haiku",
+    "analyze_email_with_haiku_safe",
+    "get_haiku_usage_for_user",
+    "generate_action_suggestions_with_haiku",
+    "generate_rule_suggestions_with_haiku",
+    # Attention Store
+    "AttentionRecord",
+    "save_attention",
+    "get_attention",
+    "list_active_attention",
+    "dismiss_attention",
+    "snooze_attention",
+    "link_task",
+    "is_already_analyzed",
+    "purge_expired_records",
+    "get_dismissed_email_ids",
+    # Suggestion Store
+    "SuggestionRecord",
+    "save_suggestion",
+    "get_suggestion",
+    "list_pending_suggestions",
+    "record_suggestion_decision",
+    "create_suggestion",
+    "get_approval_stats",
+    "purge_old_suggestions",
+    # Memory - data classes
+    "CategoryPattern",
+    "SenderProfile",
+    "TimingPatterns",
+    "ResponseTimeRecord",
+    "PatternType",
+    "RelationshipType",
+    "ResponseExpectation",
+    # Memory - category operations
+    "record_category_approval",
+    "record_category_dismissal",
+    "get_category_pattern",
+    "get_category_patterns",
+    "suggest_category_for_email",
+    # Memory - sender operations
+    "get_sender_profile",
+    "save_sender_profile",
+    "list_sender_profiles",
+    "is_vip_sender",
+    # Memory - timing operations
+    "get_timing_patterns",
+    "save_timing_patterns",
+    "record_response_time",
+    "get_average_response_time",
+    # Seed
+    "seed_sender_profiles_from_memory_graph",
+    # Haiku Analyzer
+    "HaikuAnalysisResult",
+    "HaikuAttentionResult",
+    "HaikuActionResult",
+    "HaikuRuleResult",
+    "PrivacySanitizeResult",
+    "is_sensitive_domain",
+    "sanitize_content",
+    "prepare_email_for_haiku",
+    "analyze_email_with_haiku",
+    # Haiku Usage
+    "HaikuSettings",
+    "HaikuUsage",
+    "get_haiku_settings",
+    "save_haiku_settings",
+    "get_haiku_usage",
+    "save_haiku_usage",
+    "increment_haiku_usage",
+    "can_use_haiku",
+    "get_haiku_usage_summary",
+    # Rule Store
+    "RuleSuggestionRecord",
+    "save_rule_suggestion",
+    "get_rule_suggestion",
+    "list_pending_rules",
+    "decide_rule_suggestion",
+    "create_rule_suggestion",
+    "get_rule_approval_stats",
+    "purge_expired_rules",
+    "has_pending_rule_for_pattern",
+    # Analysis Store
+    "LastAnalysisRecord",
+    "save_last_analysis",
+    "get_last_analysis",
+    # Privacy Controls
+    "PrivacyCheckResult",
+    "check_email_privacy",
+    "can_data_see_email",
+    "build_email_context_for_data",
+    "get_privacy_summary_for_email",
+    "SENSITIVE_LABEL_NAME",
+    # Stale Item Sync
+    "email_exists",
+    "batch_check_emails",
+    "validate_attention_items",
+    "dismiss_stale_attention",
+    "validate_suggestion_items",
+    "expire_stale_suggestions",
+    "sync_stale_items",
+    "verify_email_for_interaction",
+]
+

@@ -116,7 +116,8 @@ class TestTaskUpdateEndpoint:
         body = resp.json()
         assert body["status"] == "pending_confirmation"
         assert body["preview"]["action"] == "mark_complete"
-        assert body["preview"]["changes"]["status"] == "Complete"
+        # Preview shows done checkbox will be checked
+        # (status change depends on whether task is recurring - handled at execution time)
         assert body["preview"]["changes"]["done"] is True
 
     def test_update_status_requires_status_field(self):
@@ -143,13 +144,13 @@ class TestTaskUpdateEndpoint:
         """Test status update preview."""
         resp = client.post(
             "/assist/1001/update",
-            json={"action": "update_status", "status": "Blocked", "confirmed": False},
+            json={"action": "update_status", "status": "On Hold", "confirmed": False},
             headers=USER_HEADERS,
         )
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "pending_confirmation"
-        assert body["preview"]["changes"]["status"] == "Blocked"
+        assert body["preview"]["changes"]["status"] == "On Hold"
 
     def test_update_priority_validates_value(self):
         """Test that invalid priority values are rejected."""

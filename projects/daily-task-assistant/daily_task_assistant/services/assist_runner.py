@@ -31,6 +31,7 @@ def execute_assist(
     send_email_account: Optional[str],
     live_tasks: bool,
     conversation_history: Optional[List[dict]] = None,
+    workspace_context: Optional[str] = None,
 ) -> AssistExecutionResult:
     """Run the assist workflow and return metadata."""
 
@@ -39,6 +40,7 @@ def execute_assist(
         task,
         model_override=anthropic_model,
         history=conversation_history,
+        workspace_context=workspace_context,
     )
     message_id: Optional[str] = None
     comment_posted = False

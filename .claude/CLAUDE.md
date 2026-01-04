@@ -1,0 +1,301 @@
+# Daily Task Assistant (DATA) - Project Instructions
+
+## Project Overview
+
+This is the **Daily Task Assistant (DATA)** project - a FastAPI backend + React frontend application that helps David manage tasks from Smartsheet with AI assistance.
+
+**Repository:** `d-royes/personal-solutions-projects`
+**Primary Branch:** `develop`
+
+## Architecture
+
+```
+projects/
+├── daily-task-assistant/     # FastAPI backend
+│   ├── api/main.py           # API endpoints
+│   ├── daily_task_assistant/ # Core Python modules
+│   │   ├── llm/              # Anthropic integration
+│   │   ├── conversations/    # Chat history persistence
+│   │   ├── actions/          # Task planning logic
+│   │   ├── sheets/           # Google Sheets integration (email rules)
+│   │   ├── email/            # Email analysis and suggestions
+│   │   └── services/         # Assist workflow orchestration
+│   ├── config/smartsheet.yml # Smartsheet schema
+│   ├── DATA_PREFERENCES.md   # DATA's behavioral guidelines
+│   └── tests/                # pytest unit tests
+│
+├── web-dashboard/            # React + Vite frontend
+│   └── src/
+│       ├── App.tsx           # Main application
+│       ├── api.ts            # Backend API client
+│       ├── components/       # React components
+│       │   └── EmailDashboard.tsx  # Email management UI
+│       └── auth/             # Google OAuth integration
+│
+└── e2e-tests/                # Playwright regression tests
+    ├── playwright.config.ts  # Multi-browser test config
+    └── tests/
+        ├── api-health.spec.ts    # Backend API health checks
+        ├── tasks/                # Task list & portfolio tests
+        └── email/                # Email management tests
+```
+
+## Code Style
+
+### Python (Backend)
+- **Python 3.11+** with type hints everywhere
+- **Dataclasses with `slots=True`** for models
+- **Snake_case** for variables and functions
+- **Docstrings** on all public functions
+- **Pydantic v2** for API request/response models
+- Use `from __future__ import annotations` at top of files
+
+### TypeScript (Frontend)
+- **Functional components with hooks**
+- **CamelCase** for variables, **PascalCase** for components
+- **Async/await** for API calls
+- **Types in `types.ts`**, API functions in `api.ts`
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `api/main.py` | All FastAPI endpoints |
+| `llm/anthropic_client.py` | Anthropic API integration, system prompts |
+| `smartsheet_client.py` | Smartsheet API wrapper |
+| `DATA_PREFERENCES.md` | DATA's behavioral guidelines - READ THIS |
+| `config/smartsheet.yml` | Column IDs and validation rules |
+| `App.tsx` | Main React component, state management |
+| `AssistPanel.tsx` | Assistant UI, chat interface |
+| `EmailDashboard.tsx` | Email management UI |
+| `sheets/filter_rules.py` | Google Sheets email rules integration |
+| `email/analyzer.py` | Email pattern detection and suggestions |
+
+## Development Commands
+
+### Starting Dev Servers
+```powershell
+cd projects/daily-task-assistant
+powershell -ExecutionPolicy Bypass -File .\scripts\start-dev.ps1
+```
+- Backend: http://localhost:8000
+- Frontend: http://localhost:5173
+
+### Resetting Dev Servers
+```powershell
+cd projects/daily-task-assistant/scripts
+
+# Reset backend (kills process on port 8000, restarts with env vars)
+.\reset-backend.ps1
+
+# Reset frontend (kills process on port 5173, restarts Vite)
+.\reset-frontend.ps1
+```
+
+### Claude Code Backend Restart
+When restarting the backend from Claude Code (bash shell), the PowerShell script runs in a new window. For Claude Code to start the backend in the same shell, use:
+```bash
+cd "C:\Users\david\psp-cli\projects\daily-task-assistant" && \
+  set -a && source .env && set +a && \
+  export DTA_DEV_AUTH_BYPASS="1" && \
+  export PYTHONPATH="." && \
+  export GOOGLE_APPLICATION_CREDENTIALS="C:\Users\david\.gcp\daily-task-assistant-church-4c371ea55362.json" && \
+  python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Run this as a background task to keep the server running while working.
+
+**Important**: The `set -a && source .env && set +a` loads Gmail credentials and other env vars from .env. Without this, Gmail endpoints will fail with "Missing Gmail env vars" errors.
+
+**Preferred**: Use `reset-backend.ps1` instead - it handles .env loading, zombie process cleanup, and starts in a new window.
+
+### Troubleshooting: Zombie Uvicorn Processes on Windows
+
+**Symptom**: Server restart doesn't pick up new code changes. New API endpoints return 404 even though they're in the code. `netstat` shows processes on port 8000 that `Stop-Process` cannot find.
+
+**Root Cause**: When uvicorn is killed, orphaned child processes can survive and continue serving old code while holding the port open. The parent PID shows in `netstat` but is already dead.
+
+**Solution** (Source: https://rolisz.ro/2024/fastapi-server-stuck-on-windows/):
+
+```powershell
+# 1. Get orphaned PIDs from netstat
+netstat -ano | findstr :8000
+# Shows: LISTENING  29360, 71188, 57352
+
+# 2. Find child processes of those dead parents
+Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -in (29360, 71188, 57352) } | Select-Object ProcessId, Name, ParentProcessId
+
+# 3. Kill the orphaned children
+Stop-Process -Id PID1, PID2, PID3 -Force
+
+# 4. Verify port is free
+Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
+# Should return nothing
+
+# 5. Restart server normally
+```
+
+**Prevention**: Always use `stop-dev.ps1` which should handle child processes. If issues persist, use the manual steps above.
+
+### Running Unit Tests
+```powershell
+cd projects/daily-task-assistant
+python -m pytest tests/ -v
+```
+
+### Running E2E Tests
+```powershell
+cd projects/e2e-tests
+npm test              # Run all tests headless
+npm run test:ui       # Interactive UI mode
+npm run test:headed   # Watch browser as tests run
+npm run test:chrome   # Chrome only (faster)
+```
+
+### Test Categories
+```powershell
+npm run test:api      # API Health (4 tests)
+npm run test:tasks    # Task Management (14 tests)
+npm run test:email    # Email Management (14 tests)
+```
+
+## Environment Variables
+
+The `.env` file in `projects/daily-task-assistant/` contains:
+- `SMARTSHEET_API_TOKEN` - Smartsheet access
+- `ANTHROPIC_API_KEY` - Claude API
+- `GOOGLE_APPLICATION_CREDENTIALS` - Firestore access
+- Gmail OAuth credentials for church/personal accounts
+
+## API Endpoints
+
+- `POST /assist/{task_id}` - Engage with a task (load context)
+- `POST /assist/{task_id}/plan` - Generate a plan
+- `POST /assist/{task_id}/chat` - Send chat message
+- `POST /assist/{task_id}/research` - Web research
+- `POST /assist/{task_id}/update` - Update Smartsheet
+- `POST /assist/{task_id}/feedback` - Submit feedback
+- `GET /feedback/summary` - Get aggregated feedback statistics
+
+## Storage
+
+### Conversation History
+- Production: Firestore
+- Dev: Local JSON files (set `DTA_CONVERSATION_FORCE_FILE=1`)
+- Per-task, cleared when task is marked complete
+
+### Feedback System
+- Production: Firestore
+- Dev: `feedback_log/feedback.jsonl` (set `DTA_FEEDBACK_FORCE_FILE=1`)
+
+### Authentication
+- Production: Google OAuth with ID token verification
+- Dev: Set `DTA_DEV_AUTH_BYPASS=1` and use `X-User-Email` header
+
+## Storage Key Architecture (CRITICAL)
+
+**David has TWO login identities but is ONE user:**
+- `david.a.royes@gmail.com` (personal Gmail)
+- `davidroyes@southpointsda.org` (church Gmail)
+
+**NEVER key storage by login email.** This causes data fragmentation and allows bypassing limits.
+
+### Storage Categories
+
+| Category | Key Strategy | Firestore Path | File Path |
+|----------|--------------|----------------|-----------|
+| **GLOBAL** | Fixed `"david"` | `global/david/{collection}` | `{store}/global/` |
+| **ACCOUNT** | `"church"` or `"personal"` | `email_accounts/{account}/...` | `{store}/{account}/` |
+
+### What Goes Where
+
+| Module | Category | Why |
+|--------|----------|-----|
+| `profile.py` | GLOBAL | User preferences shared across logins |
+| `haiku_usage.py` | GLOBAL | Usage limits must be global (can't bypass by switching login) |
+| `attention_store.py` | ACCOUNT | Email attention is per-account (church vs personal inbox) |
+| `suggestion_store.py` | ACCOUNT | Suggestions are per-account |
+| `memory.py` | ACCOUNT | Email patterns are per-account |
+
+### Reference Implementation
+See `attention_store.py` for the correct ACCOUNT-based pattern.
+See `docs/STORAGE_ARCHITECTURE.md` for full details.
+
+## Boundaries
+
+### Command Execution
+Claude Code should never ask David to run commands unless there is a critical reason and Claude Code is unable to execute them. Claude Code is the developer and CLI specialist. David depends on your expertise to run, evaluate, and resolve any issues when executing commands.
+
+### Do
+- Write tests for new backend functionality
+- Run `npx tsc --noEmit` before committing frontend changes
+- Update `DATA_PREFERENCES.md` when changing DATA's behavior
+- Commit at logical checkpoints with descriptive messages
+- Run E2E tests after significant UI or API changes
+- Add E2E tests when building new user-facing features
+
+### Ask First
+- Changes to Smartsheet schema (`config/smartsheet.yml`)
+- New API endpoints that modify external data
+- Changes to authentication flow
+- UI/UX changes - present plans for approval before implementing
+
+### Don't
+- Hardcode API keys or secrets
+- Skip tests for Smartsheet write operations
+- Change DATA's personality without updating preferences file
+- Deploy to production without user approval
+- Skip regression tests before merging to staging/main
+
+## Common Workflows
+
+### Adding a New DATA Capability
+1. Define the tool in `llm/anthropic_client.py`
+2. Add endpoint in `api/main.py`
+3. Add frontend API function in `api.ts`
+4. Update UI in `AssistPanel.tsx`
+5. Document in `DATA_PREFERENCES.md`
+6. Write tests
+
+### Fixing DATA's Response Behavior
+1. Check `DATA_PREFERENCES.md` for expected behavior
+2. Update system prompt in `anthropic_client.py`
+3. Add example to preferences file
+4. Test with real conversation
+
+### Conducting a Tuning Session
+1. Pull feedback summary: `GET /feedback/summary?days=30`
+2. Review `needs_work` patterns
+3. Update `DATA_PREFERENCES.md` with new examples or anti-patterns
+4. Adjust system prompts in `anthropic_client.py` if needed
+5. Track `helpfulRate` over time
+6. Document changes in version history
+
+### Adding Smartsheet Field Support
+1. Get column ID from Smartsheet API
+2. Add to `config/smartsheet.yml`
+3. Update `SmartsheetClient` if needed
+4. Add validation in API endpoint
+
+## Git Workflow
+
+- **Primary branch:** `develop`
+- **Commit style:** `type(scope): description` (feat, fix, docs, test, security)
+- Push after each logical milestone
+- Create restore points before major changes
+- PR to `main` for production releases
+
+## Project Documentation
+
+- `BACKLOG.md` - Feature backlog and known issues
+- `CHANGELOG.md` - Version history (Keep a Changelog format)
+- `DATA_PREFERENCES.md` - DATA's behavioral guidelines
+- `docs/DATA_CLOUD_VISION.md` - Product roadmap
+- `docs/Gap_Analysis_Conversation_Review.md` - UX improvement ideas
+- `docs/STORAGE_ARCHITECTURE.md` - **CRITICAL** storage key patterns (GLOBAL vs ACCOUNT)
+
+## Resources
+
+- [Smartsheet API Docs](https://smartsheet.redoc.ly/)
+- [Anthropic API Docs](https://docs.anthropic.com/)
+- [FastAPI Docs](https://fastapi.tiangolo.com/)
+- [Playwright Docs](https://playwright.dev/)

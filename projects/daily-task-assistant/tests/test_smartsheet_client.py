@@ -92,12 +92,18 @@ class TestMarkComplete:
     """Tests for SmartsheetClient.mark_complete()"""
 
     def test_mark_complete_sets_status_and_done(self, mock_client):
-        """Test that mark_complete sets both Status and Done."""
-        mock_client._mock_request.return_value = {"result": [{"id": "456"}]}
+        """Test that mark_complete sets both Status and Done for non-recurring tasks."""
+        # First call (GET) returns row with non-recurring status
+        # Second call (PUT) returns the update result
+        mock_client._mock_request.side_effect = [
+            {"cells": [{"columnId": 123, "value": "In Progress"}]},  # GET response
+            {"result": [{"id": "456"}]},  # PUT response
+        ]
 
         result = mock_client.mark_complete("456")
 
-        call_args = mock_client._mock_request.call_args
+        # Get the PUT call (second call)
+        call_args = mock_client._mock_request.call_args_list[1]
         payload = call_args[1]["body"]
         cells = payload[0]["cells"]
 
@@ -105,16 +111,21 @@ class TestMarkComplete:
         assert len(cells) == 2
 
         # Find status and done cells
+        # Note: checkbox values are converted to 1/0 for Smartsheet API
         status_cell = next((c for c in cells if c["value"] == "Completed"), None)
-        done_cell = next((c for c in cells if c["value"] is True), None)
+        done_cell = next((c for c in cells if c["value"] == 1), None)
 
         assert status_cell is not None, "Status cell not found"
-        assert done_cell is not None, "Done cell not found"
+        assert done_cell is not None, "Done cell not found (expected value=1 for checkbox)"
 
     def test_mark_complete_returns_response(self, mock_client):
         """Test that mark_complete returns the API response."""
         expected = {"result": [{"id": "789", "cells": []}]}
-        mock_client._mock_request.return_value = expected
+        # First call (GET) returns row data, second call (PUT) returns expected
+        mock_client._mock_request.side_effect = [
+            {"cells": [{"columnId": 123, "value": "Not Started"}]},  # GET response
+            expected,  # PUT response
+        ]
 
         result = mock_client.mark_complete("789")
 

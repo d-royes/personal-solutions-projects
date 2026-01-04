@@ -116,6 +116,75 @@ python projects/daily-task-assistant/cli.py assist 1002 --source live --send-ema
 
 Future accounts (e.g., personal Gmail) can use the same pattern with a different prefix, such as `PERSONAL_GMAIL_CLIENT_ID`.
 
+## Email Management (Chief of Staff Model)
+
+DATA includes email management capabilities that work with Google Apps Script to automate email labeling. This follows a "Chief of Staff" model where:
+
+1. **Apps Script** handles clear-cut, rule-based email labeling (runs every 15 minutes)
+2. **DATA** analyzes patterns, suggests new rules, and handles nuanced categorization
+3. **Google Sheets** serves as the shared rules database
+
+### Email Filter Rules
+
+Rules are stored in a Google Sheet (`Gmail_Filter_Index`) with columns:
+- `Email` - Which account the rule applies to
+- `Filter Category` - Target label (Personal, Promotional, Transactional, etc.)
+- `Filter Field` - What to match (Sender Email Address, Email Subject, Sender Name)
+- `Operator` - Match type (Contains, Equals)
+- `Value` - Pattern to match
+- `Action` - What to do (Apply label, Remove, Trash)
+
+### API Endpoints for Email Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/email/inbox` | GET | Get inbox summary for an account |
+| `/email/rules` | GET | List filter rules from Google Sheets |
+| `/email/rules` | POST | Add a new filter rule |
+| `/email/rules/{id}` | DELETE | Remove a filter rule |
+| `/email/analyze` | POST | Analyze inbox for patterns and suggestions |
+| `/email/sync` | POST | Sync rules to Google Sheets |
+
+### Supported Email Accounts
+
+Configure in `.env`:
+```
+# Personal Gmail
+PERSONAL_GMAIL_CLIENT_ID=...
+PERSONAL_GMAIL_CLIENT_SECRET=...
+PERSONAL_GMAIL_REFRESH_TOKEN=...
+PERSONAL_GMAIL_ADDRESS=your@gmail.com
+
+# Church Gmail
+CHURCH_GMAIL_CLIENT_ID=...
+CHURCH_GMAIL_CLIENT_SECRET=...
+CHURCH_GMAIL_REFRESH_TOKEN=...
+CHURCH_GMAIL_ADDRESS=you@church.org
+```
+
+### Haiku Intelligence Layer (F1)
+
+DATA uses Claude Haiku for intelligent email analysis with privacy-safe content handling:
+
+- **Attention Detection**: AI identifies emails needing action beyond simple regex patterns
+- **Action Suggestions**: Recommends archive, label, star, or task creation with rationale
+- **Rule Suggestions**: Proposes new filter rules based on email patterns
+- **Privacy Controls**: Sensitive domains blocked, content masked before sending to AI
+- **Usage Limits**: Configurable daily (150) and weekly (300) Haiku API calls
+
+### Persistence Layer
+
+All email analysis results persist to Firestore for cross-machine access:
+
+| Store | Purpose | Location |
+|-------|---------|----------|
+| `attention_store.py` | Attention items with dismiss/snooze | `email_accounts/{account}/attention/` |
+| `suggestion_store.py` | Action suggestions with approve/reject | `email_accounts/{account}/suggestions/` |
+| `rule_store.py` | Rule suggestions with decision tracking | `email_accounts/{account}/rule_suggestions/` |
+| `analysis_store.py` | Last analysis audit results | `email_accounts/{account}/metadata/` |
+
+Storage uses ACCOUNT-based keying (church/personal) per `docs/STORAGE_ARCHITECTURE.md`.
+
 ## FastAPI Service
 
 The `api/main.py` module exposes the same capabilities over HTTP (used by the upcoming React dashboard). Run locally with:
@@ -127,8 +196,14 @@ PYTHONPATH=. uvicorn api.main:app --reload
 
 Scripts for convenience:
 
-- `scripts/start-dev.ps1` – launches uvicorn (with `DTA_DEV_AUTH_BYPASS=1`) and the React dev server in separate windows.
-- `scripts/stop-dev.ps1` – stops anything bound to ports 8000/5173 to avoid port conflicts.
+| Script | Purpose |
+|--------|---------|
+| `scripts/start-dev.ps1` | Launch both backend and frontend in separate windows |
+| `scripts/stop-dev.ps1` | Stop all processes on ports 8000/5173 |
+| `scripts/reset-backend.ps1` | Kill hung Python processes + restart backend |
+| `scripts/reset-frontend.ps1` | Kill hung Node processes + restart frontend |
+
+The reset scripts are useful when hot-reload gets stuck or zombie processes hold onto ports.
 
 ### Auth
 
@@ -155,7 +230,26 @@ Conversational history is stored per task under the Firestore collection `conver
 
 ## Deployment
 
-### Backend (Cloud Run)
+### Live Environments
+
+| Environment | Frontend | Backend |
+|-------------|----------|---------|
+| **Production** | https://daily-task-assistant-prod.web.app | https://daily-task-assistant-prod-368257400464.us-central1.run.app |
+| **Staging** | https://daily-task-assistant-church.web.app | https://daily-task-assistant-staging-368257400464.us-central1.run.app |
+
+### CI/CD Pipeline (Recommended)
+
+Deployments are automated via GitHub Actions:
+
+1. **Develop** → Push to `develop` branch, tests run automatically
+2. **Staging** → Create PR from `develop` to `staging`, merge to deploy
+3. **Production** → Create PR from `staging` to `main`, approve and merge to deploy
+
+See [`docs/CI_CD_Setup.md`](docs/CI_CD_Setup.md) for complete setup instructions.
+
+### Manual Deployment (Legacy)
+
+#### Backend (Cloud Run)
 
 1. **Build and push container**
    ```bash
@@ -174,7 +268,7 @@ Conversational history is stored per task under the Firestore collection `conver
    ```
    Supply any other env vars (e.g., `DTA_ENV`, Gmail config) via `--set-env-vars` or Secret Manager. The attached service account must have Firestore + Secret access.
 
-### Frontend (Firebase Hosting)
+#### Frontend (Firebase Hosting)
 
 1. Build the React dashboard:
    ```bash
@@ -221,7 +315,9 @@ When using the dev auth bypass, set `DTA_DEV_AUTH_BYPASS=1` on the API server. W
 
 ## Testing
 
-Unit tests cover the prioritizer heuristics and assistant planning logic. Run them from the repo root:
+### Unit Tests (Python)
+
+Unit tests cover the prioritizer heuristics, assistant planning logic, email analyzer, and filter rules. Run them from the repo root:
 
 ```bash
 cd projects/daily-task-assistant
@@ -229,3 +325,53 @@ PYTHONPATH=. pytest
 ```
 
 The suite does not call external APIs and can run with stub data only.
+
+### E2E Regression Tests (Playwright)
+
+End-to-end tests validate the full application stack (frontend + backend) using real browser automation. The test suite lives in `projects/e2e-tests/`.
+
+#### Quick Start
+
+```bash
+cd projects/e2e-tests
+npm install                  # First time only
+npm test                     # Run all tests headless
+npm run test:ui              # Interactive UI mode (recommended)
+npm run test:headed          # Watch browser as tests run
+```
+
+#### Test Coverage
+
+| Area | Tests | Description |
+|------|-------|-------------|
+| API Health | 4 | Backend connectivity, endpoint responses |
+| Task List | 9 | Task loading, filters, search, refresh |
+| Portfolio View | 5 | Category tabs, Quick Question, chat input |
+| Email Dashboard | 5 | Mode switching, navigation tabs |
+| Email Rules | 7 | Rules table, filtering, search, add/delete |
+| Account Switching | 2 | Personal/Church account toggle |
+
+#### When to Run E2E Tests
+
+- **Before merging to staging/main**: Run the full suite to catch regressions
+- **After UI changes**: Run targeted tests (`npm run test:tasks` or `npm run test:email`)
+- **After API changes**: Run API health checks (`npm run test:api`)
+- **Building new features**: Use codegen to record tests (`npm run codegen`)
+
+#### Generating New Tests
+
+Playwright can record your browser interactions:
+
+```bash
+npm run codegen   # Opens browser, generates code as you click
+```
+
+#### Viewing Test Reports
+
+After running tests, view the HTML report:
+
+```bash
+npm run report
+```
+
+Screenshots and videos are captured automatically on test failures.

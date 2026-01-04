@@ -64,6 +64,47 @@
   align-items: center;
   justify-content: flex-end;
   min-width: 150px;
+  gap: 0.75rem;
+}
+
+/* Mode Switcher - Cyberpunk Card Style with Custom Images */
+.mode-switcher {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mode-card {
+  position: relative;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.mode-card-img {
+  display: block;
+  height: 40px;
+  width: auto;
+  transition: all 0.3s ease;
+  /* Unselected: slightly dimmed */
+  opacity: 0.6;
+}
+
+/* Hover state - brighten slightly */
+.mode-card:hover .mode-card-img {
+  opacity: 0.8;
+}
+
+/* Active/Selected state - full brightness with subtle halo */
+.mode-card.active .mode-card-img {
+  opacity: 1;
+}
+
+.mode-card.active {
+  filter: drop-shadow(0 0 6px rgba(251, 146, 60, 0.5));
 }
 
 /* Legacy header styles */
@@ -284,6 +325,35 @@ button:not(:disabled):hover {
   border-color: rgba(99, 102, 241, 0.6);
 }
 
+.task-filters button.has-badge {
+  position: relative;
+  padding-right: 2rem;
+}
+
+.work-badge {
+  position: absolute;
+  right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #ef4444;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.3rem;
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .task-item {
   padding: 0.85rem;
   border-radius: 12px;
@@ -335,7 +405,9 @@ button:not(:disabled):hover {
 }
 
 .badge.priority.critical,
-.badge.priority.urgent {
+.badge.priority.urgent,
+.badge.priority[class*="5-critical"],
+.badge.priority[class*="4-urgent"] {
   border-color: rgba(248, 113, 113, 0.6);
   color: #fecaca;
 }
@@ -343,6 +415,18 @@ button:not(:disabled):hover {
 .badge.due {
   border-color: rgba(99, 102, 241, 0.4);
   color: #c7d2fe;
+}
+
+.badge.source {
+  border-color: rgba(236, 72, 153, 0.5);
+  color: #f9a8d4;
+  font-size: 0.7rem;
+}
+
+.task-panel .empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .task-next {
@@ -486,6 +570,31 @@ button:not(:disabled):hover {
   display: flex;
   max-height: 100%;
   height: 100%;
+  position: relative;
+}
+
+.menu-close-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 32px;
+  height: 32px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: all 0.2s ease;
+}
+
+.menu-close-btn:hover {
+  background: rgba(99, 102, 241, 0.3);
+  color: #fff;
 }
 
 .menu-nav {
@@ -525,7 +634,7 @@ button:not(:disabled):hover {
 .menu-view {
   flex: 1;
   padding: 1.5rem;
-  overflow: hidden;
+  overflow-y: auto;
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.35);
 }
 
@@ -564,8 +673,42 @@ button:not(:disabled):hover {
   margin: 0.25rem 0;
 }
 
+/* Task header buttons container */
+.task-header-buttons {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Task search input */
+.task-search {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(248, 250, 252, 0.95);
+  width: 120px;
+  transition: all 0.2s ease;
+}
+
+.task-search:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.6);
+  width: 160px;
+}
+
+.task-search::placeholder {
+  color: rgba(148, 163, 184, 0.5);
+}
+
 /* Refresh button in task panel */
 .refresh-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.portfolio-btn {
   padding: 0.4rem 0.8rem;
   font-size: 0.85rem;
 }
@@ -719,7 +862,8 @@ button:not(:disabled):hover {
 
 .chat-meta {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
   font-size: 0.75rem;
   opacity: 0.7;
   margin-bottom: 0.35rem;
@@ -1928,28 +2072,257 @@ button:not(:disabled):hover {
 }
 
 .workspace-item-delete {
-  position: absolute;
-  top: 8px;
-  right: 18px;
   width: 16px;
   height: 16px;
   padding: 0;
   border: none;
   background: transparent;
-  color: rgba(148, 163, 184, 0.3);
-  font-size: 12px;
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 14px;
   line-height: 16px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
-}
-
-.workspace-item-wrapper:hover .workspace-item-delete {
-  opacity: 1;
+  transition: color 0.15s;
 }
 
 .workspace-item-delete:hover {
   color: rgba(239, 68, 68, 0.8);
+}
+
+/* Workspace controls (checkbox + delete) in top-right */
+.workspace-item-controls {
+  position: absolute;
+  top: 8px;
+  right: 20px; /* Increased from 8px to avoid scrollbar overlap */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.workspace-item-wrapper:hover .workspace-item-controls {
+  opacity: 1;
+}
+
+.workspace-item-checkbox {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: rgb(99, 102, 241);
+}
+
+/* Always show checkbox when item is selected */
+.workspace-item-simple.selected .workspace-item-controls {
+  opacity: 1;
+}
+
+.workspace-item-simple.selected {
+  background: rgba(99, 102, 241, 0.08);
+  border-radius: 6px;
+}
+
+.workspace-item-simple.selected .workspace-editor {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.workspace-selection-hint {
+  font-size: 0.75rem;
+  color: rgb(99, 102, 241);
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: 4px;
+}
+
+/* ========== Attachments Gallery ========== */
+.attachments-gallery {
+  margin-bottom: 0.75rem;
+}
+
+.attachments-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.attachments-header:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.attachments-toggle {
+  font-size: 0.65rem;
+  color: rgba(148, 163, 184, 0.6);
+  width: 12px;
+}
+
+.attachments-icon {
+  font-size: 0.9rem;
+}
+
+.attachments-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.attachments-selected-count {
+  font-size: 0.7rem;
+  color: rgb(99, 102, 241);
+  margin-left: auto;
+  background: rgba(99, 102, 241, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.attachments-thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0.5rem;
+  padding-top: 0;
+}
+
+.attachment-thumb {
+  position: relative;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px;
+  transition: background 0.15s, border-color 0.15s;
+  border: 1px solid transparent;
+}
+
+.attachment-thumb:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.attachment-thumb.selected {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+/* Checkbox - matching workspace-item-checkbox pattern */
+.attachment-checkbox {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: rgb(99, 102, 241);
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+
+.attachment-thumb:hover .attachment-checkbox,
+.attachment-thumb.selected .attachment-checkbox {
+  opacity: 1;
+}
+
+.attachment-thumb-content {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.attachment-thumb-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-thumb-pdf,
+.attachment-thumb-file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.pdf-icon,
+.file-icon {
+  font-size: 1.5rem;
+}
+
+.pdf-label {
+  font-size: 0.6rem;
+  color: rgba(148, 163, 184, 0.8);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.attachment-filename {
+  font-size: 0.65rem;
+  color: rgba(148, 163, 184, 0.8);
+  text-align: center;
+  margin-top: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hover preview - positioned below and to the right of thumbnail */
+.attachment-preview {
+  position: fixed;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.attachment-preview-image {
+  max-width: 600px;
+  max-height: 450px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.attachment-preview-pdf {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  min-width: 160px;
+}
+
+.pdf-icon-large {
+  font-size: 3rem;
+}
+
+.pdf-name {
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.9);
+  text-align: center;
+  max-width: 200px;
+  word-break: break-word;
+}
+
+.pdf-hint {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.6);
 }
 
 /* Legacy non-editable workspace item (keeping for reference) */
@@ -1979,24 +2352,44 @@ button:not(:disabled):hover {
 .push-btn {
   position: absolute;
   top: 0;
-  right: 0;
-  padding: 0.15rem 0.35rem;
-  background: rgba(99, 102, 241, 0.2);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: 4px;
-  font-size: 0.7rem;
+  right: 20px; /* Leave room for clear button on right */
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: 0.75rem;
   cursor: pointer;
-  opacity: 0.6;
-  transition: all 0.15s ease;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
 }
 
 .push-btn:hover {
   opacity: 1;
-  background: rgba(99, 102, 241, 0.3);
+}
+
+/* Clear plan button - matches workspace-item-delete style */
+.clear-plan-btn {
+  position: absolute;
+  top: 0;
+  right: 0; /* Right of push button */
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 14px;
+  line-height: 16px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.clear-plan-btn:hover {
+  color: rgba(239, 68, 68, 0.8);
 }
 
 .push-btn-inline {
   padding: 0.1rem 0.25rem;
+  margin-left: auto; /* Push buttons to right side */
   background: transparent;
   border: none;
   font-size: 0.7rem;
@@ -2515,6 +2908,107 @@ button:not(:disabled):hover {
   min-height: 120px;
 }
 
+/* Rich Text Editor Toolbar */
+.rich-text-toolbar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  background: rgba(30, 27, 75, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  flex-wrap: wrap;
+}
+
+.toolbar-btn {
+  padding: 0.35rem 0.6rem;
+  min-width: 32px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  color: rgba(226, 232, 240, 0.8);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toolbar-btn:hover {
+  background: rgba(99, 102, 241, 0.3);
+}
+
+.toolbar-btn.active {
+  background: rgba(99, 102, 241, 0.4);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.toolbar-separator {
+  width: 1px;
+  background: rgba(99, 102, 241, 0.2);
+  margin: 0 0.25rem;
+}
+
+/* Rich Text Editor Container */
+.email-rich-editor-container {
+  flex: 1;
+  min-height: 150px;
+  background: rgba(30, 27, 75, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 0 0 8px 8px;
+  overflow: auto;
+}
+
+.email-rich-editor {
+  padding: 0.75rem;
+  min-height: 140px;
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.9);
+  line-height: 1.5;
+}
+
+.email-rich-editor:focus {
+  outline: none;
+}
+
+.email-rich-editor p {
+  margin: 0 0 0.5em 0;
+}
+
+.email-rich-editor p:last-child {
+  margin-bottom: 0;
+}
+
+.email-rich-editor ul,
+.email-rich-editor ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.email-rich-editor li {
+  margin: 0.25em 0;
+}
+
+.email-rich-editor a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+
+.email-rich-editor strong {
+  font-weight: 600;
+}
+
+.email-rich-editor em {
+  font-style: italic;
+}
+
+/* Placeholder text */
+.email-rich-editor p.is-editor-empty:first-child::before {
+  content: 'Compose your email...';
+  color: rgba(148, 163, 184, 0.5);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
 .email-draft-regenerate {
   display: flex;
   gap: 0.5rem;
@@ -2558,4 +3052,3420 @@ button:not(:disabled):hover {
 .send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ===== Global Mode / Portfolio View ===== */
+.assist-panel.global-mode {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.95));
+  border-radius: 18px;
+  padding: 1rem;
+}
+
+.global-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.global-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.global-header-top h2 {
+  flex: 1;
+}
+
+.global-header h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: rgba(248, 250, 252, 0.95);
+  font-weight: 600;
+}
+
+/* Perspective Selector - Tab-style */
+.perspective-selector {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 10px;
+}
+
+.perspective-tab {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.8);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.perspective-tab:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: rgba(248, 250, 252, 0.9);
+}
+
+.perspective-tab.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(139, 92, 246, 0.4));
+  color: white;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.perspective-description {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+  margin: 0;
+  text-align: center;
+}
+
+/* Portfolio Stats */
+.portfolio-stats {
+  background: rgba(30, 41, 59, 0.4);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  transition: padding 0.2s ease;
+}
+
+.portfolio-stats.collapsed {
+  padding: 0.5rem 1rem;
+}
+
+/* Compact summary bar - always visible */
+.stats-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.stats-summary-bar:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.stats-compact {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: rgba(248, 250, 252, 0.85);
+}
+
+.stat-compact {
+  white-space: nowrap;
+}
+
+.stat-compact.overdue {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.stat-compact.today {
+  color: #fbbf24;
+}
+
+.stat-compact.conflict {
+  color: #fb923c;
+}
+
+.collapse-toggle {
+  background: none;
+  border: none;
+  color: rgba(148, 163, 184, 0.7);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  transition: color 0.15s ease;
+}
+
+.collapse-toggle:hover {
+  color: rgba(248, 250, 252, 0.9);
+}
+
+/* When expanded, make summary bar more subtle (it's still the toggle) */
+.portfolio-stats:not(.collapsed) .stats-summary-bar {
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.portfolio-stats:not(.collapsed) .stats-compact {
+  opacity: 0.6;
+  font-size: 0.75rem;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-around;
+  gap: 0.5rem;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem;
+  min-width: 60px;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.stat-item.overdue .stat-value {
+  color: #f87171;
+}
+
+.stat-item.today .stat-value {
+  color: #fbbf24;
+}
+
+.stat-item.week .stat-value {
+  color: #60a5fa;
+}
+
+/* Conflicts Warning */
+.conflicts-warning {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  border-radius: 8px;
+}
+
+.conflicts-warning strong {
+  color: #fb923c;
+  font-size: 0.85rem;
+}
+
+.conflicts-warning ul {
+  margin: 0.5rem 0 0 1rem;
+  padding: 0;
+}
+
+.conflicts-warning li {
+  font-size: 0.8rem;
+  color: rgba(248, 250, 252, 0.8);
+  margin: 0.25rem 0;
+}
+
+/* Domain Breakdown */
+.domain-breakdown {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  justify-content: center;
+}
+
+.domain-badge {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 16px;
+  background: rgba(99, 102, 241, 0.2);
+  color: rgba(199, 210, 254, 0.9);
+}
+
+/* Global Chat Container */
+.global-chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  overflow: hidden;
+}
+
+.global-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.global-chat-welcome {
+  text-align: center;
+  padding: 1.5rem;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.global-chat-welcome p {
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+/* Quick Questions collapsible section */
+.quick-questions-section {
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  padding-bottom: 0.75rem;
+}
+
+.quick-questions-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: transparent;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.8);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.quick-questions-toggle:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: rgba(199, 210, 254, 0.9);
+}
+
+.toggle-icon {
+  font-size: 0.65rem;
+  transition: transform 0.2s ease;
+}
+
+.sample-questions {
+  padding: 0;
+  margin: 0.5rem 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sample-question-btn {
+  padding: 0.4rem 0.8rem;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: rgba(199, 210, 254, 0.85);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.sample-question-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.sample-question-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Empty chat state */
+.global-chat-empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.global-chat-empty .subtle {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.global-chat-input {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  background: rgba(30, 41, 59, 0.3);
+}
+
+.global-chat-input input {
+  flex: 1;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.global-chat-input input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.global-chat-input button {
+  padding: 0.6rem 1.2rem;
+  font-weight: 600;
+}
+
+.typing-indicator {
+  color: rgba(148, 163, 184, 0.7);
+  font-style: italic;
+}
+
+/* Global chat header with clear button */
+.global-chat-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+  background: rgba(30, 41, 59, 0.2);
+}
+
+.selection-count {
+  font-size: 0.7rem;
+  color: rgba(96, 165, 250, 0.9);
+}
+
+.clear-chat-btn {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: rgba(148, 163, 184, 0.7);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clear-chat-btn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: rgba(99, 102, 241, 0.9);
+}
+
+/* Global chat bubbles - matching Assistant chat styling */
+.global-chat-messages .chat-bubble {
+  position: relative;
+  max-width: 85%;
+  padding: 0.65rem 0.9rem;
+  padding-right: 55px; /* Make room for checkbox and delete button */
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.global-chat-messages .chat-bubble.user {
+  align-self: flex-end;
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.global-chat-messages .chat-bubble.assistant {
+  align-self: flex-start;
+}
+
+.global-chat-messages .chat-bubble.selected {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(96, 165, 250, 0.1);
+}
+
+/* Chat bubble controls - matching workspace-item-delete pattern exactly */
+.chat-bubble-checkbox {
+  position: absolute;
+  top: 8px;
+  right: 34px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: rgba(96, 165, 250, 0.9);
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+.chat-bubble-delete {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.3);
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  z-index: 10;
+}
+
+/* Ensure chat content doesn't block controls */
+.global-chat-messages .chat-meta,
+.global-chat-messages .chat-content {
+  position: relative;
+  z-index: 1;
+}
+
+.global-chat-messages .chat-bubble:hover .chat-bubble-checkbox,
+.global-chat-messages .chat-bubble.selected .chat-bubble-checkbox {
+  opacity: 1;
+}
+
+.global-chat-messages .chat-bubble:hover .chat-bubble-delete,
+.global-chat-messages .chat-bubble.selected .chat-bubble-delete {
+  opacity: 1;
+}
+
+.chat-bubble-delete:hover {
+  color: rgba(239, 68, 68, 0.8);
+}
+
+.global-chat-messages .chat-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  opacity: 0.6;
+  margin-bottom: 0.3rem;
+}
+
+.global-chat-messages .chat-role {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.global-chat-messages .chat-content {
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.global-chat-messages .chat-content p {
+  margin: 0 0 0.5rem;
+}
+
+.global-chat-messages .chat-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Expanded global mode */
+.assist-panel.global-mode.expanded {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+}
+
+/* Portfolio Pending Actions Panel */
+.portfolio-pending-actions {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(16, 185, 129, 0.1) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 0.75rem;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.pending-actions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.pending-actions-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: rgba(34, 197, 94, 1);
+  font-weight: 600;
+}
+
+.pending-count {
+  font-size: 0.75rem;
+  background: rgba(34, 197, 94, 0.2);
+  color: rgba(34, 197, 94, 0.9);
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+}
+
+.pending-actions-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.pending-action-item {
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.action-task-id {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.6);
+  margin-bottom: 0.2rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.action-description {
+  color: rgba(226, 232, 240, 0.95);
+  font-weight: 500;
+}
+
+.action-reason {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+  margin-top: 0.2rem;
+  font-style: italic;
+}
+
+.pending-actions-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.pending-actions-buttons .confirm-btn {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(16, 185, 129, 0.9));
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pending-actions-buttons .confirm-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+.pending-actions-buttons .confirm-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.pending-actions-buttons .cancel-btn {
+  padding: 0.6rem 1rem;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pending-actions-buttons .cancel-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: rgba(239, 68, 68, 0.9);
+}
+
+.pending-actions-buttons .cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   REBALANCING EDITOR - Full Page View
+   ============================================ */
+
+.rebalancing-editor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #050816;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rebalancing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1.5rem 2rem;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(30, 41, 59, 0.4) 100%);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.rebalancing-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: rgba(226, 232, 240, 0.95);
+  font-weight: 600;
+}
+
+.rebalancing-header .subtitle {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.rebalancing-header .change-count {
+  background: rgba(34, 197, 94, 0.2);
+  color: rgba(34, 197, 94, 0.95);
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.rebalancing-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem 2rem;
+}
+
+/* Domain Groups */
+.domain-group {
+  margin-bottom: 2rem;
+}
+
+.domain-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid rgba(99, 102, 241, 0.3);
+  font-size: 1.1rem;
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.domain-icon {
+  font-size: 1.2rem;
+}
+
+.domain-count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  font-weight: normal;
+  color: rgba(148, 163, 184, 0.6);
+}
+
+/* Tasks Table */
+.tasks-table {
+  background: rgba(30, 41, 59, 0.4);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.table-header {
+  display: grid;
+  grid-template-columns: 2fr 140px 70px 120px 140px;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(30, 41, 59, 0.6);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(148, 163, 184, 0.8);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.table-row {
+  display: grid;
+  grid-template-columns: 2fr 140px 70px 120px 140px;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.08);
+  align-items: center;
+}
+
+.table-row:last-child {
+  border-bottom: none;
+}
+
+.table-row:hover {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+/* Column: Task */
+.col-task {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.task-title {
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.95);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-reason {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.6);
+  font-style: italic;
+}
+
+/* Column: Date */
+.col-date {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.col-date input[type="date"] {
+  padding: 0.4rem 0.5rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.col-date input[type="date"]:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
+.col-date input[type="date"].modified {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.original-value {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.5);
+}
+
+/* Column: Number */
+.col-number input {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.col-number input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.col-number input.modified {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+/* Column: Priority & Status (Selects) */
+.col-priority select,
+.col-status select {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.col-priority select:focus,
+.col-status select:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.col-priority select.modified,
+.col-status select.modified {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+/* Footer */
+.rebalancing-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1rem 2rem;
+  background: rgba(30, 41, 59, 0.6);
+  border-top: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.rebalancing-footer .cancel-btn {
+  padding: 0.75rem 1.5rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: rgba(148, 163, 184, 0.8);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rebalancing-footer .cancel-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: rgba(239, 68, 68, 0.9);
+}
+
+.rebalancing-footer .apply-btn {
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(16, 185, 129, 0.9));
+  border: none;
+  color: white;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rebalancing-footer .apply-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
+}
+
+.rebalancing-footer .apply-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .table-header,
+  .table-row {
+    grid-template-columns: 1.5fr 120px 60px 100px 120px;
+  }
+  
+  .rebalancing-header,
+  .rebalancing-content,
+  .rebalancing-footer {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+
+/* =============================================================================
+   EMAIL DASHBOARD STYLES
+   Aligned with task management styling for visual consistency
+   ============================================================================= */
+
+.email-dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+  /* Match .panel background gradient */
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.95));
+  color: rgba(226, 232, 240, 0.95);
+  border-radius: 18px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  box-shadow: 0 15px 50px rgba(2, 6, 23, 0.6);
+}
+
+/* Header */
+.email-dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  flex-shrink: 0;
+}
+
+.email-dashboard-header h1 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.95);
+  margin: 0;
+  /* Use Inter like rest of app */
+  font-family: inherit;
+}
+
+.back-button {
+  padding: 0.4rem 0.9rem;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  color: rgba(165, 180, 252, 0.9);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.back-button:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+/* Account selector - matches .mode-switcher pill style */
+.account-selector {
+  display: flex;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 0.25rem;
+  gap: 0.25rem;
+}
+
+.account-tab {
+  padding: 0.4rem 0.75rem;
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.8);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+.account-tab:hover {
+  background: rgba(99, 102, 241, 0.15);
+  opacity: 0.9;
+}
+
+.account-tab.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+  color: rgba(226, 232, 240, 0.95);
+  opacity: 1;
+}
+
+/* Error display */
+.email-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  background: rgba(239, 68, 68, 0.15);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+  color: rgba(248, 113, 113, 0.95);
+  font-size: 0.9rem;
+  flex-shrink: 0; /* Don't shrink error bar */
+}
+
+.email-error button {
+  background: transparent;
+  border: none;
+  color: rgba(248, 113, 113, 0.8);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+}
+
+/* Tab navigation - matches mode-switcher pill style */
+.email-tabs {
+  display: flex;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 0.25rem;
+  gap: 0.25rem;
+  margin: 1rem 1.5rem;
+  flex-shrink: 0;
+  width: fit-content;
+}
+
+.email-tabs button {
+  padding: 0.4rem 0.9rem;
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+.email-tabs button:hover {
+  background: rgba(99, 102, 241, 0.15);
+  opacity: 0.9;
+}
+
+.email-tabs button.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+  color: rgba(226, 232, 240, 0.95);
+  opacity: 1;
+}
+
+/* Tab content */
+.email-tab-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1rem 1.5rem;
+}
+
+/* Dashboard view */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+/* Stat cards - darker to match task list items */
+.stat-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 12px;
+  padding: 1.25rem;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.stat-card:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.stat-card .stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: rgba(226, 232, 240, 0.95);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.stat-card .stat-label {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.6);
+  margin-top: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-card.important .stat-value {
+  color: rgba(251, 191, 36, 0.95);
+}
+
+.stat-card.warning .stat-value {
+  color: rgba(248, 113, 113, 0.95);
+}
+
+.stat-card.clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Settings - Last Analysis Section */
+.settings-section {
+  margin-bottom: 2rem;
+}
+
+.settings-section h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.95);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.last-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.analysis-card {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.analysis-card h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.95);
+  margin-bottom: 0.75rem;
+  text-transform: capitalize;
+}
+
+.analysis-timestamp {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+  margin-bottom: 0.75rem;
+}
+
+.analysis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.analysis-table td {
+  padding: 0.35rem 0;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.analysis-table td.value {
+  text-align: right;
+  font-weight: 500;
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.analysis-table tr.highlight td {
+  color: rgba(99, 102, 241, 0.95);
+  font-weight: 600;
+}
+
+.analysis-table tr.highlight td.value {
+  color: rgba(129, 140, 248, 0.95);
+}
+
+.haiku-remaining {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.no-analysis {
+  color: rgba(148, 163, 184, 0.6);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+/* Action buttons - uses global .action-btn styles from line ~1251 */
+.email-dashboard .action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Email Search */
+.email-search-container {
+  display: flex;
+  align-items: center;
+  position: relative;
+  flex: 1;
+  max-width: 300px;
+  min-width: 180px;
+}
+
+.email-search-input {
+  flex: 1;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px 0 0 8px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+}
+
+.email-search-input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.email-search-input::placeholder {
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.email-search-clear {
+  position: absolute;
+  right: 45px;
+  background: none;
+  border: none;
+  color: rgba(148, 163, 184, 0.6);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.email-search-clear:hover {
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.email-search-btn {
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.35));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: rgba(226, 232, 240, 0.95);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.email-search-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(139, 92, 246, 0.5));
+}
+
+.email-search-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Search Results */
+.messages-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.messages-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: rgba(148, 163, 184, 0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.clear-search-btn {
+  padding: 0.3rem 0.6rem;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: rgba(239, 68, 68, 0.9);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-search-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.no-results {
+  text-align: center;
+  padding: 2rem;
+  color: rgba(148, 163, 184, 0.6);
+  font-size: 0.9rem;
+}
+
+/* Email-specific button sizing (slightly larger for dashboard context) */
+.email-dashboard .action-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+}
+
+.email-dashboard .action-btn.primary {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.35));
+}
+
+/* Recent messages - matches task list item styling */
+.recent-messages h3 {
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+  color: rgba(148, 163, 184, 0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.message-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.message-list li {
+  position: relative;
+  padding: 0.75rem 1rem;
+  padding-right: 2.5rem; /* Make room for task button */
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: 10px;
+  margin-bottom: 0.4rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.message-list li:hover {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+/* Task creation button on email items */
+.message-list .msg-task-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-list li:hover .msg-task-btn {
+  opacity: 0.7;
+}
+
+.message-list .msg-task-btn:hover {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.2);
+  transform: scale(1.1);
+}
+
+.message-list li.unread {
+  border-left: 3px solid rgba(99, 102, 241, 0.6);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.message-list .msg-from {
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+}
+
+.message-list .msg-subject {
+  color: rgba(226, 232, 240, 0.8);
+  font-size: 0.9rem;
+  margin: 0.25rem 0;
+}
+
+.message-list .msg-snippet {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Thread count badge */
+.thread-count-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 8px;
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Load More button */
+.load-more-btn {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  color: #60a5fa;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.load-more-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Rules view */
+.rules-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.filter-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-group select,
+.filter-group input {
+  padding: 0.4rem 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+}
+
+.filter-group input {
+  min-width: 180px;
+}
+
+.filter-group input::placeholder {
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.add-rule-btn {
+  padding: 0.4rem 0.9rem;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.add-rule-btn:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Add rule form */
+.add-rule-form {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.add-rule-form h4 {
+  margin: 0 0 0.75rem;
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.95rem;
+}
+
+.add-rule-form .form-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.add-rule-form select,
+.add-rule-form input {
+  padding: 0.4rem 0.75rem;
+  background: rgba(2, 6, 23, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+}
+
+.add-rule-form .value-input {
+  flex: 1;
+  min-width: 150px;
+}
+
+.add-rule-form .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.add-rule-form .cancel-btn {
+  padding: 0.4rem 0.9rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.7);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.add-rule-form .cancel-btn:hover {
+  border-color: rgba(148, 163, 184, 0.4);
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.add-rule-form .save-btn {
+  padding: 0.4rem 0.9rem;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.add-rule-form .save-btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.add-rule-form .save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Rules table */
+.rules-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.rules-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(148, 163, 184, 0.7);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.rules-table td {
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.08);
+  color: rgba(226, 232, 240, 0.85);
+  font-size: 0.85rem;
+}
+
+.rules-table tr:hover {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.category-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: white;
+}
+
+.value-cell {
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.delete-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: rgba(248, 113, 113, 0.6);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.15s ease;
+}
+
+.delete-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: rgba(248, 113, 113, 0.9);
+}
+
+/* Suggestions view */
+.suggestion-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.suggestion-card {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 10px;
+  padding: 1rem;
+  transition: all 0.15s ease;
+}
+
+.suggestion-card:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.suggestion-card.high {
+  border-left: 3px solid rgba(34, 197, 94, 0.6);
+}
+
+.suggestion-card.medium {
+  border-left: 3px solid rgba(251, 191, 36, 0.5);
+}
+
+.suggestion-card.low {
+  border-left: 3px solid rgba(148, 163, 184, 0.4);
+}
+
+.suggestion-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.confidence-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.confidence-badge.high {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgba(134, 239, 172, 0.95);
+}
+
+.confidence-badge.medium {
+  background: rgba(251, 191, 36, 0.15);
+  color: rgba(253, 224, 71, 0.95);
+}
+
+.confidence-badge.low {
+  background: rgba(148, 163, 184, 0.15);
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.email-count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.suggestion-rule {
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.85);
+  margin-bottom: 0.4rem;
+}
+
+.suggestion-rule code {
+  background: rgba(2, 6, 23, 0.5);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: rgba(165, 180, 252, 0.9);
+}
+
+.suggestion-reason {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+  margin-bottom: 0.4rem;
+}
+
+.suggestion-examples {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.6);
+  margin-bottom: 0.5rem;
+}
+
+.suggestion-examples ul {
+  margin: 0.2rem 0 0 1rem;
+  padding: 0;
+}
+
+.suggestion-examples li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.75rem;
+}
+
+.suggestion-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.suggestion-actions .category-select {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-weight: 500;
+  min-width: 110px;
+  transition: all 0.15s ease;
+}
+
+.suggestion-actions .category-select:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.suggestion-actions .category-select option {
+  background: rgba(15, 23, 42, 0.98);
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.approve-btn {
+  padding: 0.35rem 0.9rem;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.approve-btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.dismiss-btn {
+  padding: 0.35rem 0.9rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.6);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.dismiss-btn:hover {
+  border-color: rgba(148, 163, 184, 0.4);
+  color: rgba(148, 163, 184, 0.8);
+}
+
+/* Email Action Suggestions view (new tab) */
+.email-suggestions-view {
+  padding: 1rem 0;
+}
+
+.email-suggestions-view .suggestions-header h3 {
+  color: rgba(226, 232, 240, 0.95);
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.email-suggestions-view .suggestions-description {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.85rem;
+  margin: 0 0 1rem 0;
+}
+
+.email-suggestions-view .hint {
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+/* Email action suggestion card (numbered) */
+.email-action-suggestion {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  transition: all 0.15s ease;
+}
+
+.email-action-suggestion:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.email-action-suggestion .suggestion-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(165, 180, 252, 0.95);
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+}
+
+.email-action-suggestion .email-preview {
+  margin-bottom: 0.75rem;
+}
+
+.email-action-suggestion .email-preview-from,
+.email-action-suggestion .email-preview-to {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.email-action-suggestion .email-preview-from strong,
+.email-action-suggestion .email-preview-to strong {
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.email-action-suggestion .email-preview-subject {
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.95);
+  font-weight: 500;
+  margin: 0.25rem 0;
+}
+
+.email-action-suggestion .email-preview-snippet {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-action-suggestion .suggested-action {
+  background: rgba(2, 6, 23, 0.4);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.email-action-suggestion .suggested-action .action-type {
+  color: rgba(165, 180, 252, 0.9);
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.email-action-suggestion .suggested-action .action-rationale {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+.email-action-suggestion .action-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.email-action-suggestion .action-row button {
+  padding: 0.3rem 0.6rem;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.email-action-suggestion .action-row .approve-action {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+}
+
+.email-action-suggestion .action-row .approve-action:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.email-action-suggestion .action-row .dismiss-action {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.email-action-suggestion .action-row .quick-action {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 0.9rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.email-action-suggestion .action-row .quick-action:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: rgba(165, 180, 252, 0.8);
+}
+
+.email-action-suggestion .action-row .quick-action.delete:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: rgba(252, 165, 165, 0.9);
+}
+
+/* Batch approve controls */
+.batch-approve-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: rgba(2, 6, 23, 0.4);
+  border-radius: 8px;
+}
+
+.batch-approve-controls .batch-count {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.85rem;
+}
+
+.batch-approve-controls .approve-all-btn {
+  padding: 0.4rem 0.8rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: rgba(134, 239, 172, 0.9);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.batch-approve-controls .approve-all-btn:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.batch-approve-controls .batch-hint {
+  color: rgba(148, 163, 184, 0.5);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+/* Action suggestions list */
+.action-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.email-action-suggestion .suggestion-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.email-action-suggestion .label-select {
+  padding: 0.3rem 0.5rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 5px;
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.email-action-suggestion .label-select:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Attention view */
+.attention-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.attention-card {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 10px;
+  padding: 1rem;
+  transition: all 0.15s ease;
+}
+
+.attention-card:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.attention-card.high {
+  border-left: 3px solid rgba(239, 68, 68, 0.7);
+}
+
+.attention-card.medium {
+  border-left: 3px solid rgba(251, 191, 36, 0.6);
+}
+
+.attention-card.low {
+  border-left: 3px solid rgba(99, 102, 241, 0.5);
+}
+
+.attention-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.urgency-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.urgency-badge.high {
+  background: rgba(239, 68, 68, 0.15);
+  color: rgba(248, 113, 113, 0.95);
+}
+
+.urgency-badge.medium {
+  background: rgba(251, 191, 36, 0.15);
+  color: rgba(253, 224, 71, 0.95);
+}
+
+.urgency-badge.low {
+  background: rgba(99, 102, 241, 0.15);
+  color: rgba(165, 180, 252, 0.9);
+}
+
+/* Analysis engine badge - shows AI vs Regex */
+.analysis-engine-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: help;
+}
+
+.analysis-engine-badge.ai {
+  background: rgba(6, 182, 212, 0.2);
+  color: rgba(103, 232, 249, 0.95);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+.analysis-engine-badge.regex {
+  background: rgba(100, 116, 139, 0.15);
+  color: rgba(148, 163, 184, 0.85);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+}
+
+/* Email label badges in attention items */
+.email-label-badge {
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  background: rgba(59, 130, 246, 0.2);
+  color: rgba(147, 197, 253, 0.95);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Role badge (profile-aware analysis) */
+.role-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: help;
+}
+
+.role-badge.vip {
+  background: rgba(168, 85, 247, 0.2);
+  color: rgba(216, 180, 254, 0.95);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.role-badge.profile {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgba(134, 239, 172, 0.95);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.role-badge.regex {
+  background: rgba(100, 116, 139, 0.2);
+  color: rgba(148, 163, 184, 0.9);
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.role-badge.haiku {
+  background: rgba(100, 116, 139, 0.1);
+  color: rgba(148, 163, 184, 0.9);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+/* Attention view header with sync timestamp */
+.attention-view-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+}
+
+.last-sync {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.7);
+  font-style: italic;
+}
+
+/* Attention card actions (dismiss/snooze) */
+.attention-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Compact task buttons for inline display */
+.create-task-btn.compact,
+.task-exists-btn.compact {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.create-task-btn.compact {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  color: rgba(134, 239, 172, 0.95);
+}
+
+.create-task-btn.compact:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.task-exists-btn.compact {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: rgba(165, 180, 252, 0.95);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.task-exists-btn.compact:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.dismiss-dropdown,
+.snooze-dropdown {
+  position: relative;
+}
+
+.dismiss-btn,
+.snooze-btn {
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dismiss-btn {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: rgba(248, 113, 113, 0.9);
+}
+
+.dismiss-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.snooze-btn {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  color: rgba(253, 224, 71, 0.9);
+}
+
+.snooze-btn:hover {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.dismiss-menu,
+.snooze-menu {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  min-width: 140px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dismiss-menu.show,
+.snooze-menu.show {
+  display: block;
+}
+
+.dismiss-menu button,
+.snooze-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.dismiss-menu button:hover,
+.snooze-menu button:hover {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.dismiss-menu button:first-child,
+.snooze-menu button:first-child {
+  border-radius: 5px 5px 0 0;
+}
+
+.dismiss-menu button:last-child,
+.snooze-menu button:last-child {
+  border-radius: 0 0 5px 5px;
+}
+
+.attention-date {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.attention-from {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.attention-subject {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.9);
+  margin: 0.2rem 0;
+}
+
+.attention-reason {
+  font-size: 0.8rem;
+  color: rgba(165, 180, 252, 0.8);
+  margin-bottom: 0.4rem;
+}
+
+.attention-action {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.attention-task {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.create-task-btn {
+  padding: 0.35rem 0.9rem;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.create-task-btn:hover {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Task exists button (replaces create-task when task already linked) */
+.task-exists-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.9rem;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.task-exists-btn:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.task-exists-icon {
+  font-size: 0.9rem;
+}
+
+.task-exists-label {
+  font-weight: 500;
+}
+
+.task-status-badge {
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.task-status-badge.pending {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.task-status-badge.in_progress {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.task-status-badge.completed {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+/* Mini variant for compact display in email list */
+.task-status-badge.mini {
+  padding: 0.1rem 0.35rem;
+  font-size: 0.6rem;
+  margin-left: 0;
+  letter-spacing: 0.02em;
+}
+
+/* Task exists state for msg-task-btn */
+.msg-task-btn.task-exists {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: auto;
+  height: auto;
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+  cursor: default;
+  opacity: 0.85;
+}
+
+.msg-task-btn.task-exists .task-exists-icon {
+  font-size: 0.7rem;
+}
+
+.message-list li:hover .msg-task-btn.task-exists {
+  opacity: 1;
+}
+
+/* Loading and empty states */
+.email-dashboard .loading,
+.email-dashboard .empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.email-dashboard .empty-state p {
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+/* =============================================================================
+   Email Dashboard - Two-Panel Layout (Phase 2)
+   ============================================================================= */
+
+.email-dashboard.two-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.email-panels {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0; /* Divider provides spacing */
+  padding: 0.5rem 1rem 1rem;
+}
+
+/* Left Panel - Email List/Rules */
+.email-left-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Right Panel - DATA Assist */
+.email-right-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Panel collapse states */
+.email-dashboard.email-collapsed .email-panels {
+  /* When email panel collapsed, right panel takes full width */
+}
+
+.email-dashboard.assist-collapsed .email-right-panel {
+  display: none;
+}
+
+.email-dashboard.email-collapsed .email-left-panel {
+  display: none;
+}
+
+.email-dashboard.email-collapsed .email-right-panel,
+.email-dashboard.assist-collapsed .email-left-panel {
+  flex: 1;
+  max-width: 100%;
+}
+
+/* Both panels visible - use inline width styles from JS */
+.email-dashboard:not(.email-collapsed):not(.assist-collapsed) .email-left-panel,
+.email-dashboard:not(.email-collapsed):not(.assist-collapsed) .email-right-panel {
+  flex: none; /* Use inline width instead of flex */
+}
+
+/* Draggable panel divider */
+.email-panel-divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  user-select: none;
+  position: relative;
+}
+
+.email-panel-divider:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.divider-handle {
+  width: 4px;
+  height: 40px;
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 2px;
+  transition: background 0.2s ease;
+}
+
+.email-panel-divider:hover .divider-handle {
+  background: rgba(99, 102, 241, 0.6);
+}
+
+.divider-arrow {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+  color: rgba(226, 232, 240, 0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  transition: all 0.2s ease;
+}
+
+.divider-arrow:hover {
+  background: rgba(99, 102, 241, 0.4);
+  color: rgba(226, 232, 240, 1);
+}
+
+.divider-arrow.left {
+  top: calc(50% - 30px);
+}
+
+.divider-arrow.right {
+  top: calc(50% + 10px);
+}
+
+/* Collapsed panel indicators */
+.collapsed-panel-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transition: all 0.2s ease;
+}
+
+.collapsed-panel-indicator:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.collapsed-panel-indicator.left {
+  order: -1;
+}
+
+.collapsed-panel-indicator.right {
+  order: 1;
+}
+
+.collapsed-panel-indicator .expand-icon {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.collapsed-panel-indicator .collapsed-label {
+  font-size: 0.75rem;
+  color: rgba(226, 232, 240, 0.8);
+  letter-spacing: 0.05em;
+}
+
+/* Tabs within left panel */
+.email-left-panel .email-tabs {
+  margin: 0.75rem 0.75rem 0;
+  flex-shrink: 0;
+}
+
+/* Tab content within left panel */
+.email-left-panel .email-tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+  min-height: 0;
+}
+
+/* Right panel content */
+.email-assist-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.email-assist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  margin-bottom: 0.75rem;
+}
+
+.email-assist-header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.selected-email-indicator {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Email preview in assist panel */
+.email-preview {
+  background: rgba(30, 41, 59, 0.4);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.email-preview .preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.email-preview .preview-header strong {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.email-preview .preview-date {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.email-preview .preview-subject {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(226, 232, 240, 0.9);
+  margin-bottom: 0.5rem;
+}
+
+.email-preview .preview-snippet {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.7);
+  line-height: 1.4;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+/* Expandable email body */
+.email-body-expanded {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.email-body-expanded .loading-body {
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+.email-body-expanded .email-body-html {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.9) !important;
+  line-height: 1.5;
+}
+
+/* Override email's inline styles to ensure readability on dark theme */
+.email-body-expanded .email-body-html,
+.email-body-expanded .email-body-html * {
+  color: rgba(226, 232, 240, 0.9) !important;
+  background-color: transparent !important;
+}
+
+.email-body-expanded .email-body-html p {
+  margin: 0.5rem 0;
+}
+
+.email-body-expanded .email-body-html ul,
+.email-body-expanded .email-body-html ol {
+  margin: 0.5rem 0 0.5rem 1.5rem;
+  padding: 0;
+}
+
+.email-body-expanded .email-body-html a,
+.email-body-expanded .email-body-html a * {
+  color: #60a5fa !important;
+  text-decoration: none;
+}
+
+.email-body-expanded .email-body-html a:hover {
+  text-decoration: underline;
+}
+
+/* Handle email signatures and quoted text */
+.email-body-expanded .email-body-html blockquote {
+  border-left: 2px solid rgba(99, 102, 241, 0.3);
+  padding-left: 0.75rem;
+  margin: 0.5rem 0;
+  color: rgba(148, 163, 184, 0.8) !important;
+}
+
+/* Ensure tables in emails are readable */
+.email-body-expanded .email-body-html table {
+  border-collapse: collapse;
+}
+
+.email-body-expanded .email-body-html td,
+.email-body-expanded .email-body-html th {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+/* Handle horizontal rules in emails */
+.email-body-expanded .email-body-html hr {
+  border: none;
+  border-top: 1px solid rgba(99, 102, 241, 0.2);
+  margin: 0.75rem 0;
+}
+
+/* Handle images in emails - don't override their colors */
+.email-body-expanded .email-body-html img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+/* Fix broken image placeholders */
+.email-body-expanded .email-body-html img[src=""],
+.email-body-expanded .email-body-html img:not([src]) {
+  display: none;
+}
+
+.email-body-expanded .email-body-text {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.85);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Email body expand/collapse toggle */
+.email-body-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+  background: transparent;
+  border: 1px dashed rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.email-body-toggle:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.email-body-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.email-body-toggle .toggle-arrow {
+  font-size: 0.7rem;
+  transition: transform 0.2s ease;
+}
+
+.email-body-toggle .toggle-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+.email-body-toggle .toggle-text {
+  flex: 1;
+  text-align: left;
+}
+
+.email-body-toggle .attachment-indicator {
+  background: rgba(99, 102, 241, 0.2);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
+
+/* Quick action buttons */
+.email-quick-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.quick-action-btn {
+  flex: 1;
+  padding: 0.5rem;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-action-btn:hover {
+  background: rgba(99, 102, 241, 0.3);
+  transform: translateY(-1px);
+}
+
+.quick-action-btn.delete:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.quick-action-btn.reply,
+.quick-action-btn.reply-all {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.quick-action-btn.reply:hover,
+.quick-action-btn.reply-all:hover {
+  background: rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Placeholder for Phase 4 */
+.email-assist-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.email-assist-placeholder .placeholder-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.email-assist-placeholder p {
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.email-assist-placeholder .planned-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.email-assist-placeholder .planned-features li {
+  padding: 0.25rem 0;
+}
+
+.email-assist-placeholder .planned-features li::before {
+  content: '→ ';
+  opacity: 0.5;
+}
+
+/* Selected email state in lists */
+.message-list li.selected,
+.attention-card.selected {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.message-list li {
+  cursor: pointer;
+}
+
+.message-list li:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.attention-card {
+  cursor: pointer;
+}
+
+/* =============================================================================
+   Task Creation Form (Phase B)
+   ============================================================================= */
+
+.task-creation-form {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 10px;
+  padding: 1rem;
+  margin: 0.5rem;
+}
+
+.task-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.task-form-header h4 {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 1rem;
+}
+
+.task-form-header .close-btn {
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.6);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+
+.task-form-header .close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: rgba(252, 165, 165, 0.9);
+}
+
+.task-form-field {
+  margin-bottom: 0.75rem;
+}
+
+.task-form-field label {
+  display: block;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.task-form-field input,
+.task-form-field select,
+.task-form-field textarea {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  background: rgba(2, 6, 23, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.task-form-field input:focus,
+.task-form-field select:focus,
+.task-form-field textarea:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.task-form-field textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.task-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.task-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.task-form-actions .cancel-btn {
+  padding: 0.4rem 0.8rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.7);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.task-form-actions .cancel-btn:hover {
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.task-form-actions .create-btn {
+  padding: 0.4rem 0.8rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.3));
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: rgba(226, 232, 240, 0.95);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.task-form-actions .create-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(139, 92, 246, 0.4));
+}
+
+.task-form-actions .create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* =============================================================================
+   Email Chat Interface (Phase 4)
+   ============================================================================= */
+
+.email-chat-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.email-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chat-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.chat-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.5;
+}
+
+.chat-empty-state p {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.chat-suggestions button {
+  padding: 0.4rem 0.75rem;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 16px;
+  color: rgba(226, 232, 240, 0.8);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chat-suggestions button:hover {
+  background: rgba(99, 102, 241, 0.3);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.chat-message {
+  max-width: 85%;
+  padding: 0.6rem 0.9rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.chat-message.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.35));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.chat-message.assistant {
+  align-self: flex-start;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.chat-message.loading {
+  opacity: 0.6;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+.pending-action-card {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.pending-action-header {
+  font-size: 0.8rem;
+  color: rgba(245, 158, 11, 0.9);
+  margin-bottom: 0.3rem;
+}
+
+.pending-action-reason {
+  font-size: 0.75rem;
+  color: rgba(226, 232, 240, 0.7);
+  margin-bottom: 0.75rem;
+}
+
+.pending-action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pending-action-buttons .confirm-btn {
+  flex: 1;
+  padding: 0.4rem 0.75rem;
+  background: rgba(16, 185, 129, 0.3);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pending-action-buttons .confirm-btn:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.5);
+}
+
+.pending-action-buttons .cancel-btn {
+  padding: 0.4rem 0.75rem;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pending-action-buttons .cancel-btn:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.email-chat-input {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  flex-shrink: 0;
+}
+
+.email-chat-input input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+}
+
+.email-chat-input input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.email-chat-input input::placeholder {
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.email-chat-input input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.email-chat-input button {
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.35));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 8px;
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.email-chat-input button:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(139, 92, 246, 0.5));
+}
+
+.email-chat-input button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .email-dashboard-header {
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  
+  .email-dashboard-header h1 {
+    order: -1;
+    width: 100%;
+    text-align: center;
+  }
+  
+  .rules-toolbar {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .filter-group {
+    width: 100%;
+  }
+  
+  .filter-group input {
+    flex: 1;
+  }
+}
+
+/* =============================================================================
+   Privacy Indicator & Share with DATA Button
+   ============================================================================= */
+
+.privacy-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+}
+
+.privacy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 5px;
+}
+
+.privacy-badge.blocked {
+  background: rgba(245, 158, 11, 0.2);
+  color: rgba(251, 191, 36, 0.95);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-weight: 500;
+}
+
+.privacy-badge.override {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgba(134, 239, 172, 0.9);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.share-with-data-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.25));
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 6px;
+  color: rgba(226, 232, 240, 0.95);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.share-with-data-btn:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(139, 92, 246, 0.35));
+  border-color: rgba(99, 102, 241, 0.6);
+  transform: translateY(-1px);
 }

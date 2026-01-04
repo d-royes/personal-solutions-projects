@@ -16,12 +16,21 @@ PRIORITY_WEIGHTS = {
     "Low": 1.0,
 }
 
+# Valid Smartsheet statuses:
+# Active: Scheduled, Recurring, On Hold, In Progress, Follow-up, Awaiting Reply,
+#         Delivered, Create ZD Ticket, Validation, Needs Approval
+# Terminal: Ticket Created, Cancelled, Delegated, Completed
 STATUS_WEIGHTS = {
-    "Blocked": 3.0,
-    "Waiting": 2.0,
-    "In Progress": 1.5,
-    "Not Started": 1.0,
-    "Scheduled": 1.0,
+    "On Hold": 3.0,           # Needs attention/unblock
+    "Awaiting Reply": 2.5,    # Waiting on external response
+    "Follow-up": 2.0,         # Needs follow-up action
+    "In Progress": 1.5,       # Actively being worked
+    "Scheduled": 1.0,         # Planned but not started
+    "Recurring": 1.0,         # Regular recurring task
+    "Validation": 1.5,        # Needs review/validation
+    "Needs Approval": 2.0,    # Waiting for approval
+    "Create ZD Ticket": 1.5,  # Action needed
+    "Delivered": 0.5,         # Delivered, may need follow-up
 }
 
 AUTOMATION_KEYWORDS = {
@@ -60,7 +69,14 @@ def rank_tasks(
 
 
 def score_task(task: TaskDetail, *, now: datetime | None = None) -> RankedTask:
-    now = now or datetime.utcnow()
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("America/New_York")
+    now = now or datetime.now(tz)
+    # Ensure now is timezone-aware (backwards compat with tests passing naive datetimes)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=tz)
+    # Use start of day for "past due" comparison so tasks due today aren't marked overdue
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     score = 0.0
     reasons: List[str] = []
     labels: List[str] = []
@@ -71,19 +87,22 @@ def score_task(task: TaskDetail, *, now: datetime | None = None) -> RankedTask:
 
     status_weight = STATUS_WEIGHTS.get(task.status, 0.5)
     score += status_weight
-    if task.status in ("Blocked", "Waiting"):
-        labels.append("Needs unblock")
+    if task.status in ("On Hold", "Awaiting Reply", "Needs Approval"):
+        labels.append("Needs attention")
     reasons.append(f"Status weight {status_weight:.1f}")
 
-    due_delta_days = (task.due - now).total_seconds() / 86400
-    if due_delta_days <= 0:
+    # Use today_start for overdue check so tasks due today aren't marked "Past due"
+    task_due = task.due.replace(tzinfo=tz) if task.due.tzinfo is None else task.due.astimezone(tz)
+    due_delta_days = (task_due - today_start).total_seconds() / 86400
+    if due_delta_days < 0:
         due_score = 4.0
         labels.append("Past due")
-    elif due_delta_days <= 1:
-        due_score = 3.0
-        labels.append("Due soon")
+    elif due_delta_days < 1:  # Due today
+        due_score = 3.5
+        labels.append("Due today")
     elif due_delta_days <= 3:
-        due_score = 2.0
+        due_score = 2.5
+        labels.append("Due soon")
     elif due_delta_days <= 7:
         due_score = 1.0
     else:
