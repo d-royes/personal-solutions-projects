@@ -320,6 +320,10 @@ export function EmailDashboard({
   const [sendingReply, setSendingReply] = useState(false)
   const [replyError, setReplyError] = useState<string | null>(null)
 
+  // Email preview panel controls
+  const [emailPreviewCollapsed, setEmailPreviewCollapsed] = useState(false)
+  const [showDismissMenu, setShowDismissMenu] = useState(false)
+
   // Helper to update cache for current account
   const updateCache = useCallback((updates: Partial<AccountCache>) => {
     setCache(prev => ({
@@ -677,6 +681,34 @@ export function EmailDashboard({
       setError(err instanceof Error ? err.message : 'Failed to snooze')
     }
   }, [selectedAccount, authConfig, apiBase, updateCache, attentionItems])
+
+  // Dismiss from DATA panel (clears selection after dismiss)
+  const handleDismissFromPanel = useCallback(async (reason: DismissReason) => {
+    if (!selectedEmailId) return
+    try {
+      await handleDismiss(selectedEmailId, reason)
+      setSelectedEmailId(null)
+      setChatHistory([])
+      setPendingEmailAction(null)
+      setEmailPreviewCollapsed(false)
+      setShowDismissMenu(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Dismiss failed')
+    }
+  }, [selectedEmailId, handleDismiss])
+
+  // Close email panel without dismissing (just clears selection)
+  const handleCloseEmailPanel = useCallback(() => {
+    setSelectedEmailId(null)
+    setChatHistory([])
+    setPendingEmailAction(null)
+    setPrivacyStatus(null)
+    setPrivacyOverrideGranted(false)
+    setEmailBodyExpanded(false)
+    setEmailPreviewCollapsed(false)
+    setFullEmailBody(null)
+    setShowDismissMenu(false)
+  }, [])
 
   // Refresh all data for current account
   const refreshAll = useCallback(() => {
@@ -1134,6 +1166,10 @@ export function EmailDashboard({
     setEmailBodyExpanded(false)
     setFullEmailBody(null)
     setFetchedEmail(null)
+
+    // Reset preview panel state
+    setEmailPreviewCollapsed(false)
+    setShowDismissMenu(false)
 
     // Fetch full email body in the background
     fetchFullEmailBody(emailId)
@@ -1825,11 +1861,16 @@ export function EmailDashboard({
   }
 
   // Get selected email details (check search results, recent messages, and fetched email)
-  const selectedEmail = selectedEmailId 
-    ? (emailSearchResults?.find(m => m.id === selectedEmailId) 
+  const selectedEmail = selectedEmailId
+    ? (emailSearchResults?.find(m => m.id === selectedEmailId)
        ?? inboxSummary?.recentMessages?.find(m => m.id === selectedEmailId)
        ?? (fetchedEmail?.id === selectedEmailId ? fetchedEmail : null))
     : null
+
+  // Check if selected email is an attention item (for showing dismiss button)
+  const isSelectedEmailAttentionItem = selectedEmailId
+    ? attentionItems.some(item => item.emailId === selectedEmailId)
+    : false
 
   return (
     <div className={`email-dashboard two-panel ${emailPanelCollapsed ? 'email-collapsed' : ''} ${assistPanelCollapsed ? 'assist-collapsed' : ''}`}>
@@ -2787,15 +2828,148 @@ export function EmailDashboard({
               {/* Email preview when selected */}
               {selectedEmail && (
                 <div className="email-preview">
-                  <div className="preview-header">
-                    <strong>{selectedEmail.fromName || selectedEmail.fromAddress}</strong>
-                    <span className="preview-date">
-                      {selectedEmail.date ? new Date(selectedEmail.date).toLocaleString() : ''}
-                    </span>
-                  </div>
-                  <div className="preview-subject">{selectedEmail.subject}</div>
+                  <div className="preview-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong>{selectedEmail.fromName || selectedEmail.fromAddress}</strong>
+                      <span className="preview-date" style={{ marginLeft: '12px' }}>
+                        {selectedEmail.date ? new Date(selectedEmail.date).toLocaleString() : ''}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', flexShrink: 0, marginLeft: '8px' }}>
+                      {/* Minimize button */}
+                      <button
+                        onClick={() => setEmailPreviewCollapsed(!emailPreviewCollapsed)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          fontSize: '10px',
+                          lineHeight: 1,
+                        }}
+                        title={emailPreviewCollapsed ? 'Expand details' : 'Collapse details'}
+                      >
+                        {emailPreviewCollapsed ? '▼' : '▲'}
+                      </button>
 
-                  {/* Privacy indicator and override button */}
+                      {/* Dismiss button (only for attention items) */}
+                      {isSelectedEmailAttentionItem && (
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            onClick={() => setShowDismissMenu(!showDismissMenu)}
+                            style={{
+                              background: 'transparent',
+                              border: '1px solid rgba(255,255,255,0.2)',
+                              borderRadius: '4px',
+                              padding: '2px 6px',
+                              cursor: 'pointer',
+                              color: 'inherit',
+                              fontSize: '10px',
+                              lineHeight: 1,
+                            }}
+                            title="Dismiss from attention"
+                          >
+                            ✓
+                          </button>
+                          {showDismissMenu && (
+                            <div style={{
+                              position: 'absolute',
+                              top: '100%',
+                              right: 0,
+                              marginTop: '4px',
+                              background: '#1a1a2e',
+                              border: '1px solid rgba(255,255,255,0.2)',
+                              borderRadius: '4px',
+                              zIndex: 100,
+                              minWidth: '140px',
+                            }}>
+                              <button
+                                onClick={() => handleDismissFromPanel('handled')}
+                                style={{
+                                  display: 'block',
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'inherit',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                Already handled
+                              </button>
+                              <button
+                                onClick={() => handleDismissFromPanel('not_actionable')}
+                                style={{
+                                  display: 'block',
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'inherit',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                Not actionable
+                              </button>
+                              <button
+                                onClick={() => handleDismissFromPanel('false_positive')}
+                                style={{
+                                  display: 'block',
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'inherit',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                False positive
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Close button */}
+                      <button
+                        onClick={handleCloseEmailPanel}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          fontSize: '10px',
+                          lineHeight: 1,
+                        }}
+                        title="Close email panel"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Collapsible content - hidden when minimized */}
+                  {!emailPreviewCollapsed && (
+                    <>
+                      <div className="preview-subject">{selectedEmail.subject}</div>
+
+                      {/* Privacy indicator and override button */}
                   {privacyStatus && !privacyStatus.canSeeBody && (
                     <div className="privacy-indicator">
                       <span className="privacy-badge blocked" title={privacyStatus.blockedReasonDisplay || 'DATA cannot see email body'}>
@@ -2929,7 +3103,9 @@ export function EmailDashboard({
                     >
                       {actionLoading === 'delete' ? '⏳' : '🗑️'}
                     </button>
-                  </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
