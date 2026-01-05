@@ -41,6 +41,9 @@ import {
   getEmailPrivacyStatus,
   decideSuggestion,
   decideRuleSuggestion,
+  pinEmail,
+  unpinEmail,
+  getPinnedEmails,
   type EmailPendingAction,
   type EmailActionSuggestion,
   type GmailLabel,
@@ -48,6 +51,7 @@ import {
   type EmailTaskInfo,
   type DismissReason,
   type EmailPrivacyStatus,
+  type PinnedEmail,
 } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 import { HaikuSettingsPanel } from './HaikuSettingsPanel'
@@ -75,6 +79,7 @@ export interface AccountCache {
   actionSuggestions: EmailActionSuggestion[]  // Email action suggestions (Suggestions tab)
   availableLabels: GmailLabel[]
   emailTaskLinks: Record<string, EmailTaskInfo>  // email_id -> task info
+  pinnedEmails: PinnedEmail[]  // Pinned emails for quick reference
   loaded: boolean
   lastAnalysis: LastAnalysisResult | null  // Last analysis result for auditing
 }
@@ -87,6 +92,7 @@ export const emptyEmailCache = (): AccountCache => ({
   actionSuggestions: [],
   availableLabels: [],
   emailTaskLinks: {},
+  pinnedEmails: [],
   loaded: false,
   lastAnalysis: null,
 })
@@ -104,7 +110,7 @@ interface EmailDashboardProps {
   setSelectedAccount?: React.Dispatch<React.SetStateAction<EmailAccount>>
 }
 
-type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention' | 'settings'
+type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention' | 'pinned' | 'settings'
 
 // Quick action types for email management
 type EmailQuickAction =
@@ -241,6 +247,7 @@ export function EmailDashboard({
   const actionSuggestions = cache[selectedAccount].actionSuggestions  // Email action suggestions
   const availableLabels = cache[selectedAccount].availableLabels
   const emailTaskLinks = cache[selectedAccount].emailTaskLinks  // Emails that have linked tasks
+  const pinnedEmails = cache[selectedAccount].pinnedEmails  // Pinned emails for quick reference
 
   // Thread count by threadId (for "N in thread" badge)
   const threadCounts = useMemo(() => {
@@ -323,6 +330,9 @@ export function EmailDashboard({
   // Email preview panel controls
   const [emailPreviewCollapsed, setEmailPreviewCollapsed] = useState(false)
   const [showDismissMenu, setShowDismissMenu] = useState(false)
+
+  // Pinned emails state
+  const [loadingPinned, setLoadingPinned] = useState(false)
 
   // Helper to update cache for current account
   const updateCache = useCallback((updates: Partial<AccountCache>) => {
@@ -571,6 +581,19 @@ export function EmailDashboard({
   // Suppress unused warning - available for future explicit label loading
   void loadLabels
 
+  // Load pinned emails (Pinned tab)
+  const loadPinnedEmails = useCallback(async () => {
+    setLoadingPinned(true)
+    try {
+      const response = await getPinnedEmails(selectedAccount, authConfig, apiBase)
+      updateCache({ pinnedEmails: response.pinned })
+    } catch (err) {
+      console.warn('Failed to load pinned emails:', err)
+    } finally {
+      setLoadingPinned(false)
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache])
+
   // Load persisted rule suggestions from storage (without re-analyzing)
   const loadPersistedRules = useCallback(async () => {
     try {
@@ -750,6 +773,7 @@ export function EmailDashboard({
     loadPersistedAttention()  // Load persisted attention items on account change
     loadPersistedRules()  // Load persisted rule suggestions on account change
     loadPersistedActionSuggestions()  // Load persisted action suggestions on account change
+    loadPinnedEmails()  // Load pinned emails on account change
   }, [selectedAccount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-select first email when inbox loads and nothing is selected
@@ -1872,6 +1896,38 @@ export function EmailDashboard({
     ? attentionItems.some(item => item.emailId === selectedEmailId)
     : false
 
+  // Check if selected email is pinned (for pin button state)
+  const isSelectedEmailPinned = selectedEmailId
+    ? pinnedEmails.some(p => p.emailId === selectedEmailId)
+    : false
+
+  // Toggle pin state for current email
+  const handleTogglePin = async () => {
+    if (!selectedEmailId || !selectedEmail) return
+    try {
+      if (isSelectedEmailPinned) {
+        await unpinEmail(selectedAccount, selectedEmailId, authConfig, apiBase)
+        updateCache({
+          pinnedEmails: pinnedEmails.filter(p => p.emailId !== selectedEmailId)
+        })
+      } else {
+        await pinEmail(
+          selectedAccount,
+          selectedEmailId,
+          selectedEmail.subject,
+          selectedEmail.fromAddress,
+          selectedEmail.snippet,
+          selectedEmail.threadId,
+          authConfig,
+          apiBase
+        )
+        loadPinnedEmails()  // Refresh to get server timestamp
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Pin operation failed')
+    }
+  }
+
   return (
     <div className={`email-dashboard two-panel ${emailPanelCollapsed ? 'email-collapsed' : ''} ${assistPanelCollapsed ? 'assist-collapsed' : ''}`}>
       {/* Header - spans full width */}
@@ -1956,6 +2012,15 @@ export function EmailDashboard({
                 }}
               >
                 Attention {attentionItems.length > 0 && `(${attentionItems.length})`}
+              </button>
+              <button
+                className={activeTab === 'pinned' ? 'active' : ''}
+                onClick={() => {
+                  setActiveTab('pinned')
+                  if (pinnedEmails.length === 0) loadPinnedEmails()
+                }}
+              >
+                Pinned {pinnedEmails.length > 0 && `(${pinnedEmails.length})`}
               </button>
               <button
                 className={activeTab === 'settings' ? 'active' : ''}
@@ -2717,6 +2782,49 @@ export function EmailDashboard({
           </div>
         )}
 
+        {/* Pinned Tab */}
+        {activeTab === 'pinned' && (
+          <div className="pinned-emails-section">
+            <h3>Pinned Emails</h3>
+            {loadingPinned ? (
+              <div className="loading">Loading pinned emails...</div>
+            ) : pinnedEmails.length === 0 ? (
+              <div className="empty-state">
+                <p>No pinned emails.</p>
+                <p className="hint">Click {"\u{1F4CC}"} on any email to pin it for quick reference.</p>
+              </div>
+            ) : (
+              <div className="pinned-list">
+                {pinnedEmails.map(pinned => (
+                  <div
+                    key={pinned.emailId}
+                    className={`pinned-item ${selectedEmailId === pinned.emailId ? 'selected' : ''}`}
+                    onClick={() => handleSelectEmail(pinned.emailId, pinned.threadId)}
+                    style={{
+                      padding: '12px',
+                      borderBottom: '1px solid rgba(255,255,255,0.1)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div className="pinned-from" style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                      {pinned.fromAddress}
+                    </div>
+                    <div className="pinned-subject" style={{ marginBottom: '4px' }}>
+                      {pinned.subject}
+                    </div>
+                    <div className="pinned-snippet" style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>
+                      {pinned.snippet}
+                    </div>
+                    <div className="pinned-date" style={{ fontSize: '10px', opacity: 0.5 }}>
+                      Pinned {new Date(pinned.pinnedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Settings Tab */}
         {activeTab === 'settings' && (
           <div className="settings-view">
@@ -2866,12 +2974,12 @@ export function EmailDashboard({
                               padding: '2px 6px',
                               cursor: 'pointer',
                               color: 'inherit',
-                              fontSize: '10px',
+                              fontSize: '14px',
                               lineHeight: 1,
                             }}
                             title="Dismiss from attention"
                           >
-                            ✓
+                            ✔
                           </button>
                           {showDismissMenu && (
                             <div style={{
@@ -2943,6 +3051,24 @@ export function EmailDashboard({
                           )}
                         </div>
                       )}
+
+                      {/* Pin button */}
+                      <button
+                        onClick={handleTogglePin}
+                        style={{
+                          background: isSelectedEmailPinned ? 'rgba(255,200,0,0.2)' : 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          color: isSelectedEmailPinned ? '#ffc800' : 'inherit',
+                          fontSize: '10px',
+                          lineHeight: 1,
+                        }}
+                        title={isSelectedEmailPinned ? 'Unpin email' : 'Pin email'}
+                      >
+                        {"\u{1F4CC}"}
+                      </button>
 
                       {/* Close button */}
                       <button

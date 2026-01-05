@@ -2814,6 +2814,111 @@ export async function clearEmailConversation(
 }
 
 
+// --- Pinned Emails (Quick Reference) ---
+
+export interface PinnedEmail {
+  emailId: string
+  account: string
+  subject: string
+  fromAddress: string
+  snippet: string
+  pinnedAt: string
+  threadId?: string
+}
+
+export interface PinnedEmailsResponse {
+  account: string
+  pinned: PinnedEmail[]
+  count: number
+}
+
+export interface PinEmailResponse {
+  success: boolean
+  emailId: string
+  account: string
+  pinnedAt: string
+}
+
+export interface UnpinEmailResponse {
+  success: boolean
+  emailId: string
+  account: string
+}
+
+/**
+ * Pin an email for quick reference.
+ * Pinned emails appear in the Pinned tab for easy access.
+ */
+export async function pinEmail(
+  account: EmailAccount,
+  emailId: string,
+  subject: string,
+  fromAddress: string,
+  snippet: string,
+  threadId: string | undefined,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PinEmailResponse> {
+  const url = new URL(`/email/${account}/pin/${emailId}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({ subject, fromAddress, snippet, threadId }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Pin email failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Unpin an email (soft delete with 30-day TTL).
+ */
+export async function unpinEmail(
+  account: EmailAccount,
+  emailId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<UnpinEmailResponse> {
+  const url = new URL(`/email/${account}/pin/${emailId}`, baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Unpin email failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Get all pinned emails for the account.
+ */
+export async function getPinnedEmails(
+  account: EmailAccount,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<PinnedEmailsResponse> {
+  const url = new URL(`/email/${account}/pinned`, baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get pinned emails failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+
 // --- Suggestion Tracking (Sprint 5) ---
 
 /**

@@ -3233,6 +3233,99 @@ def get_attention_quality_metrics(
     }
 
 
+# --- Pinned Emails (Quick Reference) ---
+
+
+class PinEmailRequest(BaseModel):
+    """Request body for pinning an email."""
+
+    subject: str = Field(description="Email subject line")
+    fromAddress: str = Field(description="Sender email address", alias="from_address")
+    snippet: str = Field(description="Email preview snippet")
+    threadId: str | None = Field(
+        default=None, description="Gmail thread ID for conversation loading"
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@app.post("/email/{account}/pin/{message_id}")
+def pin_email_endpoint(
+    account: Literal["church", "personal"],
+    message_id: str,
+    request: PinEmailRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Pin an email for quick reference.
+
+    Pinned emails appear in the Pinned tab for easy access.
+    Pins persist until explicitly unpinned.
+    """
+    from daily_task_assistant.email.pinned_store import pin_email
+
+    record = pin_email(
+        account=account,
+        email_id=message_id,
+        subject=request.subject,
+        from_address=request.fromAddress,
+        snippet=request.snippet,
+        thread_id=request.threadId,
+    )
+
+    return {
+        "success": True,
+        "emailId": message_id,
+        "account": account,
+        "pinnedAt": record.pinned_at.isoformat(),
+    }
+
+
+@app.delete("/email/{account}/pin/{message_id}")
+def unpin_email_endpoint(
+    account: Literal["church", "personal"],
+    message_id: str,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Unpin an email (soft delete with 30-day TTL).
+
+    The record is marked as unpinned but kept for 30 days
+    in case the user wants to re-pin.
+    """
+    from daily_task_assistant.email.pinned_store import unpin_email
+
+    success = unpin_email(account, message_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Pin not found")
+
+    return {
+        "success": True,
+        "emailId": message_id,
+        "account": account,
+    }
+
+
+@app.get("/email/{account}/pinned")
+def get_pinned_emails_endpoint(
+    account: Literal["church", "personal"],
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get all pinned emails for the account.
+
+    Returns emails that are currently pinned (not unpinned).
+    Sorted by pinned_at descending (newest first).
+    """
+    from daily_task_assistant.email.pinned_store import get_pinned_emails
+
+    records = get_pinned_emails(account, include_unpinned=False)
+
+    return {
+        "account": account,
+        "pinned": [r.to_api_dict() for r in records],
+        "count": len(records),
+    }
+
+
 # --- Suggestion Tracking (Sprint 5: Learning Foundation) ---
 
 
