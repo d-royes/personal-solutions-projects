@@ -2264,6 +2264,36 @@ When asked to create a task, use update_task with action="create" and include:
 - project (appropriate to domain)
 - notes (context for the task)
 
+SMARTSHEET FIELD RULES (CRITICAL):
+
+PRIORITY FORMAT:
+- Work tasks (source="work"): NUMBERED format (5-Critical, 4-Urgent, 3-Important, 2-Standard, 1-Low)
+- Personal/Church tasks (source="personal"): SIMPLE format (Critical, Urgent, Important, Standard, Low)
+- "make this urgent" for WORK → priority="4-Urgent"
+- "make this urgent" for PERSONAL → priority="Urgent"
+
+STATUS VALUES (use exact match):
+Scheduled, Recurring, On Hold, In Progress, Follow-up, Awaiting Reply, Delivered, Create ZD Ticket, Ticket Created, Validation, Needs Approval, Cancelled, Delegated, Completed
+
+PROJECT VALUES (use exact match):
+- Personal: Around The House, Church Tasks, Family Time, Shopping, Sm. Projects & Tasks, Zendesk Ticket
+- Work: Atlassian (Jira/Confluence), Crafter Studio, Internal Application Support, Team Management, Strategic Planning, Stakeholder Relations, Process Improvement, Daily Operations, Zendesk Support, Intranet Management, Vendor Management, AI/Automation Projects, DTS Transformation, New Technology Evaluation
+
+ESTIMATED HOURS (valid values): .05, .15, .25, .50, .75, 1, 2, 3, 4, 5, 6, 7, 8
+
+TERMINAL STATUSES: Completed, Cancelled, Delegated, Ticket Created automatically mark done=true
+
+RECURRING TASKS: When marking a recurring task complete, ONLY check the Done box - do NOT change status (keep as "Recurring")
+
+ACTION TRIGGER EXAMPLES:
+- "done" / "finished" / "complete" → action="mark_complete"
+- "on hold" / "put it aside" → action="update_status", status="On Hold"
+- "waiting for reply" → action="update_status", status="Awaiting Reply"
+- "push to Thursday" / "move to next week" → action="update_due_date"
+- "make urgent" / "high priority" → action="update_priority" (use correct format based on source)
+- "add note" / "note that..." → action="add_comment"
+- "change project to..." → action="update_project"
+
 CALENDAR EVENTS (Personal & Church only):
 Use the calendar_action tool to:
 - Create new events ("block time for focus work Friday afternoon")
@@ -2363,8 +2393,9 @@ CREATE_TASK_TOOL = {
             },
             "priority": {
                 "type": "string",
-                "enum": ["Critical", "Urgent", "Important", "Standard", "Low"],
-                "description": "Task priority"
+                "enum": ["Critical", "Urgent", "Important", "Standard", "Low",
+                         "5-Critical", "4-Urgent", "3-Important", "2-Standard", "1-Low"],
+                "description": "Task priority. Use numbered format (5-Critical, etc.) for work, simple (Critical, etc.) for personal/church."
             },
             "domain": {
                 "type": "string",

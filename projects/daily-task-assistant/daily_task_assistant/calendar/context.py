@@ -264,11 +264,14 @@ class CalendarChatContext:
                 # For datetime objects, just format the date portion
                 due_str = due_date.strftime("%a %b %d, %Y")
 
+        source = task.get("source", "personal")
+
         parts = [f"  - [{status}] {title}"]
         if due_str:
             parts.append(f"(Due: {due_str})")
         if priority and priority != "Standard":
             parts.append(f"[{priority}]")
+        parts.append(f"[{source}]")
         if row_id:
             parts.append(f"[ID: {row_id}]")
 
@@ -323,7 +326,9 @@ class CalendarChatContext:
             lines.append(f"Notes: {notes}")
 
         source = task.get("source", "personal")
+        priority_format = "numbered (5-Critical, 4-Urgent, etc.)" if source == "work" else "simple (Critical, Urgent, etc.)"
         lines.append(f"Source: {source}")
+        lines.append(f"Priority Format: {priority_format}")
 
         return "\n".join(lines)
 
