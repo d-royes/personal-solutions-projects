@@ -500,6 +500,7 @@ def update_event(
     end: Optional[datetime] = None,
     description: Optional[str] = None,
     location: Optional[str] = None,
+    attendees: Optional[list[str]] = None,
     send_notifications: bool = True,
     source_domain: str = "personal",
 ) -> CalendarEvent:
@@ -514,6 +515,7 @@ def update_event(
         end: New end time (if changing)
         description: New description (if changing)
         location: New location (if changing)
+        attendees: List of attendee email addresses (if changing)
         send_notifications: Whether to send notifications to attendees
         source_domain: Domain label for the event
 
@@ -546,6 +548,9 @@ def update_event(
 
     if location is not None:
         body["location"] = location
+
+    if attendees is not None:
+        body["attendees"] = [{"email": email} for email in attendees]
 
     if not body:
         # Nothing to update

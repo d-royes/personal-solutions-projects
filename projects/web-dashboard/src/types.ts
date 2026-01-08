@@ -461,6 +461,7 @@ export interface UpdateEventRequest {
   end?: string
   description?: string
   location?: string
+  attendees?: string[]
   sendNotifications?: boolean
   calendarId: string
 }

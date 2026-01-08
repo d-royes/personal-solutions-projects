@@ -6246,6 +6246,7 @@ class UpdateEventRequest(BaseModel):
     end: Optional[str] = Field(None, description="New end time (ISO format)")
     description: Optional[str] = Field(None, description="New event description")
     location: Optional[str] = Field(None, description="New event location")
+    attendees: Optional[list[str]] = Field(None, description="List of attendee email addresses")
     send_notifications: bool = Field(True, alias="sendNotifications", description="Whether to send notifications")
     calendar_id: str = Field("primary", alias="calendarId", description="Calendar ID")
 
@@ -6546,6 +6547,7 @@ def update_event_endpoint(
             end=end_dt,
             description=request.description,
             location=request.location,
+            attendees=request.attendees,
             send_notifications=request.send_notifications,
             source_domain=account,
         )
