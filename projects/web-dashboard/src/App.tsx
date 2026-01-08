@@ -1150,7 +1150,7 @@ function App() {
               </button>
             </nav>
             <div className="menu-view">
-              {menuView === 'auth' && <AuthPanel />}
+              {menuView === 'auth' && <AuthPanel onLogin={() => setMenuOpen(false)} />}
               {menuView === 'environment' && (
                 <div className="menu-panel">
                   <h3>Environment Settings</h3>
