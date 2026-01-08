@@ -259,13 +259,23 @@ function getPriorityClass(priority: string | undefined): string {
 // Helper to format datetime for input fields
 function formatDateTimeLocal(isoString: string): string {
   const date = new Date(isoString)
-  return date.toISOString().slice(0, 16)
+  // Use local date methods instead of toISOString() which converts to UTC
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 // Helper to format date only for input fields (all-day events)
 function formatDateOnly(isoString: string): string {
   const date = new Date(isoString)
-  return date.toISOString().slice(0, 10)
+  // Use local date methods instead of toISOString() which converts to UTC
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 // Event Form Component for create/edit
