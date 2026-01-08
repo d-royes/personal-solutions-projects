@@ -1676,9 +1676,9 @@ export function CalendarDashboard({
                             {event.location && (
                               <div className="calendar-event-location">{event.location}</div>
                             )}
-                            {event.isMeeting && (
+                            {event.attendeeCount > 0 && (
                               <div className="calendar-event-attendees">
-                                {event.attendeeCount} attendees
+                                {event.attendeeCount} {event.attendeeCount === 1 ? 'attendee' : 'attendees'}
                               </div>
                             )}
                           </div>
@@ -1743,9 +1743,9 @@ export function CalendarDashboard({
                           {event.location && (
                             <div className="calendar-event-location">{event.location}</div>
                           )}
-                          {event.isMeeting && (
+                          {event.attendeeCount > 0 && (
                             <div className="calendar-event-attendees">
-                              {event.attendeeCount} attendees
+                              {event.attendeeCount} {event.attendeeCount === 1 ? 'attendee' : 'attendees'}
                             </div>
                           )}
                         </div>
