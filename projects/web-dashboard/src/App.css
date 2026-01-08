@@ -7632,6 +7632,7 @@ button:not(:disabled):hover {
 
 .event-form .form-group select,
 .event-form .form-group input[type="text"],
+.event-form .form-group input[type="email"],
 .event-form .form-group input[type="date"],
 .event-form .form-group input[type="time"],
 .event-form .form-group textarea {
@@ -7709,4 +7710,87 @@ button:not(:disabled):hover {
 .event-form .btn-save:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Attendees Input */
+.event-form .attendee-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.event-form .attendee-input-row input {
+  flex: 1;
+}
+
+.event-form .btn-add-attendee {
+  padding: 0.5rem 0.875rem;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.event-form .btn-add-attendee:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.event-form .btn-add-attendee:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.event-form .attendee-error {
+  display: block;
+  color: #f87171;
+  font-size: 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.event-form .attendee-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.event-form .attendee-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 20px;
+  font-size: 0.75rem;
+  color: #93c5fd;
+}
+
+.event-form .attendee-email {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-form .attendee-remove {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+
+.event-form .attendee-remove:hover {
+  color: #f87171;
 }

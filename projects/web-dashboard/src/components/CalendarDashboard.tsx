@@ -286,6 +286,7 @@ function EventForm({
     end: string
     description?: string
     location?: string
+    attendees?: string[]
     isAllDay?: boolean
     calendarId: string
   }) => void
@@ -319,6 +320,46 @@ function EventForm({
       : oneHourLater.toTimeString().slice(0, 5)
   )
 
+  // Attendees state
+  const [attendees, setAttendees] = useState<string[]>(event?.attendees?.map(a => a.email) || [])
+  const [attendeeInput, setAttendeeInput] = useState('')
+  const [attendeeError, setAttendeeError] = useState<string | null>(null)
+
+  // Simple email validation
+  const isValidEmail = (email: string): boolean => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  }
+
+  const handleAddAttendee = () => {
+    const email = attendeeInput.trim().toLowerCase()
+    if (!email) return
+
+    if (!isValidEmail(email)) {
+      setAttendeeError('Please enter a valid email address')
+      return
+    }
+
+    if (attendees.includes(email)) {
+      setAttendeeError('This attendee has already been added')
+      return
+    }
+
+    setAttendees([...attendees, email])
+    setAttendeeInput('')
+    setAttendeeError(null)
+  }
+
+  const handleRemoveAttendee = (email: string) => {
+    setAttendees(attendees.filter(a => a !== email))
+  }
+
+  const handleAttendeeKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleAddAttendee()
+    }
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!summary.trim()) return
@@ -331,9 +372,10 @@ function EventForm({
       start = startDate
       end = endDate
     } else {
-      // Timed events use full datetime
-      start = new Date(`${startDate}T${startTime}`).toISOString()
-      end = new Date(`${endDate}T${endTime}`).toISOString()
+      // Timed events: send local datetime string (not UTC)
+      // Backend will interpret with America/New_York timezone
+      start = `${startDate}T${startTime}:00`
+      end = `${endDate}T${endTime}:00`
     }
 
     onSave({
@@ -342,6 +384,7 @@ function EventForm({
       end,
       description: description.trim() || undefined,
       location: location.trim() || undefined,
+      attendees: attendees.length > 0 ? attendees : undefined,
       isAllDay,
       calendarId,
     })
@@ -460,6 +503,52 @@ function EventForm({
             onChange={(e) => setLocation(e.target.value)}
             placeholder="Add location"
           />
+        </div>
+
+        {/* Attendees */}
+        <div className="form-group">
+          <label htmlFor="event-attendees">Attendees</label>
+          <div className="attendee-input-row">
+            <input
+              id="event-attendees"
+              type="email"
+              value={attendeeInput}
+              onChange={(e) => {
+                setAttendeeInput(e.target.value)
+                setAttendeeError(null)
+              }}
+              onKeyDown={handleAttendeeKeyDown}
+              placeholder="Enter email address"
+            />
+            <button
+              type="button"
+              className="btn-add-attendee"
+              onClick={handleAddAttendee}
+              disabled={!attendeeInput.trim()}
+            >
+              Add
+            </button>
+          </div>
+          {attendeeError && (
+            <span className="attendee-error">{attendeeError}</span>
+          )}
+          {attendees.length > 0 && (
+            <div className="attendee-list">
+              {attendees.map(email => (
+                <div key={email} className="attendee-chip">
+                  <span className="attendee-email">{email}</span>
+                  <button
+                    type="button"
+                    className="attendee-remove"
+                    onClick={() => handleRemoveAttendee(email)}
+                    aria-label={`Remove ${email}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Description */}
@@ -1394,6 +1483,7 @@ export function CalendarDashboard({
     end: string
     description?: string
     location?: string
+    attendees?: string[]
     isAllDay?: boolean
     calendarId: string
   }) {
