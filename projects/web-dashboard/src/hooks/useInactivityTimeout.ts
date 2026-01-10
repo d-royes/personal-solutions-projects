@@ -44,11 +44,32 @@ export function useInactivityTimeout({
   const [showWarning, setShowWarning] = useState(false)
   const [secondsRemaining, setSecondsRemaining] = useState(Math.floor(logoutTimeout / 1000))
 
-  // Refs to persist timer IDs across renders
+  // Refs to persist values across renders without causing effect re-runs
   const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
+  const showWarningRef = useRef(showWarning)
+  const onLogoutRef = useRef(onLogout)
+  const warningTimeoutRef = useRef(warningTimeout)
+  const logoutTimeoutRef = useRef(logoutTimeout)
+
+  // Keep refs in sync with props/state
+  useEffect(() => {
+    showWarningRef.current = showWarning
+  }, [showWarning])
+
+  useEffect(() => {
+    onLogoutRef.current = onLogout
+  }, [onLogout])
+
+  useEffect(() => {
+    warningTimeoutRef.current = warningTimeout
+  }, [warningTimeout])
+
+  useEffect(() => {
+    logoutTimeoutRef.current = logoutTimeout
+  }, [logoutTimeout])
 
   // Clear all timers
   const clearAllTimers = useCallback(() => {
@@ -68,8 +89,16 @@ export function useInactivityTimeout({
 
   // Start the logout countdown (after warning is shown)
   const startLogoutCountdown = useCallback(() => {
-    const logoutTimeoutSeconds = Math.floor(logoutTimeout / 1000)
-    setSecondsRemaining(logoutTimeoutSeconds)
+    const timeoutSeconds = Math.floor(logoutTimeoutRef.current / 1000)
+    setSecondsRemaining(timeoutSeconds)
+
+    // Clear any existing countdown
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current)
+    }
+    if (logoutTimerRef.current) {
+      clearTimeout(logoutTimerRef.current)
+    }
 
     // Update countdown every second
     countdownIntervalRef.current = setInterval(() => {
@@ -78,7 +107,7 @@ export function useInactivityTimeout({
           // Time's up, trigger logout
           clearAllTimers()
           setShowWarning(false)
-          onLogout()
+          onLogoutRef.current()
           return 0
         }
         return prev - 1
@@ -89,30 +118,34 @@ export function useInactivityTimeout({
     logoutTimerRef.current = setTimeout(() => {
       clearAllTimers()
       setShowWarning(false)
-      onLogout()
-    }, logoutTimeout)
-  }, [logoutTimeout, onLogout, clearAllTimers])
+      onLogoutRef.current()
+    }, logoutTimeoutRef.current)
+  }, [clearAllTimers])
 
   // Start the warning timer
   const startWarningTimer = useCallback(() => {
-    clearAllTimers()
-    setShowWarning(false)
+    // Clear existing warning timer only (not logout countdown if active)
+    if (warningTimerRef.current) {
+      clearTimeout(warningTimerRef.current)
+      warningTimerRef.current = null
+    }
 
     warningTimerRef.current = setTimeout(() => {
       setShowWarning(true)
       startLogoutCountdown()
-    }, warningTimeout)
-  }, [warningTimeout, startLogoutCountdown, clearAllTimers])
+    }, warningTimeoutRef.current)
+  }, [startLogoutCountdown])
 
   // Reset inactivity - call this when user confirms they're still there
   const resetInactivity = useCallback(() => {
     lastActivityRef.current = Date.now()
+    clearAllTimers()
     setShowWarning(false)
-    setSecondsRemaining(Math.floor(logoutTimeout / 1000))
+    setSecondsRemaining(Math.floor(logoutTimeoutRef.current / 1000))
     startWarningTimer()
-  }, [logoutTimeout, startWarningTimer])
+  }, [clearAllTimers, startWarningTimer])
 
-  // Handle activity events (throttled)
+  // Main effect for activity tracking - runs once on mount/enable change
   useEffect(() => {
     if (!enabled) {
       clearAllTimers()
@@ -124,7 +157,7 @@ export function useInactivityTimeout({
 
     const handleActivity = () => {
       // Don't reset if warning is already showing - user must click button
-      if (showWarning) return
+      if (showWarningRef.current) return
 
       const now = Date.now()
       if (now - lastActivityRef.current < THROTTLE_MS) return
@@ -135,7 +168,10 @@ export function useInactivityTimeout({
       if (throttleTimer) return
       throttleTimer = setTimeout(() => {
         throttleTimer = null
-        startWarningTimer()
+        // Only restart if warning isn't showing
+        if (!showWarningRef.current) {
+          startWarningTimer()
+        }
       }, THROTTLE_MS)
     }
 
@@ -160,7 +196,15 @@ export function useInactivityTimeout({
       }
       clearAllTimers()
     }
-  }, [enabled, showWarning, startWarningTimer, clearAllTimers])
+  }, [enabled, startWarningTimer, clearAllTimers])
+
+  // Effect to handle timeout changes while running
+  useEffect(() => {
+    if (!enabled || showWarningRef.current) return
+    
+    // Restart warning timer with new timeout value
+    startWarningTimer()
+  }, [warningTimeout, enabled, startWarningTimer])
 
   return {
     showWarning,

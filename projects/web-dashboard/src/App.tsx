@@ -8,8 +8,10 @@ import { RebalancingEditor } from './components/RebalancingEditor'
 import { EmailDashboard, emptyEmailCache, type EmailCacheState } from './components/EmailDashboard'
 import { CalendarDashboard, emptyCalendarCache, type CalendarCacheState } from './components/CalendarDashboard'
 import { ProfileSettings } from './components/ProfileSettings'
+import { SettingsPanel } from './components/SettingsPanel'
 import { InactivityWarningModal } from './components/InactivityWarningModal'
 import { useInactivityTimeout } from './hooks/useInactivityTimeout'
+import { useSettings } from './contexts/SettingsContext'
 import {
   clearGlobalHistory,
   deleteGlobalMessage,
@@ -126,7 +128,7 @@ function App() {
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment' | 'profile'>('auth')
+  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment' | 'profile' | 'settings'>('auth')
   const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
   const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
@@ -155,11 +157,15 @@ function App() {
   const [globalChatLoading, setGlobalChatLoading] = useState(false)
   const [globalExpanded, setGlobalExpanded] = useState(false)
 
-  // Inactivity timeout - only enabled when authenticated
+  // Settings from context
+  const { settings } = useSettings()
+  
+  // Inactivity timeout - only enabled when authenticated and not disabled in settings
+  const inactivityEnabled = !!authConfig && settings.inactivityTimeoutMinutes > 0
   const { showWarning: showInactivityWarning, secondsRemaining, resetInactivity } = useInactivityTimeout({
-    warningTimeout: 15 * 60 * 1000, // 15 minutes
-    logoutTimeout: 2 * 60 * 1000,   // 2 minutes
-    enabled: !!authConfig,
+    warningTimeout: settings.inactivityTimeoutMinutes * 60 * 1000, // Convert minutes to ms
+    logoutTimeout: 2 * 60 * 1000,   // 2 minutes warning countdown
+    enabled: inactivityEnabled,
     onLogout: clearAuth,
   })
 
@@ -1158,6 +1164,12 @@ function App() {
               >
                 Profile
               </button>
+              <button
+                className={menuView === 'settings' ? 'active' : ''}
+                onClick={() => setMenuView('settings')}
+              >
+                Settings
+              </button>
             </nav>
             <div className="menu-view">
               {menuView === 'auth' && <AuthPanel onLogin={() => setMenuOpen(false)} />}
@@ -1212,6 +1224,9 @@ function App() {
                 ) : (
                   <p className="subtle">Sign in to view profile.</p>
                 ))}
+              {menuView === 'settings' && (
+                <SettingsPanel onClose={() => setMenuOpen(false)} />
+              )}
             </div>
           </div>
       </div>
