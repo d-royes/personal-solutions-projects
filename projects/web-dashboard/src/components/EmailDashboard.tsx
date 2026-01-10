@@ -1288,6 +1288,17 @@ export function EmailDashboard({
         updateCache({
           attentionItems: attentionItems.filter(item => item.emailId !== emailId)
         })
+        // Also unpin if this email is pinned (stale cleanup)
+        if (pinnedEmails.some(p => p.emailId === emailId)) {
+          try {
+            await unpinEmail(selectedAccount, emailId, authConfig, apiBase)
+          } catch {
+            // Ignore unpin errors - just update local state
+          }
+          updateCache({
+            pinnedEmails: pinnedEmails.filter(p => p.emailId !== emailId)
+          })
+        }
         // Clear selection
         setSelectedEmailId(null)
         return
