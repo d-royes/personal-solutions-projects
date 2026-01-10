@@ -7794,3 +7794,186 @@ button:not(:disabled):hover {
 .event-form .attendee-remove:hover {
   color: #f87171;
 }
+
+/* ============================================
+   Inactivity Warning Modal
+   ============================================ */
+
+.inactivity-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 22, 0.92);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: inactivityFadeIn 0.3s ease-out;
+}
+
+@keyframes inactivityFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.inactivity-modal {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 16px;
+  padding: 2.5rem;
+  max-width: 420px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 
+    0 0 40px rgba(251, 191, 36, 0.15),
+    0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  animation: inactivitySlideIn 0.3s ease-out;
+}
+
+.inactivity-modal.urgent {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 
+    0 0 40px rgba(239, 68, 68, 0.2),
+    0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  animation: inactivitySlideIn 0.3s ease-out, urgentPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes inactivitySlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes urgentPulse {
+  0%, 100% {
+    box-shadow: 
+      0 0 40px rgba(239, 68, 68, 0.2),
+      0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  }
+  50% {
+    box-shadow: 
+      0 0 60px rgba(239, 68, 68, 0.35),
+      0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  }
+}
+
+.inactivity-modal-icon {
+  color: #fbbf24;
+  margin-bottom: 1rem;
+}
+
+.inactivity-modal.urgent .inactivity-modal-icon {
+  color: #ef4444;
+  animation: iconPulse 1s ease-in-out infinite;
+}
+
+@keyframes iconPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.inactivity-modal-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0 0 0.75rem 0;
+  letter-spacing: -0.01em;
+}
+
+.inactivity-modal-message {
+  color: #94a3b8;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0 0 1.5rem 0;
+}
+
+.inactivity-countdown {
+  font-size: 3.5rem;
+  font-weight: 700;
+  color: #fbbf24;
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  margin-bottom: 1.5rem;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 20px rgba(251, 191, 36, 0.3);
+}
+
+.inactivity-countdown.urgent {
+  color: #ef4444;
+  text-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+  animation: countdownPulse 0.5s ease-in-out infinite;
+}
+
+@keyframes countdownPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.inactivity-stay-btn {
+  width: 100%;
+  padding: 1rem 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #0f172a;
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(251, 191, 36, 0.3);
+}
+
+.inactivity-stay-btn:hover {
+  background: linear-gradient(135deg, #fcd34d 0%, #fbbf24 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(251, 191, 36, 0.4);
+}
+
+.inactivity-stay-btn:active {
+  transform: translateY(0);
+}
+
+.inactivity-stay-btn:focus {
+  outline: none;
+  box-shadow: 
+    0 4px 15px rgba(251, 191, 36, 0.3),
+    0 0 0 3px rgba(251, 191, 36, 0.4);
+}
+
+.inactivity-modal.urgent .inactivity-stay-btn {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+}
+
+.inactivity-modal.urgent .inactivity-stay-btn:hover {
+  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+}
+
+.inactivity-modal.urgent .inactivity-stay-btn:focus {
+  box-shadow: 
+    0 4px 15px rgba(239, 68, 68, 0.3),
+    0 0 0 3px rgba(239, 68, 68, 0.4);
+}
+
+.inactivity-modal-hint {
+  color: #64748b;
+  font-size: 0.8rem;
+  margin: 1rem 0 0 0;
+}

@@ -8,6 +8,8 @@ import { RebalancingEditor } from './components/RebalancingEditor'
 import { EmailDashboard, emptyEmailCache, type EmailCacheState } from './components/EmailDashboard'
 import { CalendarDashboard, emptyCalendarCache, type CalendarCacheState } from './components/CalendarDashboard'
 import { ProfileSettings } from './components/ProfileSettings'
+import { InactivityWarningModal } from './components/InactivityWarningModal'
+import { useInactivityTimeout } from './hooks/useInactivityTimeout'
 import {
   clearGlobalHistory,
   deleteGlobalMessage,
@@ -64,7 +66,7 @@ import { useAuth } from './auth/AuthContext'
 const gmailAccounts = ['church', 'personal']
 
 function App() {
-  const { authConfig, state } = useAuth()
+  const { authConfig, state, clearAuth } = useAuth()
   const [apiBase, setApiBase] = useState(
     import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000',
   )
@@ -152,6 +154,14 @@ function App() {
   const [portfolioActionsExecuting, setPortfolioActionsExecuting] = useState(false)
   const [globalChatLoading, setGlobalChatLoading] = useState(false)
   const [globalExpanded, setGlobalExpanded] = useState(false)
+
+  // Inactivity timeout - only enabled when authenticated
+  const { showWarning: showInactivityWarning, secondsRemaining, resetInactivity } = useInactivityTimeout({
+    warningTimeout: 15 * 60 * 1000, // 15 minutes
+    logoutTimeout: 2 * 60 * 1000,   // 2 minutes
+    enabled: !!authConfig,
+    onLogout: clearAuth,
+  })
 
   const handleQuickAction = useCallback((action: { type: string; content: string }) => {
     // Action handling is now done within AssistPanel
@@ -1340,6 +1350,14 @@ function App() {
           </>
         )}
       </main>
+
+      {/* Inactivity Warning Modal */}
+      {showInactivityWarning && (
+        <InactivityWarningModal
+          secondsRemaining={secondsRemaining}
+          onStayLoggedIn={resetInactivity}
+        />
+      )}
     </div>
   )
 }
