@@ -445,6 +445,96 @@ class SmartsheetClient:
         except SmartsheetAPIError as exc:
             raise SmartsheetAPIError(f"Failed to update row {row_id}: {exc}") from exc
 
+    def create_row(
+        self, task_data: Dict[str, Any], *, source: str = "personal"
+    ) -> Dict[str, Any]:
+        """Create a new task row in Smartsheet.
+
+        Args:
+            task_data: Dict with task fields. Required: task, project, due_date, priority.
+                       Optional fields get defaults applied.
+            source: Source key ("personal" or "work") to determine which sheet
+
+        Returns:
+            The API response containing the created row data.
+
+        Raises:
+            SmartsheetAPIError: If the API call fails
+            ValueError: If required fields are missing or validation fails
+        """
+        schema = self._get_schema_for_source(source)
+
+        # Apply defaults for required fields
+        defaults = {
+            "status": "Scheduled",
+            "assigned_to": "david.a.royes@gmail.com",
+            "estimated_hours": "1",  # Default 1 hour
+            "done": False,
+        }
+
+        # Merge defaults with provided data (provided data takes precedence)
+        merged_data = {**defaults, **task_data}
+
+        # Validate required fields
+        required = ["task", "project", "due_date", "priority"]
+        missing = [f for f in required if not merged_data.get(f)]
+        if missing:
+            raise ValueError(f"Missing required fields: {', '.join(missing)}")
+
+        # Build cells array
+        cells = []
+        for field_name, value in merged_data.items():
+            column = schema.columns.get(field_name)
+            if not column:
+                continue  # Skip unknown fields
+
+            # Validate picklist values
+            if column.allowed_values and value not in column.allowed_values:
+                raise ValueError(
+                    f"Invalid value '{value}' for {field_name}. "
+                    f"Allowed: {column.allowed_values}"
+                )
+
+            # Handle checkbox type
+            cell_value = value
+            if column.col_type == "checkbox":
+                cell_value = bool(value)
+
+            # Handle special column types that require objectValue format
+            if column.col_type == "contact" and cell_value:
+                # Contact columns require objectValue with email
+                cells.append({
+                    "columnId": int(column.column_id),
+                    "objectValue": {
+                        "objectType": "MULTI_CONTACT",
+                        "values": [{
+                            "objectType": "CONTACT",
+                            "email": str(cell_value)
+                        }]
+                    },
+                })
+            else:
+                cells.append({
+                    "columnId": int(column.column_id),
+                    "value": cell_value,
+                })
+
+        if not cells:
+            raise ValueError("No valid cells to create")
+
+        # Smartsheet API: POST to add rows (toBottom to add at end)
+        payload = [{"toBottom": True, "cells": cells}]
+
+        try:
+            response = self._request(
+                "POST",
+                f"/sheets/{schema.sheet_id}/rows",
+                body=payload,
+            )
+            return response
+        except SmartsheetAPIError as exc:
+            raise SmartsheetAPIError(f"Failed to create row: {exc}") from exc
+
     def mark_complete(self, row_id: str, *, source: str = "personal") -> Dict[str, Any]:
         """Mark a task as complete.
         
@@ -645,10 +735,7 @@ class SmartsheetClient:
                         self._cell_value(cell_map, "estimated_hours", allow_optional=True, schema=schema)
                     ),
                     notes=self._cell_value(cell_map, "notes", allow_optional=True, schema=schema),
-                    next_step=self._cell_value(
-                        cell_map, "notes", allow_optional=True, schema=schema
-                    )
-                    or "Review notes",
+                    next_step=None,  # No next_step column in Smartsheet schema
                     automation_hint=self._derive_hint(cell_map, schema=schema),
                     source=source_key,
                     done=is_done,

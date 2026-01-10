@@ -1,10 +1,17 @@
 # PowerShell script to reset the backend server (kill hung processes + restart)
+#
+# CRITICAL: This script MUST be used after ANY backend code changes.
+# uvicorn's --reload flag does NOT reliably kill child processes on Windows.
+# Orphaned Python processes will serve OLD CODE even after the parent is killed.
+#
+# See: https://rolisz.ro/2024/fastapi-server-stuck-on-windows/
+# See: https://github.com/Kludex/uvicorn/issues/2289
 
 param (
     [string]$Port = "8000"
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"  # Don't stop on non-critical errors
 
 # Get paths
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -12,62 +19,115 @@ $backendPath = Split-Path -Parent $scriptDir  # daily-task-assistant
 
 Write-Host "Resetting backend server on port $Port..." -ForegroundColor Cyan
 
-# Kill any processes on the port (including orphaned uvicorn children)
-function Stop-PortProcess {
-    param([int]$Port)
-    $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
-    if ($null -eq $connections) {
-        Write-Host "  No existing process on port $Port" -ForegroundColor Gray
-        return
+function Stop-ProcessTree {
+    <#
+    .SYNOPSIS
+    Kills a process and ALL its child processes using taskkill /T
+
+    .DESCRIPTION
+    On Windows, Stop-Process only kills the specified process, not its children.
+    taskkill /T /F kills the entire process tree, which is essential for uvicorn
+    which spawns worker processes that can become orphaned.
+    #>
+    param([int]$ProcessId)
+
+    Write-Host "  Killing process tree for PID $ProcessId..." -ForegroundColor Yellow
+    # /T = Kill process tree, /F = Force
+    $result = & taskkill /PID $ProcessId /T /F 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "    Success: $result" -ForegroundColor Green
+    } else {
+        Write-Host "    Note: $result" -ForegroundColor Gray
     }
-    $processIds = $connections.OwningProcess | Select-Object -Unique
-    $orphanedParents = @()
-
-    foreach ($procId in $processIds) {
-        # Skip PID 0 (Windows Idle process)
-        if ($procId -eq 0) { continue }
-
-        try {
-            $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
-            if ($null -ne $proc) {
-                Write-Host "  Stopping $($proc.ProcessName) (PID $procId)..." -ForegroundColor Yellow
-                Stop-Process -Id $procId -Force
-            } else {
-                # Parent process is dead but port still held - collect for orphan cleanup
-                $orphanedParents += $procId
-                Write-Host "  Parent PID $procId is dead (zombie)" -ForegroundColor DarkYellow
-            }
-        } catch {
-            $orphanedParents += $procId
-            Write-Host "  Parent PID $procId not found (zombie)" -ForegroundColor DarkYellow
-        }
-    }
-
-    # Kill orphaned child processes (uvicorn children whose parents died)
-    if ($orphanedParents.Count -gt 0) {
-        Write-Host "  Hunting orphaned uvicorn children..." -ForegroundColor Yellow
-        $orphans = Get-CimInstance Win32_Process | Where-Object {
-            $_.ParentProcessId -in $orphanedParents -and $_.Name -match 'python'
-        }
-        foreach ($orphan in $orphans) {
-            try {
-                Write-Host "  Killing orphan $($orphan.Name) (PID $($orphan.ProcessId), parent was $($orphan.ParentProcessId))..." -ForegroundColor Yellow
-                Stop-Process -Id $orphan.ProcessId -Force
-            } catch {
-                Write-Warning ("  Failed to kill orphan PID {0}: {1}" -f $orphan.ProcessId, $_)
-            }
-        }
-    }
-
-    # Brief pause to ensure port is released
-    Start-Sleep -Milliseconds 500
 }
 
-Stop-PortProcess -Port $Port
+function Stop-PortProcesses {
+    <#
+    .SYNOPSIS
+    Finds and kills ALL processes holding a port, including orphaned children
 
-# Note: We intentionally do NOT kill all background Python processes here.
-# Other tools and services may run on Python - killing them could disrupt workflows.
-# The Stop-PortProcess function above handles the specific uvicorn dev server.
+    .DESCRIPTION
+    This function handles the Windows uvicorn zombie problem:
+    1. Finds all PIDs holding the port via netstat
+    2. Kills each process tree with taskkill /T
+    3. Hunts for orphaned Python processes whose parents are dead
+    4. Verifies port is clear before returning
+    #>
+    param([int]$Port)
+
+    # Step 1: Get all PIDs holding the port
+    Write-Host "  Scanning port $Port for processes..." -ForegroundColor Cyan
+    $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+
+    if ($null -eq $connections -or $connections.Count -eq 0) {
+        Write-Host "  Port $Port is clear" -ForegroundColor Green
+        return
+    }
+
+    $processIds = $connections.OwningProcess | Select-Object -Unique | Where-Object { $_ -ne 0 }
+    Write-Host "  Found PIDs on port: $($processIds -join ', ')" -ForegroundColor Yellow
+
+    # Step 2: Kill each process tree
+    foreach ($procId in $processIds) {
+        Stop-ProcessTree -ProcessId $procId
+    }
+
+    # Step 3: Hunt for orphaned Python processes (parent PID doesn't exist)
+    Write-Host "  Hunting orphaned Python processes..." -ForegroundColor Cyan
+    $pythonProcesses = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' }
+
+    foreach ($proc in $pythonProcesses) {
+        # Check if parent process exists
+        $parentExists = Get-Process -Id $proc.ParentProcessId -ErrorAction SilentlyContinue
+        if ($null -eq $parentExists) {
+            # Parent is dead - this is likely an orphan
+            # Extra check: is it uvicorn-related?
+            if ($proc.CommandLine -match 'uvicorn|fastapi') {
+                Write-Host "  Found orphaned uvicorn process: PID $($proc.ProcessId)" -ForegroundColor Yellow
+                Stop-ProcessTree -ProcessId $proc.ProcessId
+            }
+        }
+    }
+
+    # Brief pause to let Windows release the port
+    Start-Sleep -Milliseconds 500
+
+    # Step 4: Verify port is clear
+    $stillOpen = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+    if ($null -ne $stillOpen -and $stillOpen.Count -gt 0) {
+        $remainingPids = $stillOpen.OwningProcess | Select-Object -Unique | Where-Object { $_ -ne 0 }
+        Write-Host "  WARNING: Port still held by PIDs: $($remainingPids -join ', ')" -ForegroundColor Red
+        Write-Host "  Attempting aggressive cleanup..." -ForegroundColor Red
+
+        foreach ($zombiePid in $remainingPids) {
+            # Try to find and kill any children of these zombie PIDs
+            $orphans = Get-CimInstance Win32_Process | Where-Object {
+                $_.ParentProcessId -eq $zombiePid -and $_.Name -match 'python'
+            }
+            foreach ($orphan in $orphans) {
+                Write-Host "    Killing orphan: $($orphan.Name) PID $($orphan.ProcessId)" -ForegroundColor Yellow
+                & taskkill /PID $orphan.ProcessId /F 2>&1 | Out-Null
+            }
+        }
+
+        Start-Sleep -Milliseconds 500
+
+        # Final check
+        $finalCheck = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+        if ($null -ne $finalCheck -and $finalCheck.Count -gt 0) {
+            Write-Host "  CRITICAL: Could not clear port $Port!" -ForegroundColor Red
+            Write-Host "  You may need to restart Windows or manually kill processes" -ForegroundColor Red
+            Write-Host "  Try: netstat -ano | findstr :$Port" -ForegroundColor Yellow
+        } else {
+            Write-Host "  Port $Port cleared after aggressive cleanup" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "  Port $Port is now clear" -ForegroundColor Green
+    }
+}
+
+# Execute the cleanup
+Stop-PortProcesses -Port $Port
 
 Write-Host "Starting backend..." -ForegroundColor Cyan
 
@@ -99,3 +159,6 @@ python -m uvicorn api.main:app --host 0.0.0.0 --port $Port --reload
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd -WindowStyle Normal
 
 Write-Host "Backend started: http://localhost:$Port" -ForegroundColor Green
+Write-Host ""
+Write-Host "NOTE: If you made code changes, verify the server reloaded by checking" -ForegroundColor Cyan
+Write-Host "      the new PowerShell window for 'WatchFiles detected changes'" -ForegroundColor Cyan

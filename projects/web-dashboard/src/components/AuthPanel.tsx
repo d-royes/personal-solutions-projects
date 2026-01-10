@@ -3,7 +3,11 @@ import { GoogleSignInButton, useAuth } from '../auth/AuthContext'
 
 const devAuthEnabled = import.meta.env.VITE_DEV_AUTH_ENABLED !== '0'
 
-export function AuthPanel() {
+interface AuthPanelProps {
+  onLogin?: () => void
+}
+
+export function AuthPanel({ onLogin }: AuthPanelProps) {
   const {
     state,
     authConfig,
@@ -57,6 +61,7 @@ export function AuthPanel() {
             const allowed = setGoogleCredential(token, email)
             if (allowed) {
               setError(null)
+              onLogin?.()
             }
             // If not allowed, authError will be set by context
           }}
@@ -90,6 +95,7 @@ export function AuthPanel() {
                   if (typeof window !== 'undefined') {
                     window.localStorage.setItem('dta-dev-email', devEmail)
                   }
+                  onLogin?.()
                 }
                 // If not allowed, authError will be set by context
               } else {

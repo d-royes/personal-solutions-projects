@@ -6,7 +6,12 @@ import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import { RebalancingEditor } from './components/RebalancingEditor'
 import { EmailDashboard, emptyEmailCache, type EmailCacheState } from './components/EmailDashboard'
+import { CalendarDashboard, emptyCalendarCache, type CalendarCacheState } from './components/CalendarDashboard'
 import { ProfileSettings } from './components/ProfileSettings'
+import { SettingsPanel } from './components/SettingsPanel'
+import { InactivityWarningModal } from './components/InactivityWarningModal'
+import { useInactivityTimeout } from './hooks/useInactivityTimeout'
+import { useSettings } from './contexts/SettingsContext'
 import {
   clearGlobalHistory,
   deleteGlobalMessage,
@@ -51,6 +56,7 @@ import type {
   ActivityEntry,
   AppMode,
   AssistPlan,
+  CalendarView,
   ConversationMessage,
   DataSource,
   FirestoreTask,
@@ -62,7 +68,7 @@ import { useAuth } from './auth/AuthContext'
 const gmailAccounts = ['church', 'personal']
 
 function App() {
-  const { authConfig, state } = useAuth()
+  const { authConfig, state, clearAuth } = useAuth()
   const [apiBase, setApiBase] = useState(
     import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000',
   )
@@ -122,10 +128,11 @@ function App() {
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment' | 'profile'>('auth')
+  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment' | 'profile' | 'settings'>('auth')
   const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
   const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
+  const [autoEngageTaskId, setAutoEngageTaskId] = useState<string | null>(null)  // Auto-engage after selecting from calendar
 
   // Email dashboard state - lifted up to persist across mode switches
   const [emailCache, setEmailCache] = useState<EmailCacheState>({
@@ -133,6 +140,13 @@ function App() {
     church: emptyEmailCache(),
   })
   const [emailSelectedAccount, setEmailSelectedAccount] = useState<'personal' | 'church'>('personal')
+
+  // Calendar dashboard state - lifted up to persist across mode switches
+  const [calendarCache, setCalendarCache] = useState<CalendarCacheState>({
+    personal: emptyCalendarCache(),
+    church: emptyCalendarCache(),
+  })
+  const [calendarSelectedView, setCalendarSelectedView] = useState<CalendarView>('combined')
 
   // Global Mode state
   const [globalPerspective, setGlobalPerspective] = useState<Perspective>('personal')
@@ -142,6 +156,18 @@ function App() {
   const [portfolioActionsExecuting, setPortfolioActionsExecuting] = useState(false)
   const [globalChatLoading, setGlobalChatLoading] = useState(false)
   const [globalExpanded, setGlobalExpanded] = useState(false)
+
+  // Settings from context
+  const { settings } = useSettings()
+  
+  // Inactivity timeout - only enabled when authenticated and not disabled in settings
+  const inactivityEnabled = !!authConfig && settings.inactivityTimeoutMinutes > 0
+  const { showWarning: showInactivityWarning, secondsRemaining, resetInactivity } = useInactivityTimeout({
+    warningTimeout: settings.inactivityTimeoutMinutes * 60 * 1000, // Convert minutes to ms
+    logoutTimeout: 2 * 60 * 1000,   // 2 minutes warning countdown
+    enabled: inactivityEnabled,
+    onLogout: clearAuth,
+  })
 
   const handleQuickAction = useCallback((action: { type: string; content: string }) => {
     // Action handling is now done within AssistPanel
@@ -237,6 +263,14 @@ function App() {
     }
     void loadGlobalContext()
   }, [authConfig, selectedTaskId, apiBase])
+
+  // Auto-engage when navigating from Calendar Tasks tab
+  useEffect(() => {
+    if (autoEngageTaskId && selectedTaskId === autoEngageTaskId && selectedTask && !isEngaged) {
+      setAutoEngageTaskId(null)  // Clear the flag
+      void engageTask()  // Trigger engagement
+    }
+  }, [autoEngageTaskId, selectedTaskId, selectedTask, isEngaged])
 
   async function refreshTasks(skipAutoSelect = false) {
     if (!authConfig) return
@@ -1070,6 +1104,14 @@ function App() {
               >
                 <img src="/Selector_Email_v1.png" alt="Email" className="mode-card-img" />
               </button>
+              <button
+                className={`mode-card ${appMode === 'calendar' ? 'active' : ''}`}
+                onClick={() => setAppMode('calendar')}
+                aria-label="Calendar"
+                title="Calendar"
+              >
+                <img src="/Selector_Calendar_v1.png" alt="Calendar" className="mode-card-img" />
+              </button>
             </div>
           )}
           <button
@@ -1122,9 +1164,15 @@ function App() {
               >
                 Profile
               </button>
+              <button
+                className={menuView === 'settings' ? 'active' : ''}
+                onClick={() => setMenuView('settings')}
+              >
+                Settings
+              </button>
             </nav>
             <div className="menu-view">
-              {menuView === 'auth' && <AuthPanel />}
+              {menuView === 'auth' && <AuthPanel onLogin={() => setMenuOpen(false)} />}
               {menuView === 'environment' && (
                 <div className="menu-panel">
                   <h3>Environment Settings</h3>
@@ -1176,6 +1224,9 @@ function App() {
                 ) : (
                   <p className="subtle">Sign in to view profile.</p>
                 ))}
+              {menuView === 'settings' && (
+                <SettingsPanel onClose={() => setMenuOpen(false)} />
+              )}
             </div>
           </div>
       </div>
@@ -1205,6 +1256,24 @@ function App() {
             setCache={setEmailCache}
             selectedAccount={emailSelectedAccount}
             setSelectedAccount={setEmailSelectedAccount}
+          />
+        ) : appMode === 'calendar' ? (
+          <CalendarDashboard
+            authConfig={authConfig}
+            apiBase={apiBase}
+            onBack={() => setAppMode('tasks')}
+            cache={calendarCache}
+            setCache={setCalendarCache}
+            selectedView={calendarSelectedView}
+            setSelectedView={setCalendarSelectedView}
+            tasks={tasks}
+            tasksLoading={tasksLoading}
+            onRefreshTasks={() => refreshTasks(true)}
+            onSelectTaskInTasksMode={(taskId) => {
+              setAppMode('tasks')
+              handleSelectTask(taskId)
+              setAutoEngageTaskId(taskId)  // Auto-engage after selecting
+            }}
           />
         ) : (
           <>
@@ -1296,6 +1365,14 @@ function App() {
           </>
         )}
       </main>
+
+      {/* Inactivity Warning Modal */}
+      {showInactivityWarning && (
+        <InactivityWarningModal
+          secondsRemaining={secondsRemaining}
+          onStayLoggedIn={resetInactivity}
+        />
+      )}
     </div>
   )
 }
