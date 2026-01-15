@@ -91,6 +91,11 @@ sheets:
         column_id: "841960790904708"
         type: date
         optional: true
+      fsid:
+        column_id: "6080706630078340"
+        type: text
+        optional: true
+        description: Firestore task ID for bidirectional sync
       recurring_pattern:
         column_id: "2530810651168644"
         type: picklist
@@ -216,6 +221,11 @@ sheets:
         column_id: "6481745250936708"
         type: date
         optional: true
+      fsid:
+        column_id: "8647095618326404"
+        type: text
+        optional: true
+        description: Firestore task ID for bidirectional sync
       recurring_pattern:
         column_id: "5106722439227268"
         type: picklist

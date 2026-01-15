@@ -618,6 +618,7 @@ def update_task(
     Automatically:
     - Sets sync_status='pending' if task is synced with Smartsheet
     - Increments times_rescheduled when planned_date changes (slippage tracking)
+    - Converts date strings to date objects
     
     Args:
         user_id: The user who owns the task
@@ -630,6 +631,14 @@ def update_task(
     task = get_task(user_id, task_id)
     if not task:
         return None
+    
+    # Convert date strings to date objects
+    date_fields = ["planned_date", "target_date", "hard_deadline", "due_date", "effective_due_date", "completed_on"]
+    for field in date_fields:
+        if field in updates and updates[field] is not None:
+            val = updates[field]
+            if isinstance(val, str):
+                updates[field] = date.fromisoformat(val)
     
     # Track if planned_date is changing (for slippage tracking)
     old_planned_date = task.planned_date

@@ -890,14 +890,36 @@ class SyncService:
     def _create_smartsheet_from_firestore(self, fs_task: FirestoreTask) -> None:
         """Create a new Smartsheet row from Firestore task.
         
+        Before creating, checks if a row with the same fsid already exists
+        to prevent duplicates. If found, links to existing row instead.
+        
         Args:
             fs_task: FirestoreTask to create in Smartsheet
         """
+        domain = fs_task.domain or "personal"
+        
+        # Check if row with this fsid already exists (duplicate prevention)
+        existing_row_id = self.smartsheet.find_by_fsid(fs_task.id, source=domain)
+        if existing_row_id:
+            # Row already exists - link to it instead of creating duplicate
+            update_task(
+                self.user_email,
+                fs_task.id,
+                {
+                    "smartsheet_row_id": existing_row_id,
+                    "sync_status": SyncStatus.SYNCED.value,
+                    "last_synced_at": datetime.now(self._tz),
+                }
+            )
+            return
+        
         # Use the translation utility to format all fields correctly
         task_data = translate_firestore_to_smartsheet(fs_task)
         
+        # Include Firestore ID for bidirectional linking
+        task_data["fsid"] = fs_task.id
+        
         # Create in Smartsheet
-        domain = fs_task.domain or "personal"
         response = self.smartsheet.create_row(task_data, source=domain)
         
         # Update Firestore with new row ID
@@ -930,6 +952,9 @@ class SyncService:
         """
         domain = fs_task.domain or "personal"
         updates: Dict[str, Any] = {}
+        
+        # Always include fsid to ensure bidirectional linking
+        updates["fsid"] = fs_task.id
         
         # Always include core fields that might have changed
         # Use translation utilities to format correctly

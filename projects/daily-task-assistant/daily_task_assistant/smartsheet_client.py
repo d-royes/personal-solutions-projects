@@ -276,6 +276,46 @@ class SmartsheetClient:
         self._row_errors = all_errors
         return all_tasks
 
+    def find_by_fsid(
+        self,
+        fsid: str,
+        *,
+        source: str = "personal",
+    ) -> Optional[str]:
+        """Find a Smartsheet row by its Firestore ID (fsid column).
+        
+        Args:
+            fsid: The Firestore task ID to search for
+            source: Source key ("personal" or "work")
+            
+        Returns:
+            The row_id if found, None otherwise
+        """
+        schema = self._get_schema_for_source(source)
+        if not schema.ready_for_live:
+            return None
+        
+        fsid_col = schema.columns.get("fsid")
+        if not fsid_col:
+            return None
+        
+        try:
+            payload = self._request(
+                "GET",
+                f"/sheets/{schema.sheet_id}",
+                params={"include": "objectValue"},
+            )
+        except SmartsheetAPIError:
+            return None
+        
+        for row in payload.get("rows", []):
+            for cell in row.get("cells", []):
+                if str(cell.get("columnId")) == fsid_col.column_id:
+                    if cell.get("value") == fsid:
+                        return str(row.get("id"))
+        
+        return None
+
     def get_available_sources(self) -> List[str]:
         """Return list of available source keys."""
         return self.multi_config.get_all_sources()
