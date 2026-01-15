@@ -4,13 +4,27 @@ import { TaskList } from './components/TaskList'
 import { AssistPanel } from './components/AssistPanel'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
+import { RebalancingEditor } from './components/RebalancingEditor'
+import { EmailDashboard, emptyEmailCache, type EmailCacheState } from './components/EmailDashboard'
+import { CalendarDashboard, emptyCalendarCache, type CalendarCacheState } from './components/CalendarDashboard'
+import { ProfileSettings } from './components/ProfileSettings'
+import { SettingsPanel } from './components/SettingsPanel'
+import { InactivityWarningModal } from './components/InactivityWarningModal'
+import { useInactivityTimeout } from './hooks/useInactivityTimeout'
+import { useSettings } from './contexts/SettingsContext'
 import {
+  clearGlobalHistory,
+  deleteGlobalMessage,
   deleteDraft,
   draftEmail,
   fetchActivity,
+  fetchAttachments,
   fetchConversationHistory,
+  fetchGlobalContext,
   fetchTasks,
+  fetchWorkBadge,
   generatePlan,
+  listFirestoreTasks,
   loadDraft,
   loadWorkspace,
   runAssist,
@@ -21,12 +35,16 @@ import {
   searchContacts,
   sendChatMessage,
   sendEmail,
+  sendGlobalChat,
+  strikeGlobalMessage,
   strikeMessage,
   submitFeedback,
   unstrikeMessage,
   updateTask,
+  bulkUpdateTasks,
 } from './api'
-import type { SavedEmailDraft } from './api'
+import type { AttachmentInfo } from './api'
+import type { Perspective, PortfolioStats, SavedEmailDraft, PortfolioPendingAction, BulkTaskUpdate } from './api'
 import type {
   ContactCard,
   ContactSearchResponse,
@@ -36,17 +54,21 @@ import type {
 } from './api'
 import type {
   ActivityEntry,
+  AppMode,
   AssistPlan,
+  CalendarView,
   ConversationMessage,
   DataSource,
+  FirestoreTask,
   Task,
+  WorkBadge,
 } from './types'
 import { useAuth } from './auth/AuthContext'
 
 const gmailAccounts = ['church', 'personal']
 
 function App() {
-  const { authConfig, state } = useAuth()
+  const { authConfig, state, clearAuth } = useAuth()
   const [apiBase, setApiBase] = useState(
     import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000',
   )
@@ -63,9 +85,7 @@ function App() {
   const [assistRunning, setAssistRunning] = useState(false)
   const [planGenerating, setPlanGenerating] = useState(false)
   const [researchRunning, setResearchRunning] = useState(false)
-  const [researchResults, setResearchResults] = useState<string | null>(null)
   const [summarizeRunning, setSummarizeRunning] = useState(false)
-  const [summarizeResults, setSummarizeResults] = useState<string | null>(null)
   const [contactRunning, setContactRunning] = useState(false)
   const [contactResults, setContactResults] = useState<ContactCard[] | null>(null)
   const [contactConfirmation, setContactConfirmation] = useState<ContactSearchResponse | null>(null)
@@ -91,14 +111,63 @@ function App() {
   const [savedDraft, setSavedDraft] = useState<SavedEmailDraft | null>(null)
   const [emailDraftOpen, setEmailDraftOpen] = useState(false)
 
+  // Attachments state
+  const [attachments, setAttachments] = useState<AttachmentInfo[]>([])
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<Set<string>>(new Set())
+
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([])
   const [activityError, setActivityError] = useState<string | null>(null)
+  const [workBadge, setWorkBadge] = useState<WorkBadge | null>(null)
+  
+  // Email Tasks (Firestore) state
+  const [emailTasks, setEmailTasks] = useState<FirestoreTask[]>([])
+  const [emailTasksLoading, setEmailTasksLoading] = useState(false)
+  
   const [environmentName, setEnvironmentName] = useState(
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
   )
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment'>('auth')
+  const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment' | 'profile' | 'settings'>('auth')
+  const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
+  const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
+  const [autoEngageTaskId, setAutoEngageTaskId] = useState<string | null>(null)  // Auto-engage after selecting from calendar
+
+  // Email dashboard state - lifted up to persist across mode switches
+  const [emailCache, setEmailCache] = useState<EmailCacheState>({
+    personal: emptyEmailCache(),
+    church: emptyEmailCache(),
+  })
+  const [emailSelectedAccount, setEmailSelectedAccount] = useState<'personal' | 'church'>('personal')
+
+  // Calendar dashboard state - lifted up to persist across mode switches
+  const [calendarCache, setCalendarCache] = useState<CalendarCacheState>({
+    personal: emptyCalendarCache(),
+    church: emptyCalendarCache(),
+  })
+  const [calendarSelectedView, setCalendarSelectedView] = useState<CalendarView>('combined')
+
+  // Global Mode state
+  const [globalPerspective, setGlobalPerspective] = useState<Perspective>('personal')
+  const [globalConversation, setGlobalConversation] = useState<ConversationMessage[]>([])
+  const [globalStats, setGlobalStats] = useState<PortfolioStats | null>(null)
+  const [portfolioPendingActions, setPortfolioPendingActions] = useState<PortfolioPendingAction[]>([])
+  const [portfolioActionsExecuting, setPortfolioActionsExecuting] = useState(false)
+  const [globalChatLoading, setGlobalChatLoading] = useState(false)
+  const [globalExpanded, setGlobalExpanded] = useState(false)
+
+  // Settings from context
+  const { settings } = useSettings()
+  
+  // Inactivity timeout - only enabled when authenticated and not disabled in settings
+  const inactivityEnabled = !!authConfig && settings.inactivityTimeoutMinutes > 0
+  const { showWarning: showInactivityWarning, secondsRemaining, resetInactivity } = useInactivityTimeout({
+    warningTimeout: settings.inactivityTimeoutMinutes * 60 * 1000, // Convert minutes to ms
+    logoutTimeout: 2 * 60 * 1000,   // 2 minutes warning countdown
+    enabled: inactivityEnabled,
+    onLogout: clearAuth,
+  })
 
   const handleQuickAction = useCallback((action: { type: string; content: string }) => {
     // Action handling is now done within AssistPanel
@@ -107,14 +176,17 @@ function App() {
 
   const handleSelectTask = useCallback(async (taskId: string) => {
     if (taskId !== selectedTaskId) {
-      // Clear plan and research when selecting a different task
+      // Clear plan and engagement when selecting a different task
       setAssistPlan(null)
       setAssistError(null)
       setConversation([])
-      setResearchResults(null)
       setSavedDraft(null)
       setEmailDraftOpen(false)
       setEmailError(null)
+      setIsEngaged(false)
+      // Clear attachments for new task
+      setAttachments([])
+      setSelectedAttachmentIds(new Set())
     }
     setSelectedTaskId(taskId)
     
@@ -153,18 +225,85 @@ function App() {
     void loadConversation(selectedTaskId)
   }, [authConfig, selectedTaskId])
 
-  async function refreshTasks() {
+  // Load attachments when task is selected
+  useEffect(() => {
+    if (!authConfig || !selectedTaskId) {
+      setAttachments([])
+      return
+    }
+    async function loadAttachments() {
+      setAttachmentsLoading(true)
+      try {
+        const response = await fetchAttachments(selectedTaskId!, authConfig!, apiBase)
+        setAttachments(response.attachments)
+      } catch (err) {
+        console.error('Failed to load attachments:', err)
+        setAttachments([])
+      } finally {
+        setAttachmentsLoading(false)
+      }
+    }
+    void loadAttachments()
+  }, [authConfig, selectedTaskId, apiBase])
+
+  // Load global context (stats + history) when Portfolio View opens
+  useEffect(() => {
+    if (!authConfig || selectedTaskId !== null) {
+      // Not in global mode - don't load
+      return
+    }
+    async function loadGlobalContext() {
+      try {
+        const result = await fetchGlobalContext(authConfig!, globalPerspective, apiBase)
+        setGlobalStats(result.portfolio)
+        setGlobalConversation(result.history || [])
+      } catch (err) {
+        console.error('Failed to load portfolio context:', err)
+      }
+    }
+    void loadGlobalContext()
+  }, [authConfig, selectedTaskId, apiBase])
+
+  // Auto-engage when navigating from Calendar Tasks tab
+  useEffect(() => {
+    if (autoEngageTaskId && selectedTaskId === autoEngageTaskId && selectedTask && !isEngaged) {
+      setAutoEngageTaskId(null)  // Clear the flag
+      void engageTask()  // Trigger engagement
+    }
+  }, [autoEngageTaskId, selectedTaskId, selectedTask, isEngaged])
+
+  async function refreshTasks(skipAutoSelect = false) {
     if (!authConfig) return
     setTasksLoading(true)
     setTasksWarning(null)
     try {
+      // Fetch tasks from all sheets (personal + work) so Work filter can show them
       const response = await fetchTasks(authConfig, apiBase, {
         source: dataSource,
+        includeWork: true,  // Include work tasks in the response
       })
+      
+      // Also refresh portfolio stats if in global mode
+      if (!selectedTaskId) {
+        try {
+          const portfolioResult = await fetchGlobalContext(authConfig, globalPerspective, apiBase)
+          setGlobalStats(portfolioResult.portfolio)
+        } catch (err) {
+          console.error('Failed to refresh portfolio stats:', err)
+        }
+      }
+      // X statuses to exclude from all views
+      const EXCLUDED_STATUSES = [
+        'completed', 'cancelled', 'delegated',
+        'create zd ticket', 'ticket created'
+      ]
       const activeTasks = response.tasks.filter(
         (task) => {
+          // Exclude tasks with Done checkbox checked
+          if (task.done === true) return false
+          // Exclude tasks with excluded statuses
           const status = task.status?.toLowerCase() || ''
-          return status !== 'completed' && status !== 'cancelled'
+          return !EXCLUDED_STATUSES.includes(status)
         },
       )
       setTasks(activeTasks)
@@ -173,14 +312,41 @@ function App() {
       if (response.environment) {
         setEnvironmentName(response.environment.toUpperCase())
       }
-      if (!selectedTaskId && activeTasks.length > 0) {
-        setSelectedTaskId(activeTasks[0].rowId)
+      // Only auto-select first task on initial load, not when refreshing from Portfolio View
+      if (!skipAutoSelect && !selectedTaskId && activeTasks.length > 0) {
+        // Default to first personal task (not work)
+        const firstPersonal = activeTasks.find(t => t.source !== 'work')
+        setSelectedTaskId(firstPersonal?.rowId ?? activeTasks[0].rowId)
+      }
+      
+      // Fetch work badge for notification indicator
+      try {
+        const badge = await fetchWorkBadge(authConfig, apiBase)
+        setWorkBadge(badge)
+      } catch {
+        // Work badge is optional - don't fail if it errors
+        setWorkBadge(null)
       }
     } catch (error) {
       setTasksWarning((error as Error).message)
       setTasks([])
     } finally {
       setTasksLoading(false)
+    }
+  }
+  
+  // Load email tasks from Firestore
+  async function loadEmailTasks() {
+    if (!authConfig) return
+    setEmailTasksLoading(true)
+    try {
+      const response = await listFirestoreTasks(authConfig, apiBase, { limit: 100 })
+      setEmailTasks(response.tasks)
+    } catch (error) {
+      console.error('Failed to load email tasks:', error)
+      setEmailTasks([])
+    } finally {
+      setEmailTasksLoading(false)
     }
   }
 
@@ -219,6 +385,7 @@ function App() {
       setAssistError('Please sign in first.')
       return
     }
+    setIsEngaged(true)  // Mark as engaged with this task
     setAssistRunning(true)
     setAssistError(null)
     try {
@@ -255,7 +422,7 @@ function App() {
     }
   }
 
-  async function handleGeneratePlan() {
+  async function handleGeneratePlan(contextItems?: string[]) {
     // Explicitly generate/update the plan based on task + conversation
     if (!selectedTask) return
     if (!authConfig) {
@@ -268,6 +435,8 @@ function App() {
       const response = await generatePlan(selectedTask.rowId, authConfig, apiBase, {
         source: dataSource,
         anthropicModel: import.meta.env.VITE_ANTHROPIC_MODEL,
+        contextItems: contextItems && contextItems.length > 0 ? contextItems : undefined,
+        selectedAttachments: Array.from(selectedAttachmentIds),
       })
       setAssistPlan(response.plan)
       void refreshActivity()
@@ -278,6 +447,11 @@ function App() {
     }
   }
 
+  function handleClearPlan() {
+    // Clear the current plan so user can visually confirm a new one is generated
+    setAssistPlan(null)
+  }
+
   async function handleRunResearch() {
     // Run web research based on task context and next steps
     if (!selectedTask) return
@@ -286,14 +460,12 @@ function App() {
       return
     }
     setResearchRunning(true)
-    setResearchResults(null)
     setAssistError(null)
     try {
       const response = await runResearch(selectedTask.rowId, authConfig, apiBase, {
         source: dataSource,
         nextSteps: assistPlan?.nextSteps,
       })
-      setResearchResults(response.research)
       // Auto-push research to workspace (additive) and trigger save
       if (response.research) {
         setWorkspaceItems(prev => {
@@ -325,7 +497,6 @@ function App() {
       return
     }
     setSummarizeRunning(true)
-    setSummarizeResults(null)
     setAssistError(null)
     try {
       const response = await runSummarize(selectedTask.rowId, authConfig, apiBase, {
@@ -334,7 +505,6 @@ function App() {
         nextSteps: assistPlan?.nextSteps,
         efficiencyTips: assistPlan?.efficiencyTips,
       })
-      setSummarizeResults(response.summary)
       // Auto-push summary to workspace (additive) and trigger save
       if (response.summary) {
         setWorkspaceItems(prev => {
@@ -437,10 +607,10 @@ function App() {
     sourceContent: string,
     recipient?: string,
     regenerateInput?: string
-  ): Promise<{ subject: string; body: string }> {
+  ): Promise<{ subject: string; body: string; bodyHtml?: string }> {
     if (!selectedTask) throw new Error('No task selected')
     if (!authConfig) throw new Error('Please sign in first')
-    
+
     setEmailDraftLoading(true)
     setEmailError(null)
     try {
@@ -453,6 +623,7 @@ function App() {
       return {
         subject: response.subject,
         body: response.body,
+        bodyHtml: response.bodyHtml,
       }
     } catch (error) {
       const message = (error as Error).message
@@ -583,19 +754,23 @@ function App() {
     }
   }, [selectedTaskId, authConfig, apiBase, workspaceSaveTimeout])
 
-  async function handleSendMessage(message: string) {
+  async function handleSendMessage(message: string, workspaceContext?: string) {
     if (!selectedTaskId || !authConfig) return
-    
+
     setSendingMessage(true)
     setAssistError(null)
-    
+
     try {
       const result = await sendChatMessage(
         selectedTaskId,
         message,
         authConfig,
         apiBase,
-        dataSource,
+        {
+          source: dataSource,
+          workspaceContext,
+          selectedAttachments: Array.from(selectedAttachmentIds),
+        },
       )
       // Update conversation with the response
       setConversation(result.history)
@@ -652,7 +827,11 @@ function App() {
   }
 
   async function handleConfirmUpdate() {
-    if (!selectedTaskId || !authConfig || !pendingAction) return
+    console.log('handleConfirmUpdate called', { selectedTaskId, authConfig: !!authConfig, pendingAction })
+    if (!selectedTaskId || !authConfig || !pendingAction) {
+      console.log('Early return - missing:', { selectedTaskId: !selectedTaskId, authConfig: !authConfig, pendingAction: !pendingAction })
+      return
+    }
     
     setUpdateExecuting(true)
     setAssistError(null)
@@ -661,11 +840,20 @@ function App() {
       const result = await updateTask(
         selectedTaskId,
         {
+          source: selectedTask?.source ?? 'personal',
           action: pendingAction.action,
           status: pendingAction.status,
           priority: pendingAction.priority,
           dueDate: pendingAction.dueDate,
           comment: pendingAction.comment,
+          number: pendingAction.number,
+          contactFlag: pendingAction.contactFlag,
+          recurring: pendingAction.recurring,
+          project: pendingAction.project,
+          taskTitle: pendingAction.taskTitle,
+          assignedTo: pendingAction.assignedTo,
+          notes: pendingAction.notes,
+          estimatedHours: pendingAction.estimatedHours,
           confirmed: true,
         },
         authConfig,
@@ -745,6 +933,138 @@ function App() {
     }
   }
 
+  // Global Mode handlers
+  async function handlePerspectiveChange(perspective: Perspective) {
+    setGlobalPerspective(perspective)
+    
+    // Fetch fresh stats AND conversation history for the new perspective
+    if (!authConfig) return
+    try {
+      const result = await fetchGlobalContext(authConfig, perspective, apiBase)
+      setGlobalStats(result.portfolio)
+      // Only update conversation if we got valid history back
+      if (result.history) {
+        setGlobalConversation(result.history)
+      }
+    } catch (err) {
+      console.error('Failed to load portfolio context:', err)
+      // Don't clear conversation on error - keep existing conversation
+    }
+  }
+  
+  async function handleSendGlobalMessage(message: string) {
+    if (!authConfig) return
+    
+    setGlobalChatLoading(true)
+    try {
+      const result = await sendGlobalChat(message, authConfig, apiBase, {
+        perspective: globalPerspective,
+      })
+      setGlobalConversation(result.history)
+      setGlobalStats(result.portfolio)
+      // Capture pending actions for user editing and confirmation
+      if (result.pendingActions && result.pendingActions.length > 0) {
+        setPortfolioPendingActions(result.pendingActions)
+      }
+    } catch (err) {
+      console.error('Global chat failed:', err)
+      setAssistError(err instanceof Error ? err.message : 'Global chat failed')
+    } finally {
+      setGlobalChatLoading(false)
+    }
+  }
+  
+  async function handleConfirmPortfolioActions(updates: BulkTaskUpdate[]) {
+    if (!authConfig || updates.length === 0) return
+    
+    setPortfolioActionsExecuting(true)
+    try {
+      const result = await bulkUpdateTasks(updates, authConfig, globalPerspective, apiBase)
+      
+      if (result.success) {
+        setPortfolioPendingActions([])
+        // Refresh tasks but stay in Portfolio View (don't auto-select a task)
+        await refreshTasks(true)
+      } else {
+        setAssistError(`${result.failureCount} of ${result.totalUpdates} updates failed`)
+      }
+    } catch (err) {
+      console.error('Bulk update failed:', err)
+      setAssistError(err instanceof Error ? err.message : 'Failed to execute updates')
+    } finally {
+      setPortfolioActionsExecuting(false)
+    }
+  }
+  
+  function handleCancelPortfolioActions() {
+    setPortfolioPendingActions([])
+  }
+  
+  async function handleClearGlobalHistory() {
+    if (!authConfig) return
+    
+    try {
+      await clearGlobalHistory(authConfig, apiBase, globalPerspective)
+      setGlobalConversation([])
+    } catch (err) {
+      console.error('Failed to clear global history:', err)
+    }
+  }
+  
+  async function handleStrikeGlobalMessages(messageTimestamps: string[]) {
+    if (!authConfig) return
+    
+    try {
+      // Strike each message sequentially (could optimize with batch endpoint later)
+      for (const ts of messageTimestamps) {
+        const result = await strikeGlobalMessage(authConfig, ts, globalPerspective, apiBase)
+        setGlobalConversation(result.history)
+      }
+    } catch (err) {
+      console.error('Failed to strike global messages:', err)
+    }
+  }
+  
+  async function handleDeleteGlobalMessage(messageTs: string) {
+    if (!authConfig) return
+    
+    try {
+      const result = await deleteGlobalMessage(authConfig, messageTs, globalPerspective, apiBase)
+      setGlobalConversation(result.history)
+    } catch (err) {
+      console.error('Failed to delete global message:', err)
+    }
+  }
+  
+  function handleToggleGlobalExpand() {
+    setGlobalExpanded(prev => !prev)
+    if (!globalExpanded) {
+      // Collapsing tasks when expanding global view
+      setTaskPanelCollapsed(true)
+    }
+  }
+  
+  function handleExpandTasksFromGlobal() {
+    setGlobalExpanded(false)
+    setTaskPanelCollapsed(false)
+  }
+  
+  // Fetch global context when entering global mode (no task selected)
+  useEffect(() => {
+    async function loadGlobalContext() {
+      if (selectedTaskId || !authConfig) return
+      
+      try {
+        const result = await fetchGlobalContext(authConfig, globalPerspective, apiBase)
+        setGlobalStats(result.portfolio)
+      } catch (err) {
+        console.error('Failed to load portfolio context:', err)
+      }
+    }
+    
+    loadGlobalContext()
+  }, [selectedTaskId, authConfig, apiBase, globalPerspective])
+
   const isAuthenticated = !!authConfig
   const envLabel = environmentName ?? 'DEV'
 
@@ -765,6 +1085,35 @@ function App() {
         </div>
 
         <div className="header-menu">
+          {/* Mode switcher - Cyberpunk card style with custom images */}
+          {isAuthenticated && (
+            <div className="mode-switcher">
+              <button
+                className={`mode-card ${appMode === 'tasks' ? 'active' : ''}`}
+                onClick={() => setAppMode('tasks')}
+                aria-label="Task Management"
+                title="Task Management"
+              >
+                <img src="/Selector_Task_v1.png" alt="Task" className="mode-card-img" />
+              </button>
+              <button
+                className={`mode-card ${appMode === 'email' ? 'active' : ''}`}
+                onClick={() => setAppMode('email')}
+                aria-label="Email Management"
+                title="Email Management"
+              >
+                <img src="/Selector_Email_v1.png" alt="Email" className="mode-card-img" />
+              </button>
+              <button
+                className={`mode-card ${appMode === 'calendar' ? 'active' : ''}`}
+                onClick={() => setAppMode('calendar')}
+                aria-label="Calendar"
+                title="Calendar"
+              >
+                <img src="/Selector_Calendar_v1.png" alt="Calendar" className="mode-card-img" />
+              </button>
+            </div>
+          )}
           <button
             className="icon-button"
             aria-label="Open admin menu"
@@ -781,6 +1130,13 @@ function App() {
       {menuOpen && (
         <div className="menu-overlay" onClick={() => setMenuOpen(false)}>
           <div className="menu-shell" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="menu-close-btn"
+              onClick={() => setMenuOpen(false)}
+              aria-label="Close menu"
+            >
+              ×
+            </button>
             <nav className="menu-nav" aria-label="Admin menu">
               <button
                 className={menuView === 'auth' ? 'active' : ''}
@@ -800,10 +1156,23 @@ function App() {
                 disabled={!authConfig}
               >
                 Activity
-        </button>
+              </button>
+              <button
+                className={menuView === 'profile' ? 'active' : ''}
+                onClick={() => setMenuView('profile')}
+                disabled={!authConfig}
+              >
+                Profile
+              </button>
+              <button
+                className={menuView === 'settings' ? 'active' : ''}
+                onClick={() => setMenuView('settings')}
+              >
+                Settings
+              </button>
             </nav>
             <div className="menu-view">
-              {menuView === 'auth' && <AuthPanel onClose={() => setMenuOpen(false)} />}
+              {menuView === 'auth' && <AuthPanel onLogin={() => setMenuOpen(false)} />}
               {menuView === 'environment' && (
                 <div className="menu-panel">
                   <h3>Environment Settings</h3>
@@ -846,9 +1215,31 @@ function App() {
                 ) : (
                   <p className="subtle">Sign in to view activity.</p>
                 ))}
+              {menuView === 'profile' &&
+                (authConfig ? (
+                  <ProfileSettings
+                    authConfig={authConfig}
+                    apiBase={apiBase}
+                  />
+                ) : (
+                  <p className="subtle">Sign in to view profile.</p>
+                ))}
+              {menuView === 'settings' && (
+                <SettingsPanel onClose={() => setMenuOpen(false)} />
+              )}
             </div>
           </div>
       </div>
+      )}
+
+      {/* Rebalancing Editor - Full page overlay when pending actions exist */}
+      {portfolioPendingActions.length > 0 && (
+        <RebalancingEditor
+          pendingActions={portfolioPendingActions}
+          onApply={handleConfirmPortfolioActions}
+          onCancel={handleCancelPortfolioActions}
+          executing={portfolioActionsExecuting}
+        />
       )}
 
       <main className={`grid ${taskPanelCollapsed ? 'task-collapsed' : ''}`}>
@@ -856,6 +1247,34 @@ function App() {
           <section className="panel">
             <p>Please sign in to load tasks.</p>
           </section>
+        ) : appMode === 'email' ? (
+          <EmailDashboard
+            authConfig={authConfig}
+            apiBase={apiBase}
+            onBack={() => setAppMode('tasks')}
+            cache={emailCache}
+            setCache={setEmailCache}
+            selectedAccount={emailSelectedAccount}
+            setSelectedAccount={setEmailSelectedAccount}
+          />
+        ) : appMode === 'calendar' ? (
+          <CalendarDashboard
+            authConfig={authConfig}
+            apiBase={apiBase}
+            onBack={() => setAppMode('tasks')}
+            cache={calendarCache}
+            setCache={setCalendarCache}
+            selectedView={calendarSelectedView}
+            setSelectedView={setCalendarSelectedView}
+            tasks={tasks}
+            tasksLoading={tasksLoading}
+            onRefreshTasks={() => refreshTasks(true)}
+            onSelectTaskInTasksMode={(taskId) => {
+              setAppMode('tasks')
+              handleSelectTask(taskId)
+              setAutoEngageTaskId(taskId)  // Auto-engage after selecting
+            }}
+          />
         ) : (
           <>
             {!taskPanelCollapsed && (
@@ -863,27 +1282,32 @@ function App() {
                 tasks={tasks}
                 selectedTaskId={selectedTaskId}
                 onSelect={handleSelectTask}
+                onDeselectAll={() => setSelectedTaskId(null)}
                 loading={tasksLoading}
                 liveTasks={liveTasks}
                 warning={tasksWarning}
                 onRefresh={refreshTasks}
                 refreshing={tasksLoading}
+                workBadge={workBadge}
+                emailTasks={emailTasks}
+                emailTasksLoading={emailTasksLoading}
+                onLoadEmailTasks={loadEmailTasks}
               />
             )}
 
             <AssistPanel
               selectedTask={selectedTask}
               latestPlan={assistPlan}
+              isEngaged={isEngaged}
               running={assistRunning}
               planGenerating={planGenerating}
               researchRunning={researchRunning}
-              researchResults={researchResults}
               summarizeRunning={summarizeRunning}
-              summarizeResults={summarizeResults}
               gmailAccount={gmailAccount}
               onGmailChange={setGmailAccount}
               onRunAssist={handleAssist}
               onGeneratePlan={handleGeneratePlan}
+              onClearPlan={handleClearPlan}
               onRunResearch={handleRunResearch}
               onRunSummarize={handleRunSummarize}
               onRunContact={handleRunContact}
@@ -897,7 +1321,6 @@ function App() {
               onSendMessage={handleSendMessage}
               sendingMessage={sendingMessage}
               taskPanelCollapsed={taskPanelCollapsed}
-              onExpandTasks={() => setTaskPanelCollapsed(false)}
               onCollapseTasks={() => setTaskPanelCollapsed(true)}
               onQuickAction={handleQuickAction}
               pendingAction={pendingAction}
@@ -920,10 +1343,36 @@ function App() {
               setEmailDraftOpen={setEmailDraftOpen}
               onStrikeMessage={handleStrikeMessage}
               onUnstrikeMessage={handleUnstrikeMessage}
+              // Global Mode props
+              globalPerspective={globalPerspective}
+              onPerspectiveChange={handlePerspectiveChange}
+              globalConversation={globalConversation}
+              globalStats={globalStats}
+              onSendGlobalMessage={handleSendGlobalMessage}
+              globalChatLoading={globalChatLoading}
+              onClearGlobalHistory={handleClearGlobalHistory}
+              globalExpanded={globalExpanded}
+              onToggleGlobalExpand={handleToggleGlobalExpand}
+              onExpandTasks={handleExpandTasksFromGlobal}
+              onStrikeGlobalMessages={handleStrikeGlobalMessages}
+              onDeleteGlobalMessage={handleDeleteGlobalMessage}
+              // Attachment props
+              attachments={attachments}
+              attachmentsLoading={attachmentsLoading}
+              selectedAttachmentIds={selectedAttachmentIds}
+              onAttachmentSelectionChange={setSelectedAttachmentIds}
             />
           </>
         )}
       </main>
+
+      {/* Inactivity Warning Modal */}
+      {showInactivityWarning && (
+        <InactivityWarningModal
+          secondsRemaining={secondsRemaining}
+          onStayLoggedIn={resetInactivity}
+        />
+      )}
     </div>
   )
 }

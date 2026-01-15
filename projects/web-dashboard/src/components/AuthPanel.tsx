@@ -4,10 +4,10 @@ import { GoogleSignInButton, useAuth } from '../auth/AuthContext'
 const devAuthEnabled = import.meta.env.VITE_DEV_AUTH_ENABLED !== '0'
 
 interface AuthPanelProps {
-  onClose?: () => void
+  onLogin?: () => void
 }
 
-export function AuthPanel({ onClose }: AuthPanelProps) {
+export function AuthPanel({ onLogin }: AuthPanelProps) {
   const {
     state,
     authConfig,
@@ -16,9 +16,13 @@ export function AuthPanel({ onClose }: AuthPanelProps) {
     clearAuth,
     setGoogleCredential,
     defaultDevEmail,
+    authError,
   } = useAuth()
   const [devEmail, setDevEmail] = useState(state.userEmail ?? defaultDevEmail)
   const [error, setError] = useState<string | null>(null)
+  
+  // Combine local error with auth context error
+  const displayError = error || authError
 
   useEffect(() => {
     if (state.userEmail) {
@@ -47,20 +51,19 @@ export function AuthPanel({ onClose }: AuthPanelProps) {
               : 'Sign in to call the API'}
           </p>
         </div>
-        {onClose && (
-          <button className="icon-button" onClick={onClose} aria-label="Close menu">
-            ×
-          </button>
-        )}
       </div>
 
-      {error && <p className="warning">{error}</p>}
+      {displayError && <p className="warning">{displayError}</p>}
 
       {googleClientId ? (
         <GoogleSignInButton
           onSuccess={(token, email) => {
-            setGoogleCredential(token, email)
-            setError(null)
+            const allowed = setGoogleCredential(token, email)
+            if (allowed) {
+              setError(null)
+              onLogin?.()
+            }
+            // If not allowed, authError will be set by context
           }}
           onError={() => setError('Google sign-in failed')}
         />
@@ -86,12 +89,15 @@ export function AuthPanel({ onClose }: AuthPanelProps) {
           <button
             onClick={() => {
               if (devEmail) {
-                useDevAuth(devEmail)
-                setError(null)
-                if (typeof window !== 'undefined') {
-                  window.localStorage.setItem('dta-dev-email', devEmail)
+                const allowed = useDevAuth(devEmail)
+                if (allowed) {
+                  setError(null)
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.setItem('dta-dev-email', devEmail)
+                  }
+                  onLogin?.()
                 }
-                onClose?.()
+                // If not allowed, authError will be set by context
               } else {
                 setError('Enter an email for dev auth')
               }

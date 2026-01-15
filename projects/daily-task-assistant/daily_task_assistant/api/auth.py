@@ -11,6 +11,13 @@ from google.oauth2 import id_token
 DEV_BYPASS_ENV = "DTA_DEV_AUTH_BYPASS"
 CLIENT_ID_ENV = "GOOGLE_OAUTH_CLIENT_ID"
 ALLOWED_AUDIENCE_ENV = "GOOGLE_OAUTH_AUDIENCE"
+ALLOWED_EMAILS_ENV = "DTA_ALLOWED_EMAILS"
+
+# Default allowed emails (can be overridden via DTA_ALLOWED_EMAILS env var)
+DEFAULT_ALLOWED_EMAILS = {
+    "davidroyes@southpointsda.org",
+    "david.a.royes@gmail.com",
+}
 
 
 class AuthError(HTTPException):
@@ -26,6 +33,15 @@ def _audiences() -> list[str]:
     return [aud.strip() for aud in audience.split(",") if aud.strip()]
 
 
+@lru_cache
+def _allowed_emails() -> set[str]:
+    """Get the set of allowed email addresses."""
+    env_emails = os.getenv(ALLOWED_EMAILS_ENV)
+    if env_emails:
+        return {email.strip().lower() for email in env_emails.split(",") if email.strip()}
+    return {email.lower() for email in DEFAULT_ALLOWED_EMAILS}
+
+
 def get_current_user(
     authorization: str | None = Header(default=None, alias="Authorization"),
     dev_user: str | None = Header(default=None, alias="X-User-Email"),
@@ -37,6 +53,13 @@ def get_current_user(
 
     if os.getenv(DEV_BYPASS_ENV) == "1":
         if dev_user:
+            # Still check allowlist in dev mode
+            allowed = _allowed_emails()
+            if allowed and dev_user.lower() not in allowed:
+                raise AuthError(
+                    f"Access denied. Email '{dev_user}' is not authorized.",
+                    code=status.HTTP_403_FORBIDDEN,
+                )
             return dev_user
         raise AuthError(
             "Auth bypass enabled but X-User-Email header missing (dev only)."
@@ -64,5 +87,14 @@ def get_current_user(
     email = idinfo.get("email")
     if not email:
         raise AuthError("Token missing email claim.")
+    
+    # Check if email is in the allowlist
+    allowed = _allowed_emails()
+    if allowed and email.lower() not in allowed:
+        raise AuthError(
+            f"Access denied. Email '{email}' is not authorized to use this application.",
+            code=status.HTTP_403_FORBIDDEN,
+        )
+    
     return email
 

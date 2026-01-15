@@ -73,8 +73,26 @@ def send_email(
     to_address: Optional[str],
     subject: str,
     body: str,
+    cc_address: Optional[str] = None,
+    in_reply_to: Optional[str] = None,
+    references: Optional[str] = None,
+    thread_id: Optional[str] = None,
 ) -> str:
-    """Send an email using the Gmail API and return the message ID."""
+    """Send an email using the Gmail API and return the message ID.
+    
+    Args:
+        account: Gmail account configuration.
+        to_address: Primary recipient(s), comma-separated if multiple.
+        subject: Email subject line.
+        body: Email body text.
+        cc_address: Optional CC recipient(s), comma-separated if multiple.
+        in_reply_to: Message-ID header of the email being replied to.
+        references: References header for threading (space-separated Message-IDs).
+        thread_id: Gmail thread ID to keep the reply in the same thread.
+    
+    Returns:
+        Gmail message ID.
+    """
 
     to_addr = to_address or account.default_to or account.from_address
     if not to_addr:
@@ -86,9 +104,17 @@ def send_email(
         to_address=to_addr,
         subject=subject,
         body=body,
+        cc_address=cc_address,
+        in_reply_to=in_reply_to,
+        references=references,
     )
 
-    payload = json.dumps({"raw": raw_message}).encode("utf-8")
+    # Build payload - include threadId to keep reply in same thread
+    payload_data = {"raw": raw_message}
+    if thread_id:
+        payload_data["threadId"] = thread_id
+    
+    payload = json.dumps(payload_data).encode("utf-8")
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -138,11 +164,29 @@ def _fetch_access_token(account: GmailAccountConfig) -> str:
     return str(token)
 
 
-def _build_raw_message(*, from_address: str, to_address: str, subject: str, body: str) -> str:
+def _build_raw_message(
+    *,
+    from_address: str,
+    to_address: str,
+    subject: str,
+    body: str,
+    cc_address: Optional[str] = None,
+    in_reply_to: Optional[str] = None,
+    references: Optional[str] = None,
+) -> str:
     message = EmailMessage()
     message["To"] = to_address
     message["From"] = from_address
     message["Subject"] = subject
+    if cc_address:
+        message["Cc"] = cc_address
+    
+    # Add threading headers for replies
+    if in_reply_to:
+        message["In-Reply-To"] = in_reply_to
+    if references:
+        message["References"] = references
+    
     message.set_content(body)
     encoded = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
     return encoded

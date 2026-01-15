@@ -12,8 +12,14 @@ import uuid
 
 @dataclass(slots=True)
 class FeedbackEntry:
-    """A single feedback entry for a DATA response."""
-    
+    """A single feedback entry for a DATA response.
+
+    Extended in Phase 1A (Quality Improvement Strategy) to support:
+    - Email context linkage for tracking acceptance rates
+    - Analysis method tracking for quality metrics
+    - Confidence score capture for threshold calibration
+    """
+
     id: str
     task_id: str
     feedback: Literal["helpful", "needs_work"]
@@ -23,6 +29,14 @@ class FeedbackEntry:
     user_email: Optional[str] = None
     message_id: Optional[str] = None  # Links to conversation history
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Phase 1A: Email context linkage (Quality Improvement Strategy)
+    email_id: Optional[str] = None  # Gmail message ID for email feedback
+    email_account: Optional[str] = None  # "church" or "personal"
+    suggestion_id: Optional[str] = None  # AttentionRecord or SuggestionRecord ID
+    analysis_method: Optional[str] = None  # "haiku", "regex", "vip", "profile_match"
+    confidence: Optional[float] = None  # Confidence score at time of feedback
+    action_taken: Optional[str] = None  # What user did: "dismissed", "task_created", "replied"
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
@@ -36,6 +50,13 @@ class FeedbackEntry:
             "user_email": self.user_email,
             "message_id": self.message_id,
             "metadata": self.metadata,
+            # Phase 1A: Email context fields
+            "email_id": self.email_id,
+            "email_account": self.email_account,
+            "suggestion_id": self.suggestion_id,
+            "analysis_method": self.analysis_method,
+            "confidence": self.confidence,
+            "action_taken": self.action_taken,
         }
     
     @classmethod
@@ -51,6 +72,13 @@ class FeedbackEntry:
             user_email=data.get("user_email"),
             message_id=data.get("message_id"),
             metadata=data.get("metadata", {}),
+            # Phase 1A: Email context fields
+            email_id=data.get("email_id"),
+            email_account=data.get("email_account"),
+            suggestion_id=data.get("suggestion_id"),
+            analysis_method=data.get("analysis_method"),
+            confidence=data.get("confidence"),
+            action_taken=data.get("action_taken"),
         )
 
 
@@ -106,9 +134,16 @@ def log_feedback(
     user_email: Optional[str] = None,
     message_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    # Phase 1A: Email context parameters
+    email_id: Optional[str] = None,
+    email_account: Optional[str] = None,
+    suggestion_id: Optional[str] = None,
+    analysis_method: Optional[str] = None,
+    confidence: Optional[float] = None,
+    action_taken: Optional[str] = None,
 ) -> FeedbackEntry:
     """Log feedback for a DATA response.
-    
+
     Args:
         task_id: The task this feedback is associated with
         feedback: "helpful" or "needs_work"
@@ -117,7 +152,13 @@ def log_feedback(
         user_email: Who provided the feedback
         message_id: Optional link to conversation history entry
         metadata: Additional context (e.g., action type, tool used)
-    
+        email_id: Gmail message ID (for email feedback)
+        email_account: "church" or "personal"
+        suggestion_id: AttentionRecord or SuggestionRecord ID
+        analysis_method: "haiku", "regex", "vip", "profile_match"
+        confidence: Confidence score at time of feedback (0.0-1.0)
+        action_taken: What user did: "dismissed", "task_created", "replied"
+
     Returns:
         The created FeedbackEntry
     """
@@ -131,6 +172,13 @@ def log_feedback(
         user_email=user_email,
         message_id=message_id,
         metadata=metadata or {},
+        # Phase 1A: Email context fields
+        email_id=email_id,
+        email_account=email_account,
+        suggestion_id=suggestion_id,
+        analysis_method=analysis_method,
+        confidence=confidence,
+        action_taken=action_taken,
     )
     
     db = _get_firestore_client()

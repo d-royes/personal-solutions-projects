@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task } from '../types'
-import type { ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import type { AttachmentInfo, ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
+import { AttachmentsGallery } from './AttachmentsGallery'
 
 // Feedback callback type
 type OnFeedbackSubmit = (
@@ -229,19 +230,19 @@ function renderMarkdown(text: string): JSX.Element {
 interface AssistPanelProps {
   selectedTask: Task | null
   latestPlan: AssistPlan | null
+  isEngaged?: boolean  // Whether we've engaged with the current task (separate from having a plan)
   running: boolean
   planGenerating: boolean
   researchRunning: boolean
-  researchResults: string | null
   summarizeRunning: boolean
-  summarizeResults: string | null
   contactRunning: boolean
   contactResults: ContactCard[] | null
   contactConfirmation: ContactSearchResponse | null
   gmailAccount: string
   onGmailChange: (account: string) => void
   onRunAssist: (options?: { sendEmailAccount?: string }) => void
-  onGeneratePlan: () => void
+  onGeneratePlan: (contextItems?: string[]) => void
+  onClearPlan?: () => void
   onRunResearch: () => void
   onRunSummarize: () => void
   onRunContact: (confirmSearch?: boolean) => void
@@ -249,7 +250,7 @@ interface AssistPanelProps {
   error?: string | null
   conversation: ConversationMessage[]
   conversationLoading: boolean
-  onSendMessage: (message: string) => Promise<void> | void
+  onSendMessage: (message: string, workspaceContext?: string) => Promise<void> | void
   sendingMessage: boolean
   taskPanelCollapsed: boolean
   onExpandTasks: () => void
@@ -269,7 +270,7 @@ interface AssistPanelProps {
   selectedWorkspaceIndex?: number | null
   onSelectWorkspaceItem?: (index: number | null) => void
   // Email draft props
-  onDraftEmail?: (sourceContent: string, recipient?: string, regenerateInput?: string) => Promise<{ subject: string; body: string }>
+  onDraftEmail?: (sourceContent: string, recipient?: string, regenerateInput?: string) => Promise<{ subject: string; body: string; bodyHtml?: string }>
   onSendEmail?: (draft: EmailDraft) => Promise<void>
   onSaveDraft?: (draft: EmailDraft) => Promise<void>
   onDeleteDraft?: () => Promise<void>
@@ -289,6 +290,33 @@ interface AssistPanelProps {
   // Strike/unstrike message handlers
   onStrikeMessage?: (messageTs: string) => Promise<void>
   onUnstrikeMessage?: (messageTs: string) => Promise<void>
+  // Global Mode props
+  globalPerspective?: 'personal' | 'church' | 'work' | 'holistic'
+  onPerspectiveChange?: (perspective: 'personal' | 'church' | 'work' | 'holistic') => void
+  globalConversation?: ConversationMessage[]
+  globalStats?: {
+    totalOpen: number
+    overdue: number
+    dueToday: number
+    dueThisWeek: number
+    byPriority: Record<string, number>
+    byProject: Record<string, number>
+    byDueDate: Record<string, number>
+    conflicts: string[]
+    domainBreakdown: Record<string, number>
+  } | null
+  onSendGlobalMessage?: (message: string) => Promise<void>
+  globalChatLoading?: boolean
+  onClearGlobalHistory?: () => Promise<void>
+  globalExpanded?: boolean
+  onToggleGlobalExpand?: () => void
+  onStrikeGlobalMessages?: (messageTimestamps: string[]) => Promise<void>
+  onDeleteGlobalMessage?: (messageTs: string) => Promise<void>
+  // Attachment props
+  attachments?: AttachmentInfo[]
+  attachmentsLoading?: boolean
+  selectedAttachmentIds?: Set<string>
+  onAttachmentSelectionChange?: (ids: Set<string>) => void
 }
 
 // Draggable divider component
@@ -350,6 +378,22 @@ function formatPendingAction(action: PendingAction): string {
       return `Update due date to ${action.dueDate}`
     case 'add_comment':
       return `Add comment: "${(action.comment ?? '').slice(0, 50)}${(action.comment?.length ?? 0) > 50 ? '...' : ''}"`
+    case 'update_number':
+      return `Update task number to ${action.number}`
+    case 'update_contact_flag':
+      return `Set contact flag to ${action.contactFlag ? 'checked' : 'unchecked'}`
+    case 'update_recurring':
+      return `Set recurring pattern to "${action.recurring}"`
+    case 'update_project':
+      return `Change project to "${action.project}"`
+    case 'update_task':
+      return `Update task title to "${(action.taskTitle ?? '').slice(0, 50)}${(action.taskTitle?.length ?? 0) > 50 ? '...' : ''}"`
+    case 'update_assigned_to':
+      return `Assign to "${action.assignedTo}"`
+    case 'update_notes':
+      return `Update notes to "${(action.notes ?? '').slice(0, 50)}${(action.notes?.length ?? 0) > 50 ? '...' : ''}"`
+    case 'update_estimated_hours':
+      return `Set estimated hours to ${action.estimatedHours}`
     default:
       return `Perform action: ${action.action}`
   }
@@ -358,17 +402,17 @@ function formatPendingAction(action: PendingAction): string {
 export function AssistPanel({
   selectedTask,
   latestPlan,
+  isEngaged = false,
   running,
   planGenerating,
   researchRunning,
-  researchResults,
   summarizeRunning,
-  summarizeResults,
   contactRunning,
   contactResults,
   contactConfirmation,
   onRunAssist,
   onGeneratePlan,
+  onClearPlan,
   onRunResearch,
   onRunSummarize,
   onRunContact,
@@ -402,8 +446,26 @@ export function AssistPanel({
   setEmailDraftOpen: setEmailDraftOpenProp,
   onStrikeMessage,
   onUnstrikeMessage,
+  // Global Mode props
+  globalPerspective,
+  onPerspectiveChange,
+  globalConversation,
+  globalStats,
+  onSendGlobalMessage,
+  globalChatLoading,
+  onClearGlobalHistory,
+  globalExpanded,
+  onToggleGlobalExpand,
+  onStrikeGlobalMessages,
+  onDeleteGlobalMessage,
+  // Attachment props
+  attachments,
+  attachmentsLoading: _attachmentsLoading,
+  selectedAttachmentIds,
+  onAttachmentSelectionChange,
 }: AssistPanelProps) {
   const [showFullNotes, setShowFullNotes] = useState(false)
+  const [attachmentsCollapsed, setAttachmentsCollapsed] = useState(false)
   const [message, setMessage] = useState('')
   const [activeAction, setActiveAction] = useState<string | null>(null)
   
@@ -417,6 +479,9 @@ export function AssistPanel({
   const [verticalSplit, setVerticalSplit] = useState(50) // % for planning zone width
   const [horizontalSplit, setHorizontalSplit] = useState(60) // % for top zones height
   const [conversationCollapsed, setConversationCollapsed] = useState(false)
+  
+  // Portfolio dashboard collapsed state (for global mode)
+  const [dashboardCollapsed, setDashboardCollapsed] = useState(true)
   
   // Workspace items (content pushed from chat) - initialized from props
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(() => {
@@ -456,6 +521,8 @@ export function AssistPanel({
     setActiveAction(null)
     // Reset modified flag when task changes
     workspaceModifiedRef.current = false
+    // Clear workspace selections when task changes
+    setSelectedWorkspaceIds(new Set())
   }, [selectedTask?.rowId])
   
   // Notify parent when workspace changes (for persistence) - only if modified by user
@@ -467,7 +534,6 @@ export function AssistPanel({
   }, [workspaceItems, onWorkspaceChange])
 
   const disableSend = sendingMessage || !message.trim()
-  const hasPlan = !!latestPlan
 
   const handleActionClick = async (action: string) => {
     setActiveAction(action)
@@ -506,10 +572,14 @@ export function AssistPanel({
     
     // No saved draft - generate a new one
     if (!onDraftEmail) return
-    
-    // Get source content - either selected workspace item or task context
+
+    // Get source content - prioritize checkbox-selected items, then single selection, then plan
     let sourceContent = ''
-    if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
+    const selectedContent = getSelectedWorkspaceContent()
+    if (selectedContent.length > 0) {
+      // Use checkbox-selected workspace items
+      sourceContent = selectedContent.join('\n\n---\n\n')
+    } else if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
       sourceContent = workspaceItems[selectedWorkspaceIndex].content
     } else if (latestPlan) {
       // Use plan summary as source
@@ -524,6 +594,7 @@ export function AssistPanel({
       setEmailDraft({
         subject: result.subject,
         body: result.body,
+        bodyHtml: result.bodyHtml,
         to: [],
         cc: [],
         fromAccount: '',
@@ -546,10 +617,13 @@ export function AssistPanel({
   // Handle regenerating email draft
   const handleRegenerateEmail = async (instructions: string) => {
     if (!onDraftEmail || !emailDraft) return
-    
-    // Get source content again
+
+    // Get source content - prioritize checkbox-selected items, then single selection, then plan
     let sourceContent = ''
-    if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
+    const selectedContent = getSelectedWorkspaceContent()
+    if (selectedContent.length > 0) {
+      sourceContent = selectedContent.join('\n\n---\n\n')
+    } else if (selectedWorkspaceIndex !== null && selectedWorkspaceIndex !== undefined && workspaceItems[selectedWorkspaceIndex]) {
       sourceContent = workspaceItems[selectedWorkspaceIndex].content
     } else if (latestPlan) {
       sourceContent = [
@@ -564,6 +638,7 @@ export function AssistPanel({
         ...prev,
         subject: result.subject,
         body: result.body,
+        bodyHtml: result.bodyHtml,
       }))
     } catch (err) {
       console.error('Failed to regenerate email draft:', err)
@@ -706,6 +781,7 @@ export function AssistPanel({
   const clearWorkspace = () => {
     workspaceModifiedRef.current = true
     setWorkspaceItems([])
+    setSelectedWorkspaceIds(new Set())
   }
   
   // Update workspace item content (for editing)
@@ -722,17 +798,331 @@ export function AssistPanel({
     setWorkspaceItems(prev => prev.filter(item => item.id !== id))
   }
 
-  // No task selected - prompt user
+  // State for selected workspace items (for including in plan/email)
+  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<Set<string>>(new Set())
+
+  // Toggle workspace item selection
+  const toggleWorkspaceSelection = (id: string) => {
+    setSelectedWorkspaceIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  // Get content of selected workspace items
+  const getSelectedWorkspaceContent = (): string[] => {
+    return workspaceItems
+      .filter(item => selectedWorkspaceIds.has(item.id))
+      .map(item => item.content)
+  }
+
+  // State for selected messages in global chat (for bulk strike)
+  const [selectedGlobalMessages, setSelectedGlobalMessages] = useState<Set<string>>(new Set())
+  
+  // State for quick questions collapsible - default expanded only if no history
+  const [quickQuestionsExpanded, setQuickQuestionsExpanded] = useState(false)
+  
+  // Toggle message selection
+  const toggleMessageSelection = (ts: string) => {
+    setSelectedGlobalMessages(prev => {
+      const next = new Set(prev)
+      if (next.has(ts)) {
+        next.delete(ts)
+      } else {
+        next.add(ts)
+      }
+      return next
+    })
+  }
+  
+  // Handle clear button - behavior depends on selection
+  const handleGlobalClear = async () => {
+    if (selectedGlobalMessages.size > 0 && onStrikeGlobalMessages) {
+      // Strike selected messages (soft delete - preserved in DB)
+      await onStrikeGlobalMessages(Array.from(selectedGlobalMessages))
+      setSelectedGlobalMessages(new Set())
+    } else if (onClearGlobalHistory) {
+      // No selection - just reset UI (could also be a full clear)
+      // For now, we'll just clear selections and do nothing to backend
+      setSelectedGlobalMessages(new Set())
+    }
+  }
+
+  // No task selected - show Global Mode (Portfolio View)
   if (!selectedTask) {
+    const perspective = globalPerspective ?? 'personal'
+    const stats = globalStats
+    // Filter out struck messages for display
+    const globalHistory = (globalConversation ?? []).filter(msg => !msg.struck)
+    const isExpanded = globalExpanded ?? false
+    
+    const perspectiveLabels: Record<string, string> = {
+      personal: 'Personal',
+      church: 'Church',
+      work: 'Work',
+      holistic: 'Holistic',
+    }
+    
+    const perspectiveDescriptions: Record<string, string> = {
+      personal: 'Home, family, and personal projects',
+      church: 'Ministry and church leadership',
+      work: 'Professional responsibilities',
+      holistic: 'Complete view across all domains',
+    }
+    
     return (
-      <section className="panel assist-panel">
-        <header>
-          <h2>Assistant</h2>
-          <button className="secondary" onClick={onExpandTasks}>
-            Show tasks
-          </button>
+      <section className={`panel assist-panel global-mode ${isExpanded ? 'expanded' : ''}`}>
+        <header className="global-header">
+          <div className="global-header-top">
+            <h2>DATA - Portfolio View</h2>
+            <button className="secondary" onClick={isExpanded ? onExpandTasks : onToggleGlobalExpand}>
+              {isExpanded ? 'Show tasks' : '⛶ Expand'}
+            </button>
+          </div>
+          
+          {/* Perspective Selector */}
+          <div className="perspective-selector">
+            {(['personal', 'church', 'work', 'holistic'] as const).map((p) => (
+              <button
+                key={p}
+                className={`perspective-tab ${perspective === p ? 'active' : ''}`}
+                onClick={() => onPerspectiveChange?.(p)}
+              >
+                {perspectiveLabels[p]}
+              </button>
+            ))}
+          </div>
+          <p className="perspective-description">{perspectiveDescriptions[perspective]}</p>
         </header>
-        <p>Select a task to view details.</p>
+        
+        {/* Portfolio Stats - Collapsible */}
+        {stats && (
+          <div className={`portfolio-stats ${dashboardCollapsed ? 'collapsed' : ''}`}>
+            {/* Compact summary bar (always visible) */}
+            <div 
+              className="stats-summary-bar"
+              onClick={() => setDashboardCollapsed(!dashboardCollapsed)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && setDashboardCollapsed(!dashboardCollapsed)}
+            >
+              <div className="stats-compact">
+                <span className="stat-compact">{stats.totalOpen} open</span>
+                {stats.overdue > 0 && <span className="stat-compact overdue">• {stats.overdue} overdue</span>}
+                <span className="stat-compact today">• {stats.dueToday} today</span>
+                <span className="stat-compact">• {stats.dueThisWeek} this week</span>
+                {perspective === 'holistic' && stats.conflicts.length > 0 && (
+                  <span className="stat-compact conflict">• ⚠️ {stats.conflicts.length} conflicts</span>
+                )}
+              </div>
+              <button className="collapse-toggle" aria-label={dashboardCollapsed ? 'Expand dashboard' : 'Collapse dashboard'}>
+                {dashboardCollapsed ? '▼' : '▲'}
+              </button>
+            </div>
+            
+            {/* Full stats (collapsible) */}
+            {!dashboardCollapsed && (
+              <>
+                <div className="stats-row">
+                  <div className="stat-item">
+                    <span className="stat-value">{stats.totalOpen}</span>
+                    <span className="stat-label">Open</span>
+                  </div>
+                  <div className="stat-item overdue">
+                    <span className="stat-value">{stats.overdue}</span>
+                    <span className="stat-label">Overdue</span>
+                  </div>
+                  <div className="stat-item today">
+                    <span className="stat-value">{stats.dueToday}</span>
+                    <span className="stat-label">Due Today</span>
+                  </div>
+                  <div className="stat-item week">
+                    <span className="stat-value">{stats.dueThisWeek}</span>
+                    <span className="stat-label">This Week</span>
+                  </div>
+                </div>
+                
+                {/* Conflicts warning for holistic mode */}
+                {perspective === 'holistic' && stats.conflicts.length > 0 && (
+                  <div className="conflicts-warning">
+                    <strong>⚠️ Cross-Domain Conflicts:</strong>
+                    <ul>
+                      {stats.conflicts.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {/* Domain breakdown for holistic mode */}
+                {perspective === 'holistic' && Object.keys(stats.domainBreakdown).length > 0 && (
+                  <div className="domain-breakdown">
+                    {Object.entries(stats.domainBreakdown).map(([domain, count]) => (
+                      count > 0 && (
+                        <span key={domain} className="domain-badge">
+                          {domain}: {count}
+                        </span>
+                      )
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        
+        {/* Global Chat Interface */}
+        <div className="global-chat-container">
+          {/* Chat header with clear button */}
+          {globalHistory.length > 0 && (
+            <div className="global-chat-header">
+              {selectedGlobalMessages.size > 0 && (
+                <span className="selection-count">{selectedGlobalMessages.size} selected</span>
+              )}
+              <button 
+                className="clear-chat-btn" 
+                onClick={handleGlobalClear}
+                title={selectedGlobalMessages.size > 0 
+                  ? "Hide selected messages (preserved for learning)" 
+                  : "Clear view"}
+              >
+                {selectedGlobalMessages.size > 0 ? 'Hide selected' : 'Clear view'}
+              </button>
+            </div>
+          )}
+          <div className="global-chat-messages">
+            {/* Collapsible Quick Questions - always available */}
+            <div className={`quick-questions-section ${quickQuestionsExpanded ? 'expanded' : ''}`}>
+              <button 
+                className="quick-questions-toggle"
+                onClick={() => setQuickQuestionsExpanded(!quickQuestionsExpanded)}
+              >
+                <span className="toggle-icon">{quickQuestionsExpanded ? '▼' : '▶'}</span>
+                Quick Questions
+              </button>
+              {quickQuestionsExpanded && (
+                <div className="sample-questions">
+                  <button 
+                    className="sample-question-btn"
+                    onClick={() => {
+                      onSendGlobalMessage?.("What should I focus on today?")
+                      setQuickQuestionsExpanded(false)
+                    }}
+                  >
+                    "What should I focus on today?"
+                  </button>
+                  <button 
+                    className="sample-question-btn"
+                    onClick={() => {
+                      onSendGlobalMessage?.("Am I overloaded this week?")
+                      setQuickQuestionsExpanded(false)
+                    }}
+                  >
+                    "Am I overloaded this week?"
+                  </button>
+                  <button 
+                    className="sample-question-btn"
+                    onClick={() => {
+                      onSendGlobalMessage?.("What are my highest priority items?")
+                      setQuickQuestionsExpanded(false)
+                    }}
+                  >
+                    "What are my highest priority items?"
+                  </button>
+                  {perspective === 'holistic' && (
+                    <button 
+                      className="sample-question-btn"
+                      onClick={() => {
+                        onSendGlobalMessage?.("Do I have any conflicts between work and personal?")
+                        setQuickQuestionsExpanded(false)
+                      }}
+                    >
+                      "Do I have any conflicts between work and personal?"
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            {/* Chat history - always shown if any */}
+            {globalHistory.length === 0 ? (
+              <div className="global-chat-empty">
+                <p className="subtle">No conversation yet. Ask a question or use Quick Questions above.</p>
+              </div>
+            ) : (
+              globalHistory.map((msg) => (
+                <div 
+                  key={msg.ts} 
+                  className={`chat-bubble ${msg.role} ${selectedGlobalMessages.has(msg.ts) ? 'selected' : ''}`}
+                >
+                  {/* Checkbox - like workspace delete button pattern */}
+                  <input
+                    type="checkbox"
+                    className="chat-bubble-checkbox"
+                    checked={selectedGlobalMessages.has(msg.ts)}
+                    onChange={() => toggleMessageSelection(msg.ts)}
+                    title="Select for bulk hide"
+                  />
+                  {/* Delete button - matching workspace pattern */}
+                  <button
+                    className="chat-bubble-delete"
+                    onClick={() => onDeleteGlobalMessage?.(msg.ts)}
+                    title="Permanently delete"
+                  >
+                    ×
+                  </button>
+                  <div className="chat-meta">
+                    <span className="chat-role">
+                      {msg.role === 'user' ? 'You' : 'DATA'} | {new Date(msg.ts).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })}
+                    </span>
+                  </div>
+                  <div className="chat-content">
+                    {renderMarkdown(msg.content)}
+                  </div>
+                </div>
+              ))
+            )}
+            {globalChatLoading && (
+              <div className="chat-bubble assistant loading">
+                <div className="chat-meta">
+                  <span className="chat-role">DATA</span>
+                </div>
+                <div className="chat-content">
+                  <span className="typing-indicator">thinking...</span>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* Chat Input */}
+          <form
+            className="global-chat-input"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const input = e.currentTarget.elements.namedItem('globalMessage') as HTMLInputElement
+              if (input.value.trim() && onSendGlobalMessage) {
+                onSendGlobalMessage(input.value.trim())
+                input.value = ''
+              }
+            }}
+          >
+            <input
+              type="text"
+              name="globalMessage"
+              placeholder={`Ask about your ${perspectiveLabels[perspective].toLowerCase()} tasks...`}
+              disabled={globalChatLoading}
+              autoComplete="off"
+            />
+            <button type="submit" disabled={globalChatLoading}>
+              {globalChatLoading ? '...' : 'Send'}
+            </button>
+          </form>
+        </div>
       </section>
     )
   }
@@ -746,7 +1136,7 @@ export function AssistPanel({
   }
 
   // Task selected but not engaged - show preview with Engage button
-  if (!hasPlan) {
+  if (!isEngaged) {
     return (
       <section className="panel assist-panel">
         <header>
@@ -822,7 +1212,7 @@ export function AssistPanel({
             <button
               key={action}
               className={`action-btn ${activeAction === action ? 'active' : ''} ${action === 'plan' ? 'plan-btn' : ''}`}
-              onClick={() => action === 'plan' ? onGeneratePlan() : handleActionClick(action)}
+              onClick={() => action === 'plan' ? onGeneratePlan(getSelectedWorkspaceContent()) : handleActionClick(action)}
               disabled={action === 'plan' && planGenerating}
             >
               {action === 'plan' && planGenerating ? 'Planning…' : formatActionLabel(action)}
@@ -863,6 +1253,18 @@ export function AssistPanel({
         </div>
       )}
 
+      {/* Attachments Gallery - below notes, above Planning */}
+      {attachments && attachments.length > 0 && selectedAttachmentIds && onAttachmentSelectionChange && (
+        <AttachmentsGallery
+          taskId={selectedTask.rowId}
+          attachments={attachments}
+          selectedIds={selectedAttachmentIds}
+          onSelectionChange={onAttachmentSelectionChange}
+          collapsed={attachmentsCollapsed}
+          onToggleCollapse={() => setAttachmentsCollapsed(!attachmentsCollapsed)}
+        />
+      )}
+
       {/* Three-zone content area */}
       <div className="three-zone-container">
         {/* Top zones: Planning + Collaboration */}
@@ -879,7 +1281,7 @@ export function AssistPanel({
               <h4>Planning</h4>
             </div>
             <div className="zone-content">
-              {latestPlan.summary ? (
+              {latestPlan?.summary ? (
                 <>
                   <div className="plan-section">
                     <h5>
@@ -891,16 +1293,25 @@ export function AssistPanel({
                       )}
                     </h5>
                     <p className="plan-summary-text">{latestPlan.summary}</p>
-                    <button 
+                    <button
                       className="push-btn"
                       onClick={pushFullPlanToWorkspace}
                       title="Push full plan to Workspace"
                     >
                       ➡️
                     </button>
+                    {onClearPlan && (
+                      <button
+                        className="clear-plan-btn"
+                        onClick={onClearPlan}
+                        title="Clear plan"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
 
-                  {latestPlan.nextSteps.length > 0 && (
+                  {latestPlan.nextSteps?.length > 0 && (
                     <div className="plan-section">
                       <h5>Next Steps</h5>
                       <ul className="compact-list">
@@ -911,7 +1322,7 @@ export function AssistPanel({
                     </div>
                   )}
 
-                  {latestPlan.efficiencyTips.length > 0 && (
+                  {latestPlan.efficiencyTips?.length > 0 && (
                     <div className="plan-section">
                       <h5>Efficiency Tips</h5>
                       <ul className="compact-list">
@@ -921,9 +1332,9 @@ export function AssistPanel({
                       </ul>
                     </div>
                   )}
-                  
+
                   {/* Feedback controls for plan */}
-                  {onFeedbackSubmit && (
+                  {onFeedbackSubmit && latestPlan.summary && (
                     <div className="plan-feedback">
                       <FeedbackControls
                         context="plan"
@@ -951,88 +1362,68 @@ export function AssistPanel({
           >
             <div className="zone-header">
               <h4>Workspace</h4>
-              {workspaceItems.length > 0 && (
-                <div className="workspace-controls">
-                  <button
-                    className="copy-btn"
-                    onClick={() => {
-                      const allContent = workspaceItems.map(item => item.content).join('\n\n---\n\n')
-                      navigator.clipboard.writeText(allContent)
-                    }}
-                    title="Copy all"
-                  >
-                    📋
-                  </button>
-                  <button
-                    className="clear-btn"
-                    onClick={clearWorkspace}
-                    title="Clear workspace"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              )}
+              <div className="workspace-controls">
+                <button
+                  className="add-btn"
+                  onClick={() => {
+                    workspaceModifiedRef.current = true
+                    const newItem: WorkspaceItem = {
+                      id: `ws-${Date.now()}`,
+                      content: '',
+                    }
+                    setWorkspaceItems(prev => [...prev, newItem])
+                  }}
+                  title="Add new card"
+                >
+                  +
+                </button>
+                {workspaceItems.length > 0 && (
+                  <>
+                    <button
+                      className="copy-btn"
+                      onClick={() => {
+                        const allContent = workspaceItems.map(item => item.content).join('\n\n---\n\n')
+                        navigator.clipboard.writeText(allContent)
+                      }}
+                      title="Copy all"
+                    >
+                      📋
+                    </button>
+                    <button
+                      className="clear-btn"
+                      onClick={clearWorkspace}
+                      title="Clear workspace"
+                    >
+                      🗑️
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             <div className="zone-content workspace-content">
-              {workspaceItems.length > 0 ? (
-                <div className="workspace-items-container">
-                  {workspaceItems.map((item, index) => (
-                    <div key={item.id} className="workspace-item-simple">
-                      {index > 0 && <hr className="workspace-separator" />}
-                      <div className="workspace-item-wrapper">
-                        <textarea
-                          className="workspace-editor"
-                          value={item.content}
-                          onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
-                          placeholder="Edit content here..."
-                        />
-                        <button
-                          className="workspace-item-delete"
-                          onClick={() => removeWorkspaceItem(item.id)}
-                          title="Remove this section"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : activeAction === 'research' ? (
-                <div className="action-output-content">
+              {/* Action status banner - shows ONLY while action is running */}
+              {activeAction === 'research' && researchRunning && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('research')}</h5>
                   </div>
-                  {researchRunning ? (
-                    <div className="research-loading">
-                      <p className="subtle">🔍 Searching the web...</p>
-                    </div>
-                  ) : researchResults ? (
-                    <div className="action-status">
-                      <p className="success-message">✅ Research added to workspace</p>
-                    </div>
-                  ) : (
-                    <p className="subtle">Click Research to search for information.</p>
-                  )}
+                  <div className="research-loading">
+                    <p className="subtle">🔍 Searching the web...</p>
+                  </div>
                 </div>
-              ) : activeAction === 'summarize' ? (
-                <div className="action-output-content">
+              )}
+              {activeAction === 'summarize' && summarizeRunning && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('summarize')}</h5>
                   </div>
-                  {summarizeRunning ? (
-                    <div className="research-loading">
-                      <p className="subtle">📄 Generating summary...</p>
-                    </div>
-                  ) : summarizeResults ? (
-                    <div className="action-status">
-                      <p className="success-message">✅ Summary added to workspace</p>
-                    </div>
-                  ) : (
-                    <p className="subtle">Click Summarize to generate a task summary.</p>
-                  )}
+                  <div className="research-loading">
+                    <p className="subtle">📄 Generating summary...</p>
+                  </div>
                 </div>
-              ) : activeAction === 'contact' ? (
-                <div className="action-output-content">
+              )}
+              {activeAction === 'contact' && (contactRunning || contactConfirmation) && (
+                <div className="action-output-content action-status-banner">
                   <div className="action-output-header">
                     <h5>{formatActionLabel('contact')}</h5>
                   </div>
@@ -1066,23 +1457,55 @@ export function AssistPanel({
                         </button>
                       </div>
                     </div>
-                  ) : contactResults && contactResults.length > 0 ? (
-                    <div className="contact-status">
-                      <p className="success-message">✅ {contactResults.length} contact(s) added to workspace</p>
-                    </div>
-                  ) : contactResults && contactResults.length === 0 ? (
-                    <p className="subtle">No contacts found in task details.</p>
-                  ) : (
-                    <p className="subtle">Click Contact to search for contact information.</p>
-                  )}
+                  ) : null}
                 </div>
-              ) : (
+              )}
+              
+              {/* Workspace items */}
+              {workspaceItems.length > 0 ? (
+                <div className="workspace-items-container">
+                  {selectedWorkspaceIds.size > 0 && (
+                    <div className="workspace-selection-hint">
+                      {selectedWorkspaceIds.size} item{selectedWorkspaceIds.size > 1 ? 's' : ''} selected for context
+                    </div>
+                  )}
+                  {workspaceItems.map((item, index) => (
+                    <div key={item.id} className={`workspace-item-simple ${selectedWorkspaceIds.has(item.id) ? 'selected' : ''}`}>
+                      {index > 0 && <hr className="workspace-separator" />}
+                      <div className="workspace-item-wrapper">
+                        <textarea
+                          className="workspace-editor"
+                          value={item.content}
+                          onChange={(e) => updateWorkspaceItem(item.id, e.target.value)}
+                          placeholder="Edit content here..."
+                        />
+                        <div className="workspace-item-controls">
+                          <input
+                            type="checkbox"
+                            className="workspace-item-checkbox"
+                            checked={selectedWorkspaceIds.has(item.id)}
+                            onChange={() => toggleWorkspaceSelection(item.id)}
+                            title="Include in planning context"
+                          />
+                          <button
+                            className="workspace-item-delete"
+                            onClick={() => removeWorkspaceItem(item.id)}
+                            title="Remove this section"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : !activeAction ? (
                 <div className="zone-placeholder">
                   <p className="subtle">
                     Push content here from the conversation or run an action.
                   </p>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         </div>
@@ -1141,8 +1564,7 @@ export function AssistPanel({
                   // Normal message
                   <div key={`${entry.ts}-${index}`} className={`chat-bubble ${entry.role}`}>
                     <div className="chat-meta">
-                      <span>{entry.role === 'assistant' ? 'DATA' : 'You'}</span>
-                      <span>{new Date(entry.ts).toLocaleString()}</span>
+                      <span>{entry.role === 'assistant' ? 'DATA' : 'You'} | {new Date(entry.ts).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' })}</span>
                       {entry.role === 'assistant' && (
                         <>
                           <button
@@ -1233,7 +1655,12 @@ export function AssistPanel({
           if (!message.trim()) return
           const payload = message.trim()
           setMessage('')
-          await onSendMessage(payload)
+          // Include selected workspace items as context if any are checked
+          const selectedContent = getSelectedWorkspaceContent()
+          const workspaceContext = selectedContent.length > 0
+            ? selectedContent.join('\n\n---\n\n')
+            : undefined
+          await onSendMessage(payload, workspaceContext)
         }}
       >
         <textarea
