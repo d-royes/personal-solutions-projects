@@ -450,6 +450,7 @@ def create_task(
     estimated_hours: Optional[float] = None,
     assigned_to: Optional[str] = None,
     contact_required: bool = False,
+    done: bool = False,
     # Recurring
     recurring_type: Optional[str] = None,
     recurring_days: Optional[List[str]] = None,
@@ -460,6 +461,11 @@ def create_task(
     source_email_id: Optional[str] = None,
     source_email_account: Optional[str] = None,
     source_email_subject: Optional[str] = None,
+    # Sync tracking
+    smartsheet_row_id: Optional[str] = None,
+    smartsheet_sheet: Optional[str] = None,
+    sync_status: str = SyncStatus.LOCAL_ONLY.value,
+    last_synced_at: Optional[datetime] = None,
 ) -> FirestoreTask:
     """Create a new task.
     
@@ -480,6 +486,7 @@ def create_task(
         estimated_hours: Estimated time to complete
         assigned_to: Who is assigned
         contact_required: Whether task requires external contact
+        done: Whether task is done
         recurring_type: "weekly", "monthly", or "custom"
         recurring_days: Days for weekly recurring ["M", "W", "F"]
         recurring_monthly: Day of month for monthly recurring
@@ -488,6 +495,10 @@ def create_task(
         source_email_id: Gmail message ID if from email
         source_email_account: "personal" or "church" email account
         source_email_subject: Original email subject
+        smartsheet_row_id: Smartsheet row ID for sync
+        smartsheet_sheet: Smartsheet sheet name ("personal" or "work")
+        sync_status: Current sync status
+        last_synced_at: When task was last synced
     
     Returns:
         Created FirestoreTask
@@ -524,13 +535,17 @@ def create_task(
         estimated_hours=estimated_hours,
         assigned_to=assigned_to,
         contact_required=contact_required,
+        done=done,
         created_at=now,
         updated_at=now,
         source=source,
         source_email_id=source_email_id,
         source_email_account=source_email_account,
         source_email_subject=source_email_subject,
-        sync_status=SyncStatus.LOCAL_ONLY.value,
+        smartsheet_row_id=smartsheet_row_id,
+        smartsheet_sheet=smartsheet_sheet or domain,  # Default sheet matches domain
+        sync_status=sync_status,
+        last_synced_at=last_synced_at,
     )
     
     db = _get_firestore_client()

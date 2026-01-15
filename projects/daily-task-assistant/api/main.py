@@ -5229,6 +5229,116 @@ def delete_firestore_task(
     return {"status": "deleted", "taskId": task_id}
 
 
+# --- Task Sync Endpoints (Phase 1c - Internal Task System Migration) ---
+
+class SyncRequest(BaseModel):
+    """Request body for sync operations."""
+    sources: Optional[List[str]] = Field(
+        None,
+        description="Specific source keys to sync (e.g., ['personal', 'work']). If None, syncs all."
+    )
+    include_work: bool = Field(
+        False,
+        description="Include work tasks when sources is None"
+    )
+    direction: str = Field(
+        "bidirectional",
+        description="Sync direction: 'smartsheet_to_firestore', 'firestore_to_smartsheet', or 'bidirectional'"
+    )
+
+
+@app.post("/sync/now")
+def sync_now(
+    request: SyncRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Trigger a sync between Smartsheet and Firestore.
+    
+    This is the primary sync endpoint for the Internal Task System Migration.
+    It supports bidirectional sync or one-way sync in either direction.
+    
+    Returns:
+        Sync results including counts of created, updated, unchanged, conflicts, and errors.
+    """
+    from daily_task_assistant.sync import SyncService, SyncDirection
+    from daily_task_assistant.config import Settings
+    
+    try:
+        settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
+    
+    sync_service = SyncService(settings, user_email=user)
+    
+    # Map direction string to enum
+    direction_map = {
+        "smartsheet_to_firestore": SyncDirection.SMARTSHEET_TO_FIRESTORE,
+        "firestore_to_smartsheet": SyncDirection.FIRESTORE_TO_SMARTSHEET,
+        "bidirectional": SyncDirection.BIDIRECTIONAL,
+    }
+    direction = direction_map.get(request.direction, SyncDirection.BIDIRECTIONAL)
+    
+    try:
+        if direction == SyncDirection.SMARTSHEET_TO_FIRESTORE:
+            result = sync_service.sync_from_smartsheet(
+                sources=request.sources,
+                include_work=request.include_work,
+            )
+        elif direction == SyncDirection.FIRESTORE_TO_SMARTSHEET:
+            result = sync_service.sync_to_smartsheet()
+        else:
+            result = sync_service.sync_bidirectional(
+                sources=request.sources,
+                include_work=request.include_work,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
+    
+    return {
+        "success": result.success,
+        "direction": result.direction.value,
+        "created": result.created,
+        "updated": result.updated,
+        "unchanged": result.unchanged,
+        "conflicts": result.conflicts,
+        "errors": result.errors,
+        "totalProcessed": result.total_processed,
+        "syncedAt": result.synced_at.isoformat(),
+    }
+
+
+@app.get("/sync/status")
+def get_sync_status(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get current sync status summary.
+    
+    Returns counts of tasks by sync status:
+    - synced: In sync with Smartsheet
+    - pending: Local changes waiting to sync
+    - local_only: Only in Firestore, never synced
+    - conflicts: Need manual resolution
+    """
+    from daily_task_assistant.sync import SyncService
+    from daily_task_assistant.config import Settings
+    
+    try:
+        settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
+    
+    sync_service = SyncService(settings, user_email=user)
+    status = sync_service.get_sync_status()
+    
+    return {
+        "totalTasks": status["total_tasks"],
+        "synced": status["synced"],
+        "pending": status["pending"],
+        "localOnly": status["local_only"],
+        "conflicts": status["conflicts"],
+    }
+
+
 # --- Email Memory Endpoints (Phase C) ---
 # Note: All memory endpoints are now keyed by account (church/personal), not user login.
 
