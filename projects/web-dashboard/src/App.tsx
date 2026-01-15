@@ -1292,6 +1292,12 @@ function App() {
                 emailTasks={emailTasks}
                 emailTasksLoading={emailTasksLoading}
                 onLoadEmailTasks={loadEmailTasks}
+                // Phase 1f: Firestore integration
+                auth={authConfig}
+                baseUrl={apiBase}
+                onTaskCreated={loadEmailTasks}
+                onTaskUpdated={loadEmailTasks}
+                onTaskDeleted={loadEmailTasks}
               />
             )}
 
