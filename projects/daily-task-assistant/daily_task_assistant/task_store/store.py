@@ -451,6 +451,7 @@ def create_task(
     assigned_to: Optional[str] = None,
     contact_required: bool = False,
     done: bool = False,
+    completed_on: Optional[date] = None,  # When task was completed
     # Recurring
     recurring_type: Optional[str] = None,
     recurring_days: Optional[List[str]] = None,
@@ -487,6 +488,7 @@ def create_task(
         assigned_to: Who is assigned
         contact_required: Whether task requires external contact
         done: Whether task is done
+        completed_on: Date when task was completed
         recurring_type: "weekly", "monthly", or "custom"
         recurring_days: Days for weekly recurring ["M", "W", "F"]
         recurring_monthly: Day of month for monthly recurring
@@ -536,6 +538,7 @@ def create_task(
         assigned_to=assigned_to,
         contact_required=contact_required,
         done=done,
+        completed_on=completed_on,
         created_at=now,
         updated_at=now,
         source=source,

@@ -721,6 +721,21 @@ class SmartsheetClient:
                 except (ValueError, TypeError):
                     task_number = None  # Invalid number values are treated as unset
                 
+                # Parse contact_flag checkbox
+                contact_flag_value = self._cell_value(cell_map, "contact_flag", allow_optional=True, schema=schema)
+                contact_flag = bool(contact_flag_value) if contact_flag_value is not None else False
+                
+                # Parse deadline date (optional)
+                deadline_value = self._cell_value(cell_map, "deadline", allow_optional=True, schema=schema)
+                deadline = self._parse_due_date(deadline_value) if deadline_value else None
+                
+                # Parse completed_on date (optional)
+                completed_on_value = self._cell_value(cell_map, "completed_on", allow_optional=True, schema=schema)
+                completed_on = self._parse_due_date(completed_on_value) if completed_on_value else None
+                
+                # Parse recurring_pattern (multi-picklist, returns list of day codes)
+                recurring_pattern = self._parse_recurring_pattern(cell_map, schema)
+                
                 summary = TaskDetail(
                     row_id=str(row.get("id")),
                     title=self._cell_value(cell_map, "task", schema=schema),
@@ -740,6 +755,10 @@ class SmartsheetClient:
                     source=source_key,
                     done=is_done,
                     number=task_number,
+                    deadline=deadline,
+                    contact_flag=contact_flag,
+                    completed_on=completed_on,
+                    recurring_pattern=recurring_pattern,
                 )
             except (KeyError, ValueError) as exc:
                 errors.append(self._format_row_error(row, exc))
@@ -815,6 +834,44 @@ class SmartsheetClient:
                 except ValueError:
                     continue
         raise ValueError(f"Unable to parse due date value: {value}")
+
+    def _parse_recurring_pattern(
+        self, cell_map: Dict[str, Any], schema: "SheetSchema"
+    ) -> Optional[List[str]]:
+        """Parse recurring_pattern multi-picklist field.
+        
+        Smartsheet stores multi-picklist values in objectValue.values array.
+        Returns list of day codes like ["M", "W", "F"] or ["Monthly"].
+        
+        Args:
+            cell_map: Cell map from row
+            schema: Sheet schema for column lookup
+            
+        Returns:
+            List of recurring day codes, or None if not set
+        """
+        recurring_col = schema.columns.get("recurring_pattern")
+        if not recurring_col:
+            return None
+        
+        col_id = int(recurring_col.column_id)
+        cell = cell_map.get(col_id)
+        if not cell:
+            return None
+        
+        # Multi-picklist stores values in objectValue.values array
+        obj_val = cell.get("objectValue", {})
+        values = obj_val.get("values", [])
+        
+        if values:
+            return values
+        
+        # Fallback: check displayValue for single value
+        display = cell.get("displayValue")
+        if display:
+            return [display]
+        
+        return None
 
     def _derive_hint(
         self, cell_map: Dict[str, Any], *, schema: Optional[SheetSchema] = None

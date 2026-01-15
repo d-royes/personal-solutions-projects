@@ -687,19 +687,48 @@ class SyncService:
         # Map status
         status = STATUS_MAP.get(ss_task.status, TaskStatus.SCHEDULED)
         
-        # Extract date
+        # Extract dates (convert datetime to date if needed)
         due_date = ss_task.due.date() if hasattr(ss_task.due, 'date') else ss_task.due
         
+        hard_deadline = None
+        if ss_task.deadline:
+            hard_deadline = ss_task.deadline.date() if hasattr(ss_task.deadline, 'date') else ss_task.deadline
+        
+        completed_on = None
+        if ss_task.completed_on:
+            completed_on = ss_task.completed_on.date() if hasattr(ss_task.completed_on, 'date') else ss_task.completed_on
+        
+        # Determine recurring attributes from recurring_pattern field
+        recurring_type_val = None
+        recurring_days_val = []
+        
+        if ss_task.recurring_pattern:
+            patterns = ss_task.recurring_pattern
+            if "Monthly" in patterns:
+                recurring_type_val = RecurringType.MONTHLY.value
+            else:
+                recurring_type_val = RecurringType.WEEKLY.value
+                recurring_days_val = patterns
+        elif ss_task.status == "Recurring" or (ss_task.number and 0 < ss_task.number < 1):
+            recurring_type_val = RecurringType.WEEKLY.value
+        
         # Build updates dict
+        # Note: We do NOT update target_date here - it tracks original intention
         updates = {
             "title": ss_task.title,
             "status": status.value,
             "priority": ss_task.priority,
             "project": ss_task.project,
             "planned_date": due_date,
+            "hard_deadline": hard_deadline,
             "notes": ss_task.notes,
             "estimated_hours": ss_task.estimated_hours,
             "done": ss_task.done,
+            "completed_on": completed_on,
+            "number": ss_task.number,
+            "contact_required": ss_task.contact_flag,
+            "recurring_type": recurring_type_val,
+            "recurring_days": recurring_days_val,
             "sync_status": SyncStatus.SYNCED.value,
             "last_synced_at": datetime.now(self._tz),
         }
@@ -719,13 +748,32 @@ class SyncService:
         # Map status
         status = STATUS_MAP.get(ss_task.status, TaskStatus.SCHEDULED)
         
-        # Extract date
+        # Extract dates (convert datetime to date if needed)
         due_date = ss_task.due.date() if hasattr(ss_task.due, 'date') else ss_task.due
         
-        # Determine recurring attributes if applicable
+        hard_deadline = None
+        if ss_task.deadline:
+            hard_deadline = ss_task.deadline.date() if hasattr(ss_task.deadline, 'date') else ss_task.deadline
+        
+        completed_on = None
+        if ss_task.completed_on:
+            completed_on = ss_task.completed_on.date() if hasattr(ss_task.completed_on, 'date') else ss_task.completed_on
+        
+        # Determine recurring attributes from recurring_pattern field
         recurring_type_val = None
-        if ss_task.status == "Recurring" or (ss_task.number and 0 < ss_task.number < 1):
-            # Task appears to be recurring based on status or number field
+        recurring_days_val = []
+        
+        if ss_task.recurring_pattern:
+            # Parse recurring pattern from Smartsheet
+            patterns = ss_task.recurring_pattern
+            if "Monthly" in patterns:
+                recurring_type_val = RecurringType.MONTHLY.value
+            else:
+                # Weekly recurring with specific days
+                recurring_type_val = RecurringType.WEEKLY.value
+                recurring_days_val = patterns  # ["M", "W", "F"] etc.
+        elif ss_task.status == "Recurring" or (ss_task.number and 0 < ss_task.number < 1):
+            # Fallback: detect recurring based on status or number field
             recurring_type_val = RecurringType.WEEKLY.value
         
         # Create the task
@@ -737,13 +785,17 @@ class SyncService:
             domain=ss_task.source,
             planned_date=due_date,
             target_date=due_date,  # Initially same as planned
+            hard_deadline=hard_deadline,
             notes=ss_task.notes,
             estimated_hours=ss_task.estimated_hours,
             done=ss_task.done,
+            completed_on=completed_on,
             project=ss_task.project,
             number=ss_task.number,
+            contact_required=ss_task.contact_flag,
             smartsheet_row_id=ss_task.row_id,
             recurring_type=recurring_type_val,
+            recurring_days=recurring_days_val,
             sync_status=SyncStatus.SYNCED.value,
             last_synced_at=datetime.now(self._tz),
             source=TaskSource.SMARTSHEET_SYNC.value,
