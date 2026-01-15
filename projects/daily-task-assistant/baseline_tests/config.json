@@ -1,0 +1,156 @@
+{
+  "api_base_url": "http://localhost:8000",
+  "user_email": "david.a.royes@gmail.com",
+  
+  "test_fixtures": {
+    "task": {
+      "row_id": "1756155102826372",
+      "title": "Update my personal and team goals roadmap on my Confluence Roadmap page",
+      "domain": "personal"
+    },
+    "email_church": {
+      "id": "19bb7f7990a63823",
+      "account": "church",
+      "subject": "DISCONNECT Re: Customer #51656825 JACKSONVILLE SOUTHPOINT SEVENTH DAY ADVENTIST"
+    },
+    "email_personal": {
+      "id": "19bab160ef93e268",
+      "account": "personal",
+      "subject": "Church & School Treasurer's Zoom Meeting - 2026.01.22"
+    },
+    "calendar_event": {
+      "id": "66otrov9q2r2f667113rp46ma8_20260119T140000Z",
+      "recurring_id": "66otrov9q2r2f667113rp46ma8",
+      "summary": "Personal Efficiency Planning",
+      "domain": "personal"
+    }
+  },
+  
+  "prompts": {
+    "task_mode": [
+      {
+        "id": "task_complete",
+        "prompt": "Done",
+        "description": "Mark task complete",
+        "expected_tool": "update_task",
+        "expected_action": "mark_complete"
+      },
+      {
+        "id": "task_blocked",
+        "prompt": "I'm blocked on this",
+        "description": "Update status to Blocked",
+        "expected_tool": "update_task",
+        "expected_action": "update_status"
+      },
+      {
+        "id": "task_reschedule",
+        "prompt": "Push this to Friday",
+        "description": "Update due date with date parsing",
+        "expected_tool": "update_task",
+        "expected_action": "update_due_date"
+      },
+      {
+        "id": "task_guidance",
+        "prompt": "What should I do first?",
+        "description": "Task-specific guidance (no tool)",
+        "expected_tool": null,
+        "expected_action": null
+      },
+      {
+        "id": "task_summarize",
+        "prompt": "Summarize this task",
+        "description": "Task summary quality (no tool)",
+        "expected_tool": null,
+        "expected_action": null
+      }
+    ],
+    
+    "portfolio_mode": [
+      {
+        "id": "portfolio_focus",
+        "prompt": "What should I focus on today?",
+        "perspective": "personal",
+        "description": "Daily focus using real task data",
+        "hallucination_check": true
+      },
+      {
+        "id": "portfolio_workload",
+        "prompt": "How's my workload looking?",
+        "perspective": "holistic",
+        "description": "Accurate workload statistics",
+        "hallucination_check": true
+      },
+      {
+        "id": "portfolio_slipping",
+        "prompt": "Any tasks slipping?",
+        "perspective": "personal",
+        "description": "Identify overdue/at-risk tasks",
+        "hallucination_check": true
+      },
+      {
+        "id": "portfolio_rebalance_week",
+        "prompt": "I'm behind, help me rebalance my week",
+        "perspective": "holistic",
+        "description": "Rebalancing with context + tool proposals",
+        "hallucination_check": true,
+        "rebalancing_test": true
+      },
+      {
+        "id": "portfolio_rebalance_today",
+        "prompt": "I can't finish everything today, what should I push?",
+        "perspective": "personal",
+        "description": "Prioritization + tool usage for rescheduling",
+        "hallucination_check": true,
+        "rebalancing_test": true
+      }
+    ],
+    
+    "calendar_mode": [
+      {
+        "id": "calendar_today",
+        "prompt": "What do I have today?",
+        "domain": "combined",
+        "description": "Accurate event listing"
+      },
+      {
+        "id": "calendar_conflicts",
+        "prompt": "Any conflicts this week?",
+        "domain": "personal",
+        "description": "Real schedule analysis"
+      }
+    ],
+    
+    "email_mode": [
+      {
+        "id": "email_action_church",
+        "prompt": "What should I do with this?",
+        "account": "church",
+        "email_fixture": "email_church",
+        "description": "Action recommendation for church email"
+      },
+      {
+        "id": "email_summarize_personal",
+        "prompt": "Summarize",
+        "account": "personal",
+        "email_fixture": "email_personal",
+        "description": "Email summary quality"
+      }
+    ]
+  },
+  
+  "quality_checks": {
+    "max_response_length_for_actions": 500,
+    "hallucination_keywords": [
+      "I don't have access",
+      "I cannot see",
+      "hypothetically",
+      "if you have",
+      "assuming"
+    ],
+    "verbose_patterns": [
+      "Would you like me to",
+      "I can help you with",
+      "Let me know if"
+    ]
+  }
+}

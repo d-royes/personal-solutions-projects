@@ -98,6 +98,53 @@ This document captures test prompts and expected behaviors for DATA across all c
 | Task with conversation | Synthesizes progress | Key points only |
 | Task with plan | Reviews plan + task | No excessive recap |
 
+### 9. Portfolio View (CRITICAL - Hallucination Risk Zone)
+
+**Context:** Portfolio/holistic view of tasks across domains
+
+| Prompt | Expected Behavior | Quality Check |
+|--------|-------------------|---------------|
+| "What should I focus on today?" | Prioritizes based on due dates, urgency | Uses REAL task data only |
+| "How's my workload looking?" | Summarizes task counts, blockers | No invented statistics |
+| "Any tasks slipping?" | Reports overdue/at-risk items | Accurate dates from data |
+| Quick Question chat | Responds with task-aware context | No hallucinated tasks |
+
+**CRITICAL Anti-patterns (from hallucination incident):**
+- ❌ Inventing tasks that don't exist
+- ❌ Making up due dates or statistics
+- ❌ Referencing projects not in the data
+- ❌ Confident assertions not grounded in actual task list
+
+### 10. Calendar Mode Integration
+
+**Context:** Calendar view with tasks tab
+
+| Prompt | Expected Behavior | Quality Check |
+|--------|-------------------|---------------|
+| "What do I have today?" | Lists events AND relevant tasks | Accurate calendar data |
+| "Any conflicts?" | Identifies scheduling issues | Real event/task overlap |
+| "When can I work on [task]?" | Suggests time slots | Based on actual calendar |
+
+### 11. Email Mode
+
+**Context:** Email dashboard with triage and task creation
+
+| Action | Expected Behavior | Quality Check |
+|--------|-------------------|---------------|
+| "Create task from this email" | Extracts subject, sender, key details | Preserves email context |
+| "What should I do with this?" | Analyzes email, suggests action | Account-aware (personal/church) |
+| Email analysis | Categorizes correctly | No misclassification |
+
+### 12. Cross-Mode Consistency
+
+**Context:** Switching between Task, Email, Calendar modes
+
+| Scenario | Expected Behavior | Quality Check |
+|----------|-------------------|---------------|
+| Same task discussed in different modes | Consistent information | No contradictions |
+| Task created from email, viewed in Task mode | All metadata preserved | Source tracking intact |
+| Calendar event with associated task | Both reference each other | Linked correctly |
+
 ---
 
 ## Baseline Capture Instructions
@@ -158,10 +205,66 @@ This document captures test prompts and expected behaviors for DATA across all c
 
 **Test Environment:**
 - Branch: `feature/unified-tasks`
-- Data Source: [live/stub]
-- Model: [anthropic model version]
+- Commit: `0ac4f6e` (Level 0 baseline)
+- Data Source: Live Smartsheet data
+- Model: Claude 3.5 Sonnet (via Anthropic API)
+- Frontend: http://localhost:5173
+- Backend: http://localhost:8000
 
-**Results will be captured here after running baseline prompts.**
+---
+
+## Recommended Test Tasks
+
+Use these specific tasks for consistent baseline testing:
+
+### Task Mode Tests
+1. **Church task with clear action** - e.g., "File Claim" or similar
+2. **Personal task with DATA bug** - e.g., "DATA - Email Management" 
+3. **Task requiring contact** - Any task with contact_flag set
+
+### Portfolio View Tests
+1. **Personal perspective** - View personal domain tasks
+2. **Church perspective** - View church domain tasks  
+3. **Holistic perspective** - Cross-domain view
+
+### Calendar Mode Tests
+1. **Personal calendar** - Check events and task integration
+2. **Church calendar** - Check events and task integration
+
+### Email Mode Tests
+1. **Personal inbox** - Test email triage
+2. **Church inbox** - Test email triage and task creation
+
+---
+
+## Baseline Capture Template
+
+For each test, capture:
+
+```markdown
+### Test: [Category] - [Specific Test]
+**Timestamp:** YYYY-MM-DD HH:MM
+**Task/Context:** [Task title or context description]
+
+**Prompt:** "[Exact user input]"
+
+**DATA Response:**
+> [Full response text]
+
+**Tool Calls:** [List any tools invoked]
+
+**Quality Assessment:** ✅ PASS / ⚠️ WARNING / ❌ FAIL
+
+**Notes:** [Any observations]
+```
+
+---
+
+## Captured Baselines
+
+### Baseline Run #1: [DATE PENDING]
+
+_Results will be captured during baseline testing session._
 
 ---
 
@@ -170,4 +273,5 @@ This document captures test prompts and expected behaviors for DATA across all c
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-01-14 | Created Phase 0 baseline document | Claude |
+| 2026-01-15 | Added Portfolio, Calendar, Email mode tests; Added test task recommendations; Added capture template | Claude (Opus 4.5) |
 
