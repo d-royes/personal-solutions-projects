@@ -449,9 +449,9 @@ class SyncService:
         """
         deleted_count = 0
         
-        # Get all Firestore tasks for this user
+        # Get all Firestore tasks for this user (use large limit for full scan)
         try:
-            all_fs_tasks = list_firestore_tasks(self.user_email)
+            all_fs_tasks = list_firestore_tasks(self.user_email, limit=10000)
         except Exception:
             return 0
         
@@ -509,7 +509,7 @@ class SyncService:
                         tasks_to_sync.append(task)
             else:
                 # Get all tasks that need syncing (pending changes OR local-only)
-                all_tasks = list_firestore_tasks(self.user_email)
+                all_tasks = list_firestore_tasks(self.user_email, limit=10000)
                 tasks_to_sync = [
                     t for t in all_tasks 
                     if t.sync_status in (SyncStatus.PENDING.value, SyncStatus.LOCAL_ONLY.value)
@@ -571,7 +571,7 @@ class SyncService:
             Dict with sync statistics
         """
         try:
-            all_tasks = list_firestore_tasks(self.user_email)
+            all_tasks = list_firestore_tasks(self.user_email, limit=10000)
         except Exception:
             return {
                 "total_tasks": 0,
@@ -684,7 +684,8 @@ class SyncService:
             FirestoreTask if found, None otherwise
         """
         try:
-            all_tasks = list_firestore_tasks(self.user_email)
+            # Use large limit to ensure we check ALL tasks
+            all_tasks = list_firestore_tasks(self.user_email, limit=10000)
             for task in all_tasks:
                 # Match by row_id AND smartsheet_sheet (not domain, since church tasks
                 # come from "personal" sheet but have domain="church")
