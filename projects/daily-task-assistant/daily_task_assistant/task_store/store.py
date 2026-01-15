@@ -615,6 +615,10 @@ def update_task(
 ) -> Optional[FirestoreTask]:
     """Update a task.
     
+    Automatically:
+    - Sets sync_status='pending' if task is synced with Smartsheet
+    - Increments times_rescheduled when planned_date changes (slippage tracking)
+    
     Args:
         user_id: The user who owns the task
         task_id: The task ID
@@ -627,13 +631,37 @@ def update_task(
     if not task:
         return None
     
+    # Track if planned_date is changing (for slippage tracking)
+    old_planned_date = task.planned_date
+    new_planned_date = updates.get("planned_date")
+    
     # Apply updates
     for key, value in updates.items():
         if hasattr(task, key):
             setattr(task, key, value)
     
+    # Auto-increment times_rescheduled if planned_date changed
+    # (only if caller didn't explicitly set times_rescheduled)
+    if (
+        new_planned_date is not None
+        and old_planned_date != new_planned_date
+        and "times_rescheduled" not in updates
+    ):
+        task.times_rescheduled = (task.times_rescheduled or 0) + 1
+    
     # Update timestamp
     task.updated_at = datetime.now(timezone.utc)
+    
+    # Auto-set sync_status to 'pending' if:
+    # 1. Task is synced with Smartsheet (has smartsheet_row_id)
+    # 2. Caller didn't explicitly set sync_status
+    # 3. Current status is 'synced' (not already pending/conflict)
+    if (
+        task.smartsheet_row_id
+        and "sync_status" not in updates
+        and task.sync_status == SyncStatus.SYNCED.value
+    ):
+        task.sync_status = SyncStatus.PENDING.value
     
     db = _get_firestore_client()
     if db is not None:

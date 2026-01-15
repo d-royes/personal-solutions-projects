@@ -445,6 +445,33 @@ class SmartsheetClient:
         except SmartsheetAPIError as exc:
             raise SmartsheetAPIError(f"Failed to update row {row_id}: {exc}") from exc
 
+    def delete_row(
+        self, row_id: str, *, source: str = "personal"
+    ) -> Dict[str, Any]:
+        """Delete a row from Smartsheet.
+        
+        Args:
+            row_id: The Smartsheet row ID to delete
+            source: Source key ("personal" or "work") to determine which sheet
+        
+        Returns:
+            The API response confirming deletion.
+        
+        Raises:
+            SmartsheetAPIError: If the API call fails
+        """
+        schema = self._get_schema_for_source(source)
+        
+        try:
+            response = self._request(
+                "DELETE",
+                f"/sheets/{schema.sheet_id}/rows",
+                params={"ids": row_id},
+            )
+            return response
+        except SmartsheetAPIError as exc:
+            raise SmartsheetAPIError(f"Failed to delete row {row_id}: {exc}") from exc
+
     def create_row(
         self, task_data: Dict[str, Any], *, source: str = "personal"
     ) -> Dict[str, Any]:

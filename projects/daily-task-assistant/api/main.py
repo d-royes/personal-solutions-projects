@@ -5291,15 +5291,48 @@ def update_firestore_task(
 def delete_firestore_task(
     task_id: str,
     user: str = Depends(get_current_user),
+    cascade_to_smartsheet: bool = Query(True, description="Also delete from Smartsheet if synced"),
 ) -> dict:
-    """Delete a task from Firestore."""
-    from daily_task_assistant.task_store import delete_task
+    """Delete a task from Firestore.
     
+    If the task is synced with Smartsheet (has smartsheet_row_id),
+    also deletes the corresponding row from Smartsheet.
+    """
+    from daily_task_assistant.task_store import get_task, delete_task
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    from daily_task_assistant.config import Settings
+    
+    # First get the task to check if it's synced with Smartsheet
+    task = get_task(user, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Store Smartsheet info before deleting
+    ss_row_id = task.smartsheet_row_id
+    ss_sheet = task.smartsheet_sheet or task.domain
+    
+    # Delete from Firestore
     deleted = delete_task(user, task_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    return {"status": "deleted", "taskId": task_id}
+    # Cascade delete to Smartsheet if synced
+    ss_deleted = False
+    if cascade_to_smartsheet and ss_row_id:
+        try:
+            settings = Settings()
+            client = SmartsheetClient(settings)
+            client.delete_row(ss_row_id, source=ss_sheet)
+            ss_deleted = True
+        except Exception as e:
+            # Log error but don't fail - Firestore delete succeeded
+            print(f"[API] Warning: Failed to delete Smartsheet row {ss_row_id}: {e}")
+    
+    return {
+        "status": "deleted",
+        "taskId": task_id,
+        "smartsheetDeleted": ss_deleted,
+    }
 
 
 # --- Task Sync Endpoints (Phase 1c - Internal Task System Migration) ---

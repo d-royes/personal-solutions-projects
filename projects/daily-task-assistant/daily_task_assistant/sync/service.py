@@ -26,6 +26,7 @@ from ..task_store.store import (
     get_task,
     create_task,
     update_task,
+    delete_task,
     list_tasks as list_firestore_tasks,
 )
 
@@ -385,15 +386,18 @@ class SyncService:
         *,
         sources: Optional[List[str]] = None,
         include_work: bool = False,
+        detect_deletions: bool = True,
     ) -> SyncResult:
         """Pull tasks from Smartsheet and sync to Firestore.
         
         This is the primary sync direction - Smartsheet → Firestore.
         Creates new FirestoreTasks for rows not yet synced, updates existing ones.
+        Also detects tasks deleted from Smartsheet and removes them from Firestore.
         
         Args:
             sources: Specific source keys to sync (e.g., ["personal", "work"])
             include_work: If True, include work tasks when sources is None
+            detect_deletions: If True, detect and delete orphaned FS tasks
             
         Returns:
             SyncResult with counts of created, updated, unchanged, conflicts
@@ -410,6 +414,9 @@ class SyncService:
             result.errors.append(f"Failed to fetch Smartsheet tasks: {e}")
             return result
         
+        # Build set of SS row_ids for deletion detection
+        ss_row_ids = {ss_task.row_id for ss_task in smartsheet_tasks}
+        
         # Process each task
         for ss_task in smartsheet_tasks:
             try:
@@ -417,7 +424,63 @@ class SyncService:
             except Exception as e:
                 result.errors.append(f"Error syncing task {ss_task.row_id}: {e}")
         
+        # Detect and delete tasks that were removed from Smartsheet
+        if detect_deletions:
+            deleted_count = self._detect_and_delete_orphans(ss_row_ids, sources)
+            # Add deleted count to result (stored in errors for now, could add proper field)
+            if deleted_count > 0:
+                result.errors.append(f"Deleted {deleted_count} orphaned tasks from Firestore")
+        
         return result
+    
+    def _detect_and_delete_orphans(
+        self,
+        ss_row_ids: set,
+        sources: Optional[List[str]],
+    ) -> int:
+        """Detect Firestore tasks that were deleted from Smartsheet.
+        
+        Args:
+            ss_row_ids: Set of row_ids that exist in Smartsheet
+            sources: Source sheets that were synced
+            
+        Returns:
+            Number of tasks deleted
+        """
+        deleted_count = 0
+        
+        # Get all Firestore tasks for this user
+        try:
+            all_fs_tasks = list_firestore_tasks(self.user_email)
+        except Exception:
+            return 0
+        
+        # Determine which domains were synced
+        synced_domains = set()
+        if sources:
+            synced_domains = set(sources)
+        else:
+            synced_domains = {"personal"}  # Default
+        
+        # Find orphaned tasks (have SS row_id but row_id not in SS)
+        for fs_task in all_fs_tasks:
+            # Skip tasks that aren't synced with Smartsheet
+            if not fs_task.smartsheet_row_id:
+                continue
+            
+            # Skip tasks from domains we didn't sync
+            if fs_task.domain not in synced_domains and fs_task.smartsheet_sheet not in synced_domains:
+                continue
+            
+            # If the row_id doesn't exist in Smartsheet, it was deleted
+            if fs_task.smartsheet_row_id not in ss_row_ids:
+                try:
+                    delete_task(self.user_email, fs_task.id)
+                    deleted_count += 1
+                except Exception:
+                    pass
+        
+        return deleted_count
     
     def sync_to_smartsheet(
         self,
