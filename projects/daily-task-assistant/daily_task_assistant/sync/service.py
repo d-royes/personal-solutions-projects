@@ -298,6 +298,70 @@ def _translate_status_to_smartsheet(status: Optional[str]) -> str:
     return "Scheduled"
 
 
+def translate_smartsheet_to_firestore(ss_task: "TaskDetail") -> Dict[str, Any]:
+    """Translate a Smartsheet TaskDetail to Firestore field format.
+    
+    This handles domain derivation and other field mappings from
+    Smartsheet's format to Firestore's internal model.
+    
+    Args:
+        ss_task: TaskDetail from Smartsheet
+        
+    Returns:
+        Dict of properly formatted Firestore field values
+    """
+    # Derive domain from project - Church Tasks -> church, else use source
+    domain = "church" if ss_task.project == "Church Tasks" else ss_task.source
+    
+    # Extract dates (convert datetime to date if needed)
+    due_date = ss_task.due.date() if hasattr(ss_task.due, 'date') else ss_task.due
+    
+    hard_deadline = None
+    if ss_task.deadline:
+        hard_deadline = ss_task.deadline.date() if hasattr(ss_task.deadline, 'date') else ss_task.deadline
+    
+    completed_on = None
+    if ss_task.completed_on:
+        completed_on = ss_task.completed_on.date() if hasattr(ss_task.completed_on, 'date') else ss_task.completed_on
+    
+    # Map status
+    status = STATUS_MAP.get(ss_task.status, TaskStatus.SCHEDULED)
+    
+    # Determine recurring attributes from recurring_pattern field
+    recurring_type_val = None
+    recurring_days_val = []
+    
+    if ss_task.recurring_pattern:
+        patterns = ss_task.recurring_pattern
+        if "Monthly" in patterns:
+            recurring_type_val = RecurringType.MONTHLY.value
+        else:
+            recurring_type_val = RecurringType.WEEKLY.value
+            recurring_days_val = patterns
+    elif ss_task.status == "Recurring" or (ss_task.number and 0 < ss_task.number < 1):
+        recurring_type_val = RecurringType.WEEKLY.value
+    
+    return {
+        "title": ss_task.title,
+        "status": status.value,
+        "priority": ss_task.priority,
+        "domain": domain,
+        "project": ss_task.project,
+        "planned_date": due_date,
+        "hard_deadline": hard_deadline,
+        "notes": ss_task.notes,
+        "estimated_hours": ss_task.estimated_hours,
+        "done": ss_task.done,
+        "completed_on": completed_on,
+        "number": ss_task.number,
+        "contact_required": ss_task.contact_flag,
+        "recurring_type": recurring_type_val,
+        "recurring_days": recurring_days_val,
+        "smartsheet_row_id": ss_task.row_id,
+        "smartsheet_sheet": ss_task.source,
+    }
+
+
 def translate_firestore_to_smartsheet(fs_task: FirestoreTask) -> Dict[str, Any]:
     """Translate a FirestoreTask to Smartsheet field format.
     
@@ -725,6 +789,11 @@ class SyncService:
         if existing.project != ss_task.project:
             return True
         
+        # Check domain (derived from project)
+        expected_domain = "church" if ss_task.project == "Church Tasks" else ss_task.source
+        if existing.domain != expected_domain:
+            return True
+        
         if existing.done != ss_task.done:
             return True
         
@@ -752,51 +821,28 @@ class SyncService:
             existing: Existing FirestoreTask to update
             ss_task: TaskDetail from Smartsheet with new data
         """
-        # Map status
-        status = STATUS_MAP.get(ss_task.status, TaskStatus.SCHEDULED)
+        # Use translator for consistent field mapping
+        translated = translate_smartsheet_to_firestore(ss_task)
         
-        # Extract dates (convert datetime to date if needed)
-        due_date = ss_task.due.date() if hasattr(ss_task.due, 'date') else ss_task.due
-        
-        hard_deadline = None
-        if ss_task.deadline:
-            hard_deadline = ss_task.deadline.date() if hasattr(ss_task.deadline, 'date') else ss_task.deadline
-        
-        completed_on = None
-        if ss_task.completed_on:
-            completed_on = ss_task.completed_on.date() if hasattr(ss_task.completed_on, 'date') else ss_task.completed_on
-        
-        # Determine recurring attributes from recurring_pattern field
-        recurring_type_val = None
-        recurring_days_val = []
-        
-        if ss_task.recurring_pattern:
-            patterns = ss_task.recurring_pattern
-            if "Monthly" in patterns:
-                recurring_type_val = RecurringType.MONTHLY.value
-            else:
-                recurring_type_val = RecurringType.WEEKLY.value
-                recurring_days_val = patterns
-        elif ss_task.status == "Recurring" or (ss_task.number and 0 < ss_task.number < 1):
-            recurring_type_val = RecurringType.WEEKLY.value
-        
-        # Build updates dict
+        # Build updates dict from translated values
         # Note: We do NOT update target_date here - it tracks original intention
+        # Also exclude smartsheet_row_id and smartsheet_sheet (those don't change)
         updates = {
-            "title": ss_task.title,
-            "status": status.value,
-            "priority": ss_task.priority,
-            "project": ss_task.project,
-            "planned_date": due_date,
-            "hard_deadline": hard_deadline,
-            "notes": ss_task.notes,
-            "estimated_hours": ss_task.estimated_hours,
-            "done": ss_task.done,
-            "completed_on": completed_on,
-            "number": ss_task.number,
-            "contact_required": ss_task.contact_flag,
-            "recurring_type": recurring_type_val,
-            "recurring_days": recurring_days_val,
+            "title": translated["title"],
+            "status": translated["status"],
+            "priority": translated["priority"],
+            "domain": translated["domain"],
+            "project": translated["project"],
+            "planned_date": translated["planned_date"],
+            "hard_deadline": translated["hard_deadline"],
+            "notes": translated["notes"],
+            "estimated_hours": translated["estimated_hours"],
+            "done": translated["done"],
+            "completed_on": translated["completed_on"],
+            "number": translated["number"],
+            "contact_required": translated["contact_required"],
+            "recurring_type": translated["recurring_type"],
+            "recurring_days": translated["recurring_days"],
             "sync_status": SyncStatus.SYNCED.value,
             "last_synced_at": datetime.now(self._tz),
         }
@@ -813,57 +859,29 @@ class SyncService:
         Returns:
             Created FirestoreTask
         """
-        # Map status
-        status = STATUS_MAP.get(ss_task.status, TaskStatus.SCHEDULED)
+        # Use translator for consistent field mapping
+        translated = translate_smartsheet_to_firestore(ss_task)
         
-        # Extract dates (convert datetime to date if needed)
-        due_date = ss_task.due.date() if hasattr(ss_task.due, 'date') else ss_task.due
-        
-        hard_deadline = None
-        if ss_task.deadline:
-            hard_deadline = ss_task.deadline.date() if hasattr(ss_task.deadline, 'date') else ss_task.deadline
-        
-        completed_on = None
-        if ss_task.completed_on:
-            completed_on = ss_task.completed_on.date() if hasattr(ss_task.completed_on, 'date') else ss_task.completed_on
-        
-        # Determine recurring attributes from recurring_pattern field
-        recurring_type_val = None
-        recurring_days_val = []
-        
-        if ss_task.recurring_pattern:
-            # Parse recurring pattern from Smartsheet
-            patterns = ss_task.recurring_pattern
-            if "Monthly" in patterns:
-                recurring_type_val = RecurringType.MONTHLY.value
-            else:
-                # Weekly recurring with specific days
-                recurring_type_val = RecurringType.WEEKLY.value
-                recurring_days_val = patterns  # ["M", "W", "F"] etc.
-        elif ss_task.status == "Recurring" or (ss_task.number and 0 < ss_task.number < 1):
-            # Fallback: detect recurring based on status or number field
-            recurring_type_val = RecurringType.WEEKLY.value
-        
-        # Create the task
+        # Create the task using translated values
         task = create_task(
             self.user_email,  # user_id
-            ss_task.title,    # title
-            status=status.value,
-            priority=ss_task.priority,
-            domain=ss_task.source,
-            planned_date=due_date,
-            target_date=due_date,  # Initially same as planned
-            hard_deadline=hard_deadline,
-            notes=ss_task.notes,
-            estimated_hours=ss_task.estimated_hours,
-            done=ss_task.done,
-            completed_on=completed_on,
-            project=ss_task.project,
-            number=ss_task.number,
-            contact_required=ss_task.contact_flag,
-            smartsheet_row_id=ss_task.row_id,
-            recurring_type=recurring_type_val,
-            recurring_days=recurring_days_val,
+            translated["title"],
+            status=translated["status"],
+            priority=translated["priority"],
+            domain=translated["domain"],
+            planned_date=translated["planned_date"],
+            target_date=translated["planned_date"],  # Initially same as planned
+            hard_deadline=translated["hard_deadline"],
+            notes=translated["notes"],
+            estimated_hours=translated["estimated_hours"],
+            done=translated["done"],
+            completed_on=translated["completed_on"],
+            project=translated["project"],
+            number=translated["number"],
+            contact_required=translated["contact_required"],
+            smartsheet_row_id=translated["smartsheet_row_id"],
+            recurring_type=translated["recurring_type"],
+            recurring_days=translated["recurring_days"],
             sync_status=SyncStatus.SYNCED.value,
             last_synced_at=datetime.now(self._tz),
             source=TaskSource.SMARTSHEET_SYNC.value,
