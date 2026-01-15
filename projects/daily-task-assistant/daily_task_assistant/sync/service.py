@@ -678,7 +678,7 @@ class SyncService:
         
         Args:
             row_id: Smartsheet row ID
-            source: Source key (personal/work)
+            source: Source key (personal/work) - used for smartsheet_sheet matching
             
         Returns:
             FirestoreTask if found, None otherwise
@@ -686,8 +686,12 @@ class SyncService:
         try:
             all_tasks = list_firestore_tasks(self.user_email)
             for task in all_tasks:
-                if task.smartsheet_row_id == row_id and task.domain == source:
-                    return task
+                # Match by row_id AND smartsheet_sheet (not domain, since church tasks
+                # come from "personal" sheet but have domain="church")
+                if task.smartsheet_row_id == row_id:
+                    # Verify it's from the same sheet (row_ids are unique per sheet)
+                    if task.smartsheet_sheet == source or task.smartsheet_sheet is None:
+                        return task
         except Exception:
             pass
         return None
