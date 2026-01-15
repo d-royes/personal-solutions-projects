@@ -880,6 +880,7 @@ class SyncService:
             number=translated["number"],
             contact_required=translated["contact_required"],
             smartsheet_row_id=translated["smartsheet_row_id"],
+            smartsheet_sheet=translated["smartsheet_sheet"],
             recurring_type=translated["recurring_type"],
             recurring_days=translated["recurring_days"],
             sync_status=SyncStatus.SYNCED.value,
