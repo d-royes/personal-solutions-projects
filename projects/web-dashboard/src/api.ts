@@ -2182,14 +2182,42 @@ export interface FirestoreTask {
   domain: string
   createdAt: string
   updatedAt: string
-  dueDate: string | null
+  // Three-date model
+  plannedDate: string | null
+  targetDate: string | null
+  hardDeadline: string | null
+  timesRescheduled: number
+  dueDate: string | null  // Legacy
+  effectiveDueDate: string | null
+  // Core fields
   project: string | null
+  number: number | null
   notes: string | null
   nextStep: string | null
+  estimatedHours: number | null
+  assignedTo: string | null
+  contactRequired: boolean
+  done: boolean
+  completedOn: string | null
+  // Recurring
+  isRecurring: boolean
+  recurringType: string | null
+  recurringDays: string[] | null
+  recurringMonthly: string | null
+  recurringInterval: number | null
+  // Status helpers
+  isOverdue: boolean
+  daysUntilDeadline: number | null
+  // Source tracking
   source: string
   sourceEmailId: string | null
   sourceEmailAccount: string | null
   sourceEmailSubject: string | null
+  // Sync tracking
+  smartsheetRowId: string | null
+  smartsheetSheet: string | null
+  syncStatus: string
+  lastSyncedAt: string | null
 }
 
 export async function createTaskFromEmail(
@@ -2240,6 +2268,186 @@ export async function listFirestoreTasks(
   if (!resp.ok) {
     const detail = await safeJson(resp)
     throw new Error(detail?.detail ?? `List tasks failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Sync Service (Phase 1c - Internal Task System Migration) ---
+
+export interface SyncStatusResponse {
+  totalTasks: number
+  synced: number
+  pending: number
+  localOnly: number
+  conflicts: number
+}
+
+export interface SyncNowRequest {
+  direction?: 'smartsheet_to_firestore' | 'firestore_to_smartsheet' | 'bidirectional'
+  sources?: string[]
+  include_work?: boolean
+}
+
+export interface SyncNowResponse {
+  success: boolean
+  direction: string
+  created: number
+  updated: number
+  unchanged: number
+  conflicts: number
+  errors: string[]
+  totalProcessed: number
+  syncedAt: string
+}
+
+export async function getSyncStatus(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SyncStatusResponse> {
+  const url = new URL('/sync/status', baseUrl)
+  
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Get sync status failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function triggerSync(
+  request: SyncNowRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SyncNowResponse> {
+  const url = new URL('/sync/now', baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(request),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Sync failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+// --- Task CRUD (Phase 1d - Direct API, no LLM) ---
+
+export interface CreateTaskRequest {
+  title: string
+  domain: 'personal' | 'church' | 'work'
+  status?: string
+  priority?: string
+  project?: string
+  plannedDate?: string  // ISO date string
+  targetDate?: string
+  hardDeadline?: string
+  notes?: string
+  estimatedHours?: number
+}
+
+export interface UpdateTaskRequest {
+  title?: string
+  status?: string
+  priority?: string
+  project?: string
+  plannedDate?: string
+  targetDate?: string
+  hardDeadline?: string
+  notes?: string
+  estimatedHours?: number
+  done?: boolean
+}
+
+export async function createFirestoreTask(
+  request: CreateTaskRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ task: FirestoreTask }> {
+  // This will need a new backend endpoint - for now, use a placeholder
+  const url = new URL('/tasks/firestore', baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      title: request.title,
+      domain: request.domain,
+      status: request.status || 'scheduled',
+      priority: request.priority || 'Standard',
+      project: request.project,
+      planned_date: request.plannedDate,
+      target_date: request.targetDate,
+      hard_deadline: request.hardDeadline,
+      notes: request.notes,
+      estimated_hours: request.estimatedHours,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Create task failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function updateFirestoreTask(
+  taskId: string,
+  updates: UpdateTaskRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ task: FirestoreTask }> {
+  const url = new URL(`/tasks/firestore/${taskId}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      title: updates.title,
+      status: updates.status,
+      priority: updates.priority,
+      project: updates.project,
+      planned_date: updates.plannedDate,
+      target_date: updates.targetDate,
+      hard_deadline: updates.hardDeadline,
+      notes: updates.notes,
+      estimated_hours: updates.estimatedHours,
+      done: updates.done,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update task failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export async function deleteFirestoreTask(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<{ status: string; taskId: string }> {
+  const url = new URL(`/tasks/firestore/${taskId}`, baseUrl)
+  
+  const resp = await fetch(url, {
+    method: 'DELETE',
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Delete task failed: ${resp.statusText}`)
   }
   return resp.json()
 }

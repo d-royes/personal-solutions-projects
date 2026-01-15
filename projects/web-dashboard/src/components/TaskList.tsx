@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import type { Task, WorkBadge, FirestoreTask } from '../types'
+import type { AuthConfig } from '../auth/AuthContext'
 import { deriveDomain, PRIORITY_ORDER } from '../utils/domain'
+import { TaskCreateModal } from './TaskCreateModal'
+import { TaskDetailModal } from './TaskDetailModal'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
@@ -81,6 +84,12 @@ interface TaskListProps {
   emailTasks?: FirestoreTask[]  // Tasks created from emails (Firestore)
   emailTasksLoading?: boolean
   onLoadEmailTasks?: () => void  // Callback to load email tasks on demand
+  // Phase 1f: New Firestore integration props
+  auth?: AuthConfig | null  // For API calls
+  baseUrl?: string
+  onTaskCreated?: () => void  // Refresh after task creation
+  onTaskUpdated?: () => void  // Refresh after task update
+  onTaskDeleted?: () => void  // Refresh after task deletion
 }
 
 export function TaskList({
@@ -97,9 +106,20 @@ export function TaskList({
   emailTasks = [],
   emailTasksLoading = false,
   onLoadEmailTasks,
+  // Phase 1f props
+  auth,
+  baseUrl,
+  onTaskCreated,
+  onTaskUpdated,
+  onTaskDeleted,
 }: TaskListProps) {
   const [filter, setFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
+  
+  // Phase 1f: Modal state
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [selectedFirestoreTask, setSelectedFirestoreTask] = useState<FirestoreTask | null>(null)
+  const [showDetailModal, setShowDetailModal] = useState(false)
   
   // Load email tasks when that filter is selected
   const handleFilterChange = (filterId: string) => {
@@ -108,6 +128,35 @@ export function TaskList({
       onLoadEmailTasks()
     }
   }
+  
+  // Phase 1f: Handle Firestore task click
+  const handleFirestoreTaskClick = useCallback((task: FirestoreTask) => {
+    setSelectedFirestoreTask(task)
+    setShowDetailModal(true)
+  }, [])
+  
+  // Phase 1f: Handle task creation
+  const handleTaskCreated = useCallback(() => {
+    setShowCreateModal(false)
+    if (onTaskCreated) onTaskCreated()
+    if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
+  }, [onTaskCreated, onLoadEmailTasks])
+  
+  // Phase 1f: Handle task update
+  const handleTaskUpdated = useCallback(() => {
+    setShowDetailModal(false)
+    setSelectedFirestoreTask(null)
+    if (onTaskUpdated) onTaskUpdated()
+    if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
+  }, [onTaskUpdated, onLoadEmailTasks])
+  
+  // Phase 1f: Handle task deletion
+  const handleTaskDeleted = useCallback(() => {
+    setShowDetailModal(false)
+    setSelectedFirestoreTask(null)
+    if (onTaskDeleted) onTaskDeleted()
+    if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
+  }, [onTaskDeleted, onLoadEmailTasks])
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -187,6 +236,16 @@ export function TaskList({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
+          {/* Phase 1f: New Task button */}
+          {auth && (
+            <button
+              className="primary new-task-btn"
+              onClick={() => setShowCreateModal(true)}
+              title="Create new task"
+            >
+              + New Task
+            </button>
+          )}
           {onDeselectAll && (
             <button
               className="secondary portfolio-btn"
@@ -237,20 +296,23 @@ export function TaskList({
         emailTasksLoading ? (
           <p>Loading email tasks…</p>
         ) : emailTasks.length === 0 ? (
-          <p className="empty-state">No email tasks yet. Create tasks from emails using the Email Management view.</p>
+          <p className="empty-state">No tasks yet. Create tasks from emails or click "+ New Task" above.</p>
         ) : (
           <ul className="task-list">
             {emailTasks.map((task) => {
               const domain = task.domain.charAt(0).toUpperCase() + task.domain.slice(1)
               const status = task.status ?? 'pending'
-              const dueText = task.dueDate ? dueLabel(task.dueDate) : 'No due date'
+              const dueText = (task.plannedDate || task.dueDate) 
+                ? dueLabel(task.plannedDate || task.dueDate || '')
+                : 'No due date'
+              const sourceIcon = task.source === 'email' ? '📧' : '📝'
               return (
                 <li
                   key={task.id}
                   className={
-                    selectedTaskId === task.id ? 'task-item selected' : 'task-item'
+                    selectedFirestoreTask?.id === task.id ? 'task-item selected' : 'task-item'
                   }
-                  onClick={() => onSelect(task.id)}
+                  onClick={() => handleFirestoreTaskClick(task)}
                 >
                   <div className="task-signals">
                     <span className={`badge domain ${domain.toLowerCase()}`}>{domain}</span>
@@ -261,10 +323,22 @@ export function TaskList({
                       </span>
                     )}
                     <span className="badge due">{dueText}</span>
-                    <span className="badge source">📧 Email</span>
+                    <span className="badge source" title={task.source}>{sourceIcon}</span>
+                    {task.isOverdue && (
+                      <span className="badge overdue" title="Overdue">⚠️</span>
+                    )}
+                    {task.timesRescheduled > 0 && (
+                      <span className="badge slippage" title={`Rescheduled ${task.timesRescheduled}x`}>
+                        ⏳{task.timesRescheduled}
+                      </span>
+                    )}
+                    {task.syncStatus === 'synced' && (
+                      <span className="badge synced" title="Synced with Smartsheet">✓</span>
+                    )}
                   </div>
                   <div className="task-title-row">
                     <div className="task-title">{task.title}</div>
+                    {task.done && <span className="done-indicator">✓ Done</span>}
                   </div>
                   <div className="task-meta">
                     <span>{task.project || 'No project'}</span>
@@ -320,6 +394,33 @@ export function TaskList({
             )
           })}
         </ul>
+      )}
+      
+      {/* Phase 1f: Task Create Modal */}
+      {auth && (
+        <TaskCreateModal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onTaskCreated={handleTaskCreated}
+          auth={auth}
+          baseUrl={baseUrl}
+        />
+      )}
+      
+      {/* Phase 1f: Task Detail Modal */}
+      {auth && (
+        <TaskDetailModal
+          task={selectedFirestoreTask}
+          isOpen={showDetailModal}
+          onClose={() => {
+            setShowDetailModal(false)
+            setSelectedFirestoreTask(null)
+          }}
+          onTaskUpdated={handleTaskUpdated}
+          onTaskDeleted={handleTaskDeleted}
+          auth={auth}
+          baseUrl={baseUrl}
+        />
       )}
     </section>
   )

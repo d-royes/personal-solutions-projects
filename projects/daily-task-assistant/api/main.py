@@ -5183,6 +5183,79 @@ def list_firestore_tasks(
     }
 
 
+class TaskCreateRequest(BaseModel):
+    """Request body for creating a new task (Phase 1d - direct API, no LLM)."""
+    title: str
+    domain: str = "personal"  # "personal", "church", or "work"
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    project: Optional[str] = None
+    planned_date: Optional[str] = None  # ISO date string
+    target_date: Optional[str] = None
+    hard_deadline: Optional[str] = None
+    notes: Optional[str] = None
+    estimated_hours: Optional[float] = None
+
+
+@app.post("/tasks/firestore")
+def create_firestore_task_direct(
+    request: TaskCreateRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create a new task directly in Firestore.
+    
+    This is a direct task creation endpoint (no LLM involvement).
+    Part of Phase 1d of the Internal Task System Migration.
+    """
+    from daily_task_assistant.task_store import create_task, TaskStatus, TaskPriority, TaskSource
+    from datetime import date
+    
+    # Parse dates
+    planned_date = None
+    target_date = None
+    hard_deadline = None
+    
+    if request.planned_date:
+        try:
+            planned_date = date.fromisoformat(request.planned_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid planned_date format: {request.planned_date}")
+    
+    if request.target_date:
+        try:
+            target_date = date.fromisoformat(request.target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid target_date format: {request.target_date}")
+    
+    if request.hard_deadline:
+        try:
+            hard_deadline = date.fromisoformat(request.hard_deadline)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid hard_deadline format: {request.hard_deadline}")
+    
+    # Map status string to enum value
+    status = request.status or TaskStatus.SCHEDULED.value
+    priority = request.priority or TaskPriority.STANDARD.value
+    
+    # Create the task
+    task = create_task(
+        user_id=user,
+        title=request.title,
+        domain=request.domain,
+        status=status,
+        priority=priority,
+        project=request.project,
+        planned_date=planned_date,
+        target_date=target_date,
+        hard_deadline=hard_deadline,
+        notes=request.notes,
+        estimated_hours=request.estimated_hours,
+        source=TaskSource.MANUAL.value,
+    )
+    
+    return {"task": task.to_api_dict()}
+
+
 @app.get("/tasks/firestore/{task_id}")
 def get_firestore_task(
     task_id: str,

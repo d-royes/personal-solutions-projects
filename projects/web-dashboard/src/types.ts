@@ -223,7 +223,7 @@ export interface UserProfile {
   updatedAt: string
 }
 
-// Firestore Task (created from emails)
+// Firestore Task (created from emails or direct creation)
 export interface FirestoreTask {
   id: string
   title: string
@@ -232,14 +232,42 @@ export interface FirestoreTask {
   domain: string
   createdAt: string
   updatedAt: string
-  dueDate: string | null
+  // Three-date model (from migration plan)
+  plannedDate: string | null  // When to work on it (auto-rolls)
+  targetDate: string | null   // Original goal (never changes)
+  hardDeadline: string | null // External commitment
+  timesRescheduled: number    // Slippage counter
+  dueDate: string | null      // Legacy - use plannedDate
+  effectiveDueDate: string | null  // Computed: plannedDate || dueDate
+  // Core fields
   project: string | null
+  number: number | null       // Daily ordering
   notes: string | null
   nextStep: string | null
+  estimatedHours: number | null
+  assignedTo: string | null
+  contactRequired: boolean
+  done: boolean
+  completedOn: string | null
+  // Recurring
+  isRecurring: boolean
+  recurringType: string | null
+  recurringDays: string[] | null
+  recurringMonthly: string | null
+  recurringInterval: number | null
+  // Status helpers
+  isOverdue: boolean
+  daysUntilDeadline: number | null
+  // Source tracking
   source: string
   sourceEmailId: string | null
   sourceEmailAccount: string | null
   sourceEmailSubject: string | null
+  // Sync tracking
+  smartsheetRowId: string | null
+  smartsheetSheet: string | null
+  syncStatus: string
+  lastSyncedAt: string | null
 }
 
 // Email Reply Types

@@ -8183,3 +8183,428 @@ button:not(:disabled):hover {
   background: rgba(71, 85, 105, 0.5);
   color: #e2e8f0;
 }
+
+/* ============================================
+   Task Create Modal (Phase 1d)
+   ============================================ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 22, 0.92);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-content {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.99));
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 16px;
+  max-width: 600px;
+  width: 95%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 
+    0 0 40px rgba(99, 102, 241, 0.15),
+    0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  animation: modalSlideIn 0.25s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.modal-close:hover {
+  color: #f8fafc;
+}
+
+/* Task Create Form */
+.task-create-form {
+  padding: 1.5rem;
+}
+
+.form-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 0.4rem;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  transition: all 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+  color: #64748b;
+}
+
+.form-group select {
+  cursor: pointer;
+}
+
+.form-group select option {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.form-row.three-col {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.form-fieldset {
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.form-fieldset legend {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0 0.5rem;
+}
+
+.field-hint {
+  margin-left: 0.3rem;
+  color: #64748b;
+  font-size: 0.8rem;
+  cursor: help;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  margin-top: 1rem;
+}
+
+.modal-actions button {
+  padding: 0.6rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.modal-actions button.primary {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: white;
+  border: none;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+}
+
+.modal-actions button.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+.modal-actions button.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-actions button.secondary {
+  background: rgba(71, 85, 105, 0.3);
+  color: #94a3b8;
+  border: 1px solid rgba(71, 85, 105, 0.4);
+}
+
+.modal-actions button.secondary:hover:not(:disabled) {
+  background: rgba(71, 85, 105, 0.5);
+  color: #e2e8f0;
+}
+
+/* Responsive for mobile */
+@media (max-width: 600px) {
+  .modal-content {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  
+  .form-row,
+  .form-row.three-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================
+   Task Detail Modal (Phase 1e)
+   ============================================ */
+
+.task-detail-modal {
+  max-width: 650px;
+}
+
+.modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.modal-header-left h2 {
+  margin: 0;
+}
+
+.modal-header-left .badge {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+}
+
+.modal-header-left .badge.recurring {
+  background: rgba(147, 51, 234, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(147, 51, 234, 0.3);
+}
+
+.modal-header-left .badge.slippage {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.task-detail-form {
+  padding: 1.5rem;
+}
+
+.task-source-info {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.task-source-info .source-label {
+  color: #94a3b8;
+}
+
+.task-source-info .source-value {
+  color: #e2e8f0;
+}
+
+.slippage-indicator {
+  color: #fbbf24;
+  font-size: 0.75rem;
+  font-weight: normal;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: #6366f1;
+}
+
+.task-metadata {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+  margin-top: 1rem;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.task-metadata .sync-status {
+  margin-left: auto;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.task-metadata .sync-status.synced {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.task-metadata .sync-status.pending {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.task-metadata .sync-status.local_only {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
+.task-metadata .sync-status.conflict {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.task-detail-actions {
+  flex-wrap: wrap;
+}
+
+.task-detail-actions .action-spacer {
+  flex: 1;
+}
+
+.modal-actions button.danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  border: none;
+}
+
+.modal-actions button.danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+}
+
+.modal-actions button.danger-outline {
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.modal-actions button.danger-outline:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.modal-actions button.success {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+  border: none;
+}
+
+.modal-actions button.success:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+}
+
+.delete-confirm-text {
+  color: #fca5a5;
+  font-size: 0.9rem;
+  margin-right: auto;
+}
+
+/* ============================================
+   TaskList Enhancements (Phase 1f)
+   ============================================ */
+
+.new-task-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.task-item .done-indicator {
+  color: #22c55e;
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.task-item .badge.overdue {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: none;
+}
+
+.task-item .badge.slippage {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  border: none;
+  font-size: 0.65rem;
+}
+
+.task-item .badge.synced {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: none;
+}
