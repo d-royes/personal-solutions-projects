@@ -10,6 +10,7 @@ Architecture:
 
 Task fields are designed for Smartsheet migration compatibility:
 - Core fields match TaskDetail from tasks.py
+- Three-date model for slippage tracking (planned_date, target_date, hard_deadline)
 - Additional fields support email-to-task workflow
 - Source tracking enables bidirectional sync
 """
@@ -26,19 +27,44 @@ from typing import Any, Dict, List, Literal, Optional
 
 
 class TaskStatus(str, Enum):
-    """Task status values matching Smartsheet workflow."""
+    """Task status values (12-value model from migration plan).
     
-    PENDING = "pending"
+    Core statuses (8):
+    - scheduled: Task is planned for a specific date
+    - in_progress: Currently being worked on
+    - on_hold: Paused, waiting for external factor
+    - blocked: Cannot proceed (similar to on_hold but more urgent)
+    - awaiting_reply: Waiting for response from someone
+    - follow_up: Needs follow-up action
+    - completed: Done
+    - cancelled: No longer needed
+    
+    Optional statuses (4):
+    - delivered: Work done, handed off
+    - validation: Awaiting verification
+    - needs_approval: Waiting for approval
+    - delegated: Assigned to someone else
+    """
+    
+    # Core statuses
+    SCHEDULED = "scheduled"
     IN_PROGRESS = "in_progress"
+    ON_HOLD = "on_hold"
+    BLOCKED = "blocked"
+    AWAITING_REPLY = "awaiting_reply"
+    FOLLOW_UP = "follow_up"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
-    # Smartsheet-compatible statuses
-    SCHEDULED = "scheduled"
-    RECURRING = "recurring"
-    ON_HOLD = "on_hold"
-    FOLLOW_UP = "follow_up"
-    AWAITING_REPLY = "awaiting_reply"
+    
+    # Optional statuses
+    DELIVERED = "delivered"
+    VALIDATION = "validation"
+    NEEDS_APPROVAL = "needs_approval"
     DELEGATED = "delegated"
+    
+    # Legacy (kept for backward compatibility during migration)
+    PENDING = "pending"  # Maps to SCHEDULED
+    RECURRING = "recurring"  # Deprecated - use recurring_type field instead
 
 
 class TaskPriority(str, Enum):
@@ -60,32 +86,77 @@ class TaskSource(str, Enum):
     CHAT = "chat"  # Created via DATA chat
 
 
+class SyncStatus(str, Enum):
+    """Sync status between Firestore and Smartsheet."""
+    
+    LOCAL_ONLY = "local_only"  # Only in Firestore, not synced
+    SYNCED = "synced"  # In sync with Smartsheet
+    PENDING = "pending"  # Changes waiting to sync
+    CONFLICT = "conflict"  # Conflicts need resolution
+
+
+class RecurringType(str, Enum):
+    """Type of recurring pattern."""
+    
+    WEEKLY = "weekly"  # Specific days of week
+    MONTHLY = "monthly"  # Specific day of month
+    CUSTOM = "custom"  # Every N days/weeks
+
+
 @dataclass(slots=True)
 class FirestoreTask:
     """A task stored in Firestore.
     
     Field design mirrors Smartsheet's TaskDetail for migration compatibility,
-    with additional fields for email integration and DATA features.
+    with additional fields for:
+    - Three-date model (planned_date, target_date, hard_deadline) for slippage tracking
+    - Recurring task patterns (weekly, monthly, custom)
+    - Email integration and DATA features
+    - Bidirectional sync with Smartsheet
     """
     
+    # Identity
     id: str
+    domain: str  # "personal", "church", "work"
+    
+    # Core fields
     title: str
     status: str  # TaskStatus value
     priority: str  # TaskPriority value
-    domain: str  # "personal", "church", "work"
-    created_at: datetime
-    updated_at: datetime
-    
-    # Optional fields matching Smartsheet
-    due_date: Optional[date] = None
     project: Optional[str] = None
-    assigned_to: Optional[str] = None
-    estimated_hours: Optional[float] = None
+    number: Optional[float] = None  # Daily ordering field
+    
+    # Three-date model (Decision #1 from migration plan)
+    planned_date: Optional[date] = None  # When to work on it (auto-rolls)
+    target_date: Optional[date] = None  # Original goal (never changes)
+    hard_deadline: Optional[date] = None  # External commitment (triggers alerts)
+    times_rescheduled: int = 0  # Slippage counter
+    
+    # Legacy due_date field (maps to planned_date during migration)
+    due_date: Optional[date] = None  # Deprecated - use planned_date
+    
+    # Recurring pattern (Decision #4 - attribute, not status)
+    recurring_type: Optional[str] = None  # "weekly" | "monthly" | "custom"
+    recurring_days: Optional[List[str]] = None  # ["M", "W", "F"] for weekly
+    recurring_monthly: Optional[str] = None  # "1st" | "15th" | "last" | etc.
+    recurring_interval: Optional[int] = None  # Every N days/weeks for custom
+    
+    # Task details
     notes: Optional[str] = None
     next_step: Optional[str] = None
-    number: Optional[float] = None  # Ordering field from Smartsheet
+    estimated_hours: Optional[float] = None
+    assigned_to: Optional[str] = None
+    contact_required: bool = False  # Task requires external contact
     
-    # DATA-specific fields
+    # Completion
+    done: bool = False
+    completed_on: Optional[date] = None
+    
+    # Timestamps
+    created_at: datetime = None  # type: ignore (set in __post_init__)
+    updated_at: datetime = None  # type: ignore (set in __post_init__)
+    
+    # Source tracking
     source: str = TaskSource.MANUAL.value
     source_email_id: Optional[str] = None  # Links to Gmail message ID
     source_email_account: Optional[str] = None  # "personal" or "church"
@@ -94,93 +165,226 @@ class FirestoreTask:
     # Smartsheet sync fields
     smartsheet_row_id: Optional[str] = None  # For bidirectional sync
     smartsheet_sheet: Optional[str] = None  # "personal" or "work"
+    sync_status: str = SyncStatus.LOCAL_ONLY.value  # Sync state
+    last_synced_at: Optional[datetime] = None  # Last sync timestamp
+    
+    def __post_init__(self):
+        """Initialize timestamps if not set."""
+        now = datetime.now(timezone.utc)
+        if self.created_at is None:
+            object.__setattr__(self, 'created_at', now)
+        if self.updated_at is None:
+            object.__setattr__(self, 'updated_at', now)
+        # Initialize recurring_days as empty list if None
+        if self.recurring_days is None:
+            object.__setattr__(self, 'recurring_days', [])
+    
+    @property
+    def is_recurring(self) -> bool:
+        """Check if this task has a recurring pattern."""
+        return self.recurring_type is not None
+    
+    @property
+    def is_overdue(self) -> bool:
+        """Check if task is overdue based on planned_date or due_date."""
+        check_date = self.planned_date or self.due_date
+        if check_date and not self.done:
+            return check_date < date.today()
+        return False
+    
+    @property
+    def days_until_deadline(self) -> Optional[int]:
+        """Days until hard deadline (negative if past)."""
+        if self.hard_deadline:
+            return (self.hard_deadline - date.today()).days
+        return None
+    
+    @property
+    def effective_due_date(self) -> Optional[date]:
+        """Get the effective due date (planned_date or legacy due_date)."""
+        return self.planned_date or self.due_date
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
+            # Identity
             "id": self.id,
+            "domain": self.domain,
+            
+            # Core fields
             "title": self.title,
             "status": self.status,
             "priority": self.priority,
-            "domain": self.domain,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "due_date": self.due_date.isoformat() if self.due_date else None,
             "project": self.project,
-            "assigned_to": self.assigned_to,
-            "estimated_hours": self.estimated_hours,
+            "number": self.number,
+            
+            # Three-date model
+            "planned_date": self.planned_date.isoformat() if self.planned_date else None,
+            "target_date": self.target_date.isoformat() if self.target_date else None,
+            "hard_deadline": self.hard_deadline.isoformat() if self.hard_deadline else None,
+            "times_rescheduled": self.times_rescheduled,
+            "due_date": self.due_date.isoformat() if self.due_date else None,  # Legacy
+            
+            # Recurring
+            "recurring_type": self.recurring_type,
+            "recurring_days": self.recurring_days,
+            "recurring_monthly": self.recurring_monthly,
+            "recurring_interval": self.recurring_interval,
+            
+            # Task details
             "notes": self.notes,
             "next_step": self.next_step,
-            "number": self.number,
+            "estimated_hours": self.estimated_hours,
+            "assigned_to": self.assigned_to,
+            "contact_required": self.contact_required,
+            
+            # Completion
+            "done": self.done,
+            "completed_on": self.completed_on.isoformat() if self.completed_on else None,
+            
+            # Timestamps
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            
+            # Source tracking
             "source": self.source,
             "source_email_id": self.source_email_id,
             "source_email_account": self.source_email_account,
             "source_email_subject": self.source_email_subject,
+            
+            # Sync tracking
             "smartsheet_row_id": self.smartsheet_row_id,
             "smartsheet_sheet": self.smartsheet_sheet,
+            "sync_status": self.sync_status,
+            "last_synced_at": self.last_synced_at.isoformat() if self.last_synced_at else None,
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FirestoreTask":
         """Create from dictionary."""
-        due = data.get("due_date")
-        if due and isinstance(due, str):
-            due = date.fromisoformat(due)
         
-        created = data.get("created_at")
-        if isinstance(created, str):
-            created = datetime.fromisoformat(created)
+        def parse_date(val) -> Optional[date]:
+            if val and isinstance(val, str):
+                return date.fromisoformat(val)
+            return val if isinstance(val, date) else None
         
-        updated = data.get("updated_at")
-        if isinstance(updated, str):
-            updated = datetime.fromisoformat(updated)
+        def parse_datetime(val) -> Optional[datetime]:
+            if val and isinstance(val, str):
+                return datetime.fromisoformat(val)
+            return val if isinstance(val, datetime) else None
         
         return cls(
+            # Identity
             id=data["id"],
-            title=data["title"],
-            status=data.get("status", TaskStatus.PENDING.value),
-            priority=data.get("priority", TaskPriority.STANDARD.value),
             domain=data.get("domain", "personal"),
-            created_at=created or datetime.now(timezone.utc),
-            updated_at=updated or datetime.now(timezone.utc),
-            due_date=due,
+            
+            # Core fields
+            title=data["title"],
+            status=data.get("status", TaskStatus.SCHEDULED.value),
+            priority=data.get("priority", TaskPriority.STANDARD.value),
             project=data.get("project"),
-            assigned_to=data.get("assigned_to"),
-            estimated_hours=data.get("estimated_hours"),
+            number=data.get("number"),
+            
+            # Three-date model
+            planned_date=parse_date(data.get("planned_date")),
+            target_date=parse_date(data.get("target_date")),
+            hard_deadline=parse_date(data.get("hard_deadline")),
+            times_rescheduled=data.get("times_rescheduled", 0),
+            due_date=parse_date(data.get("due_date")),  # Legacy
+            
+            # Recurring
+            recurring_type=data.get("recurring_type"),
+            recurring_days=data.get("recurring_days", []),
+            recurring_monthly=data.get("recurring_monthly"),
+            recurring_interval=data.get("recurring_interval"),
+            
+            # Task details
             notes=data.get("notes"),
             next_step=data.get("next_step"),
-            number=data.get("number"),
+            estimated_hours=data.get("estimated_hours"),
+            assigned_to=data.get("assigned_to"),
+            contact_required=data.get("contact_required", False),
+            
+            # Completion
+            done=data.get("done", False),
+            completed_on=parse_date(data.get("completed_on")),
+            
+            # Timestamps
+            created_at=parse_datetime(data.get("created_at")),
+            updated_at=parse_datetime(data.get("updated_at")),
+            
+            # Source tracking
             source=data.get("source", TaskSource.MANUAL.value),
             source_email_id=data.get("source_email_id"),
             source_email_account=data.get("source_email_account"),
             source_email_subject=data.get("source_email_subject"),
+            
+            # Sync tracking
             smartsheet_row_id=data.get("smartsheet_row_id"),
             smartsheet_sheet=data.get("smartsheet_sheet"),
+            sync_status=data.get("sync_status", SyncStatus.LOCAL_ONLY.value),
+            last_synced_at=parse_datetime(data.get("last_synced_at")),
         )
     
     def to_api_dict(self) -> Dict[str, Any]:
         """Convert to API response format (camelCase)."""
         return {
+            # Identity
             "id": self.id,
+            "domain": self.domain,
+            
+            # Core fields
             "title": self.title,
             "status": self.status,
             "priority": self.priority,
-            "domain": self.domain,
-            "createdAt": self.created_at.isoformat(),
-            "updatedAt": self.updated_at.isoformat(),
-            "dueDate": self.due_date.isoformat() if self.due_date else None,
             "project": self.project,
-            "assignedTo": self.assigned_to,
-            "estimatedHours": self.estimated_hours,
+            "number": self.number,
+            
+            # Three-date model
+            "plannedDate": self.planned_date.isoformat() if self.planned_date else None,
+            "targetDate": self.target_date.isoformat() if self.target_date else None,
+            "hardDeadline": self.hard_deadline.isoformat() if self.hard_deadline else None,
+            "timesRescheduled": self.times_rescheduled,
+            "dueDate": self.due_date.isoformat() if self.due_date else None,  # Legacy
+            "effectiveDueDate": self.effective_due_date.isoformat() if self.effective_due_date else None,
+            
+            # Recurring
+            "recurringType": self.recurring_type,
+            "recurringDays": self.recurring_days,
+            "recurringMonthly": self.recurring_monthly,
+            "recurringInterval": self.recurring_interval,
+            "isRecurring": self.is_recurring,
+            
+            # Task details
             "notes": self.notes,
             "nextStep": self.next_step,
-            "number": self.number,
+            "estimatedHours": self.estimated_hours,
+            "assignedTo": self.assigned_to,
+            "contactRequired": self.contact_required,
+            
+            # Completion
+            "done": self.done,
+            "completedOn": self.completed_on.isoformat() if self.completed_on else None,
+            
+            # Status helpers
+            "isOverdue": self.is_overdue,
+            "daysUntilDeadline": self.days_until_deadline,
+            
+            # Timestamps
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+            
+            # Source tracking
             "source": self.source,
             "sourceEmailId": self.source_email_id,
             "sourceEmailAccount": self.source_email_account,
             "sourceEmailSubject": self.source_email_subject,
+            
+            # Sync tracking
             "smartsheetRowId": self.smartsheet_row_id,
             "smartsheetSheet": self.smartsheet_sheet,
+            "syncStatus": self.sync_status,
+            "lastSyncedAt": self.last_synced_at.isoformat() if self.last_synced_at else None,
         }
 
 
@@ -230,13 +434,28 @@ def create_task(
     user_id: str,
     title: str,
     *,
-    status: str = TaskStatus.PENDING.value,
+    status: str = TaskStatus.SCHEDULED.value,
     priority: str = TaskPriority.STANDARD.value,
     domain: str = "personal",
-    due_date: Optional[date] = None,
+    # Three-date model
+    planned_date: Optional[date] = None,
+    target_date: Optional[date] = None,
+    hard_deadline: Optional[date] = None,
+    due_date: Optional[date] = None,  # Legacy - maps to planned_date
+    # Core fields
     project: Optional[str] = None,
+    number: Optional[float] = None,
     notes: Optional[str] = None,
     next_step: Optional[str] = None,
+    estimated_hours: Optional[float] = None,
+    assigned_to: Optional[str] = None,
+    contact_required: bool = False,
+    # Recurring
+    recurring_type: Optional[str] = None,
+    recurring_days: Optional[List[str]] = None,
+    recurring_monthly: Optional[str] = None,
+    recurring_interval: Optional[int] = None,
+    # Source tracking
     source: str = TaskSource.MANUAL.value,
     source_email_id: Optional[str] = None,
     source_email_account: Optional[str] = None,
@@ -250,10 +469,21 @@ def create_task(
         status: Initial status
         priority: Task priority
         domain: "personal", "church", or "work"
-        due_date: Optional due date
+        planned_date: When to work on it (auto-rolls forward)
+        target_date: Original goal date (never changes, tracks slippage)
+        hard_deadline: External commitment date (triggers alerts)
+        due_date: Legacy field - maps to planned_date if provided
         project: Optional project category
+        number: Daily ordering number
         notes: Optional notes
         next_step: Optional next action
+        estimated_hours: Estimated time to complete
+        assigned_to: Who is assigned
+        contact_required: Whether task requires external contact
+        recurring_type: "weekly", "monthly", or "custom"
+        recurring_days: Days for weekly recurring ["M", "W", "F"]
+        recurring_monthly: Day of month for monthly recurring
+        recurring_interval: Interval for custom recurring
         source: Where task originated
         source_email_id: Gmail message ID if from email
         source_email_account: "personal" or "church" email account
@@ -264,22 +494,43 @@ def create_task(
     """
     now = datetime.now(timezone.utc)
     
+    # Handle legacy due_date -> planned_date mapping
+    effective_planned_date = planned_date or due_date
+    
+    # If target_date not set but planned_date is, set target_date = planned_date
+    # This captures the original intention
+    effective_target_date = target_date
+    if effective_planned_date and not effective_target_date:
+        effective_target_date = effective_planned_date
+    
     task = FirestoreTask(
         id=str(uuid.uuid4()),
+        domain=domain,
         title=title,
         status=status,
         priority=priority,
-        domain=domain,
-        created_at=now,
-        updated_at=now,
-        due_date=due_date,
         project=project,
+        number=number,
+        planned_date=effective_planned_date,
+        target_date=effective_target_date,
+        hard_deadline=hard_deadline,
+        due_date=due_date,  # Keep legacy field for backward compatibility
+        recurring_type=recurring_type,
+        recurring_days=recurring_days or [],
+        recurring_monthly=recurring_monthly,
+        recurring_interval=recurring_interval,
         notes=notes,
         next_step=next_step,
+        estimated_hours=estimated_hours,
+        assigned_to=assigned_to,
+        contact_required=contact_required,
+        created_at=now,
+        updated_at=now,
         source=source,
         source_email_id=source_email_id,
         source_email_account=source_email_account,
         source_email_subject=source_email_subject,
+        sync_status=SyncStatus.LOCAL_ONLY.value,
     )
     
     db = _get_firestore_client()
@@ -585,6 +836,90 @@ def _apply_filters(tasks: List[FirestoreTask], filters: TaskFilters) -> List[Fir
         result = [t for t in result if t.due_date and t.due_date < today]
     
     return result
+
+
+# =============================================================================
+# Task Update Helpers
+# =============================================================================
+
+def reschedule_task(
+    user_id: str,
+    task_id: str,
+    new_planned_date: date,
+) -> Optional[FirestoreTask]:
+    """Reschedule a task to a new planned date.
+    
+    This updates planned_date, increments times_rescheduled, and preserves
+    target_date (the original goal) for slippage tracking.
+    
+    Args:
+        user_id: The user who owns the task
+        task_id: The task ID
+        new_planned_date: The new planned date
+    
+    Returns:
+        Updated FirestoreTask if found, None otherwise
+    """
+    task = get_task(user_id, task_id)
+    if not task:
+        return None
+    
+    # Only increment rescheduled count if the date actually changed
+    if task.planned_date != new_planned_date:
+        updates = {
+            "planned_date": new_planned_date,
+            "times_rescheduled": task.times_rescheduled + 1,
+            # Also update legacy due_date for backward compatibility
+            "due_date": new_planned_date,
+        }
+        return update_task(user_id, task_id, updates)
+    
+    return task
+
+
+def complete_task(
+    user_id: str,
+    task_id: str,
+) -> Optional[FirestoreTask]:
+    """Mark a task as complete.
+    
+    Sets done=True, completed_on=today, and status=completed.
+    
+    Args:
+        user_id: The user who owns the task
+        task_id: The task ID
+    
+    Returns:
+        Updated FirestoreTask if found, None otherwise
+    """
+    updates = {
+        "done": True,
+        "completed_on": date.today(),
+        "status": TaskStatus.COMPLETED.value,
+    }
+    return update_task(user_id, task_id, updates)
+
+
+def get_slippage_info(task: FirestoreTask) -> Dict[str, Any]:
+    """Get slippage information for a task.
+    
+    Returns:
+        Dictionary with slippage metrics
+    """
+    info = {
+        "times_rescheduled": task.times_rescheduled,
+        "target_date": task.target_date,
+        "planned_date": task.planned_date,
+        "hard_deadline": task.hard_deadline,
+        "days_slipped": None,
+        "days_until_deadline": task.days_until_deadline,
+        "is_overdue": task.is_overdue,
+    }
+    
+    if task.target_date and task.planned_date:
+        info["days_slipped"] = (task.planned_date - task.target_date).days
+    
+    return info
 
 
 # =============================================================================
