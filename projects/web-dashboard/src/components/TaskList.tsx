@@ -4,6 +4,7 @@ import type { AuthConfig } from '../auth/AuthContext'
 import { deriveDomain, PRIORITY_ORDER } from '../utils/domain'
 import { TaskCreateModal } from './TaskCreateModal'
 import { TaskDetailModal } from './TaskDetailModal'
+import { triggerSync } from '../api'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
@@ -20,10 +21,10 @@ const STATUS_CATEGORY: Record<string, number> = {
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'needs_attention', label: 'Needs attention' },
-  { id: 'email_tasks', label: 'Email Tasks' },
   { id: 'personal', label: 'Personal' },
   { id: 'church', label: 'Church' },
   { id: 'work', label: 'Work' },
+  { id: 'data_tasks', label: 'DATA Tasks' },
 ]
 
 function previewText(task: Task) {
@@ -121,10 +122,36 @@ export function TaskList({
   const [selectedFirestoreTask, setSelectedFirestoreTask] = useState<FirestoreTask | null>(null)
   const [showDetailModal, setShowDetailModal] = useState(false)
   
+  // Sync state
+  const [syncing, setSyncing] = useState(false)
+  const [lastSyncResult, setLastSyncResult] = useState<{ created: number; updated: number } | null>(null)
+  
+  // Handle sync with Smartsheet
+  const handleSync = useCallback(async () => {
+    if (!auth || syncing) return
+    
+    setSyncing(true)
+    setLastSyncResult(null)
+    try {
+      const result = await triggerSync(
+        { direction: 'bidirectional' },
+        auth,
+        baseUrl
+      )
+      setLastSyncResult({ created: result.created, updated: result.updated })
+      // Refresh task list after sync
+      if (onLoadEmailTasks) onLoadEmailTasks()
+    } catch (err) {
+      console.error('Sync failed:', err)
+    } finally {
+      setSyncing(false)
+    }
+  }, [auth, syncing, baseUrl, onLoadEmailTasks])
+  
   // Load email tasks when that filter is selected
   const handleFilterChange = (filterId: string) => {
     setFilter(filterId)
-    if (filterId === 'email_tasks' && onLoadEmailTasks && emailTasks.length === 0) {
+    if (filterId === 'data_tasks' && onLoadEmailTasks && emailTasks.length === 0) {
       onLoadEmailTasks()
     }
   }
@@ -184,8 +211,8 @@ export function TaskList({
             isDueSoon(task.due) ||
             BLOCKED_STATUSES.includes(status)
           )
-        case 'email_tasks':
-          // Email tasks are handled separately, not in this filter
+        case 'data_tasks':
+          // DATA tasks are handled separately, not in this filter
           return false
         case 'personal':
           return domain === 'personal'
@@ -291,15 +318,34 @@ export function TaskList({
         })}
       </div>
 
-      {/* Email Tasks Filter - Show Firestore tasks */}
-      {filter === 'email_tasks' ? (
-        emailTasksLoading ? (
-          <p>Loading email tasks…</p>
-        ) : emailTasks.length === 0 ? (
-          <p className="empty-state">No tasks yet. Create tasks from emails or click "+ New Task" above.</p>
-        ) : (
-          <ul className="task-list">
-            {emailTasks.map((task) => {
+      {/* DATA Tasks Filter - Show Firestore tasks */}
+      {filter === 'data_tasks' ? (
+        <>
+          {/* Sync controls for DATA Tasks */}
+          {auth && (
+            <div className="data-tasks-sync-bar">
+              <button
+                className="secondary sync-btn"
+                onClick={handleSync}
+                disabled={syncing}
+                title="Sync tasks with Smartsheet"
+              >
+                {syncing ? '↻ Syncing...' : '↻ Sync with Smartsheet'}
+              </button>
+              {lastSyncResult && (
+                <span className="sync-result">
+                  Created: {lastSyncResult.created}, Updated: {lastSyncResult.updated}
+                </span>
+              )}
+            </div>
+          )}
+          {emailTasksLoading ? (
+            <p>Loading DATA tasks…</p>
+          ) : emailTasks.filter(t => !t.done && t.status !== 'completed').length === 0 ? (
+            <p className="empty-state">No active tasks. Create tasks from emails or click "+ New Task" above.</p>
+          ) : (
+            <ul className="task-list">
+            {emailTasks.filter(t => !t.done && t.status !== 'completed').map((task) => {
               const domain = task.domain.charAt(0).toUpperCase() + task.domain.slice(1)
               const status = task.status ?? 'pending'
               const dueText = (task.plannedDate || task.dueDate) 
@@ -335,8 +381,16 @@ export function TaskList({
                     {task.syncStatus === 'synced' && (
                       <span className="badge synced" title="Synced with Smartsheet">✓</span>
                     )}
+                    {task.syncStatus === 'orphaned' && (
+                      <span className="badge orphaned" title="Orphaned - deleted from Smartsheet">🔗✕</span>
+                    )}
                   </div>
                   <div className="task-title-row">
+                    {task.syncStatus === 'orphaned' && (
+                      <span className="orphaned-icon" title={task.attentionReason || 'Deleted from Smartsheet - needs decision'}>
+                        🔗✕
+                      </span>
+                    )}
                     <div className="task-title">{task.title}</div>
                     {task.done && <span className="done-indicator">✓ Done</span>}
                   </div>
@@ -353,7 +407,8 @@ export function TaskList({
               )
             })}
           </ul>
-        )
+          )}
+        </>
       ) : loading ? (
         <p>Loading tasks…</p>
       ) : filteredTasks.length === 0 ? (

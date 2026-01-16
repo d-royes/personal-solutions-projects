@@ -5442,6 +5442,7 @@ def get_sync_status(
         "pending": status["pending"],
         "localOnly": status["local_only"],
         "conflicts": status["conflicts"],
+        "orphaned": status.get("orphaned", 0),
     }
 
 

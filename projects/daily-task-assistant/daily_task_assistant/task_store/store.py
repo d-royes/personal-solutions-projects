@@ -5,8 +5,11 @@ replace Smartsheet as the primary task backend. It follows the same
 Firestore + file fallback pattern used throughout DATA.
 
 Architecture:
-- Firestore path: users/{user_id}/tasks/{task_id}
+- Firestore path: global/{GLOBAL_USER_ID}/tasks/{task_id}
 - File fallback: tasks_store/tasks.jsonl
+
+Note: Tasks use GLOBAL_USER_ID (not login email) so David's tasks are
+accessible regardless of which Google account he logs in with.
 
 Task fields are designed for Smartsheet migration compatibility:
 - Core fields match TaskDetail from tasks.py
@@ -24,6 +27,39 @@ from datetime import datetime, date, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+
+
+# =============================================================================
+# Global User Configuration
+# =============================================================================
+
+# Global user identifier - tasks are shared across all login identities
+# David logs in with either david.a.royes@gmail.com or davidroyes@southpointsda.org
+# but both should access the same task list
+GLOBAL_USER_ID = "david"
+
+# Emails that map to the global user
+GLOBAL_USER_EMAILS = {
+    "david.a.royes@gmail.com",
+    "davidroyes@southpointsda.org",
+}
+
+
+def _normalize_user_id(user_id: str) -> str:
+    """Normalize user_id to global user ID if it's a known David email.
+    
+    This ensures tasks are accessible regardless of which Google account
+    David logs in with.
+    
+    Args:
+        user_id: The email or user identifier
+        
+    Returns:
+        GLOBAL_USER_ID if the email belongs to David, otherwise the original user_id
+    """
+    if user_id.lower() in {e.lower() for e in GLOBAL_USER_EMAILS}:
+        return GLOBAL_USER_ID
+    return user_id
 
 
 class TaskStatus(str, Enum):
@@ -93,6 +129,7 @@ class SyncStatus(str, Enum):
     SYNCED = "synced"  # In sync with Smartsheet
     PENDING = "pending"  # Changes waiting to sync
     CONFLICT = "conflict"  # Conflicts need resolution
+    ORPHANED = "orphaned"  # SS row deleted, needs user review
 
 
 class RecurringType(str, Enum):
@@ -165,8 +202,10 @@ class FirestoreTask:
     # Smartsheet sync fields
     smartsheet_row_id: Optional[str] = None  # For bidirectional sync
     smartsheet_sheet: Optional[str] = None  # "personal" or "work"
+    smartsheet_modified_at: Optional[datetime] = None  # Smartsheet row's modifiedAt timestamp
     sync_status: str = SyncStatus.LOCAL_ONLY.value  # Sync state
     last_synced_at: Optional[datetime] = None  # Last sync timestamp
+    attention_reason: Optional[str] = None  # Why task needs review (e.g., "orphaned")
     
     def __post_init__(self):
         """Initialize timestamps if not set."""
@@ -255,8 +294,10 @@ class FirestoreTask:
             # Sync tracking
             "smartsheet_row_id": self.smartsheet_row_id,
             "smartsheet_sheet": self.smartsheet_sheet,
+            "smartsheet_modified_at": self.smartsheet_modified_at.isoformat() if self.smartsheet_modified_at else None,
             "sync_status": self.sync_status,
             "last_synced_at": self.last_synced_at.isoformat() if self.last_synced_at else None,
+            "attention_reason": self.attention_reason,
         }
     
     @classmethod
@@ -322,8 +363,10 @@ class FirestoreTask:
             # Sync tracking
             smartsheet_row_id=data.get("smartsheet_row_id"),
             smartsheet_sheet=data.get("smartsheet_sheet"),
+            smartsheet_modified_at=parse_datetime(data.get("smartsheet_modified_at")),
             sync_status=data.get("sync_status", SyncStatus.LOCAL_ONLY.value),
             last_synced_at=parse_datetime(data.get("last_synced_at")),
+            attention_reason=data.get("attention_reason"),
         )
     
     def to_api_dict(self) -> Dict[str, Any]:
@@ -383,8 +426,10 @@ class FirestoreTask:
             # Sync tracking
             "smartsheetRowId": self.smartsheet_row_id,
             "smartsheetSheet": self.smartsheet_sheet,
+            "smartsheetModifiedAt": self.smartsheet_modified_at.isoformat() if self.smartsheet_modified_at else None,
             "syncStatus": self.sync_status,
             "lastSyncedAt": self.last_synced_at.isoformat() if self.last_synced_at else None,
+            "attentionReason": self.attention_reason,
         }
 
 
@@ -658,8 +703,13 @@ def update_task(
     ):
         task.times_rescheduled = (task.times_rescheduled or 0) + 1
     
-    # Update timestamp
-    task.updated_at = datetime.now(timezone.utc)
+    # Update timestamp - but NOT if only sync-related fields are being updated
+    # This prevents sync operations from triggering "local changes detected"
+    SYNC_ONLY_FIELDS = {"sync_status", "last_synced_at", "smartsheet_row_id", "smartsheet_sheet", "smartsheet_modified_at", "attention_reason"}
+    non_sync_fields = set(updates.keys()) - SYNC_ONLY_FIELDS
+    if non_sync_fields:
+        # Real content changes - update the timestamp
+        task.updated_at = datetime.now(timezone.utc)
     
     # Auto-set sync_status to 'pending' if:
     # 1. Task is synced with Smartsheet (has smartsheet_row_id)
@@ -707,13 +757,15 @@ def delete_task(user_id: str, task_id: str) -> bool:
 
 def _save_to_firestore(db, user_id: str, task: FirestoreTask) -> None:
     """Save task to Firestore."""
-    doc_ref = db.collection("users").document(user_id).collection("tasks").document(task.id)
+    normalized_id = _normalize_user_id(user_id)
+    doc_ref = db.collection("global").document(normalized_id).collection("tasks").document(task.id)
     doc_ref.set(task.to_dict())
 
 
 def _get_from_firestore(db, user_id: str, task_id: str) -> Optional[FirestoreTask]:
     """Get task from Firestore."""
-    doc_ref = db.collection("users").document(user_id).collection("tasks").document(task_id)
+    normalized_id = _normalize_user_id(user_id)
+    doc_ref = db.collection("global").document(normalized_id).collection("tasks").document(task_id)
     doc = doc_ref.get()
     
     if doc.exists:
@@ -723,7 +775,8 @@ def _get_from_firestore(db, user_id: str, task_id: str) -> Optional[FirestoreTas
 
 def _list_from_firestore(db, user_id: str, limit: int) -> List[FirestoreTask]:
     """List tasks from Firestore."""
-    collection = db.collection("users").document(user_id).collection("tasks")
+    normalized_id = _normalize_user_id(user_id)
+    collection = db.collection("global").document(normalized_id).collection("tasks")
     query = collection.order_by("updated_at", direction="DESCENDING").limit(limit)
     
     tasks = []
@@ -738,7 +791,8 @@ def _list_from_firestore(db, user_id: str, limit: int) -> List[FirestoreTask]:
 
 def _delete_from_firestore(db, user_id: str, task_id: str) -> bool:
     """Delete task from Firestore."""
-    doc_ref = db.collection("users").document(user_id).collection("tasks").document(task_id)
+    normalized_id = _normalize_user_id(user_id)
+    doc_ref = db.collection("global").document(normalized_id).collection("tasks").document(task_id)
     doc = doc_ref.get()
     
     if doc.exists:
@@ -756,8 +810,11 @@ def _get_user_file(user_id: str) -> Path:
     tasks_dir = _get_tasks_dir()
     tasks_dir.mkdir(parents=True, exist_ok=True)
     
+    # Normalize to global user ID for consistent file naming
+    normalized_id = _normalize_user_id(user_id)
+    
     # Sanitize user_id for filename
-    safe_id = user_id.replace("@", "_at_").replace(".", "_")
+    safe_id = normalized_id.replace("@", "_at_").replace(".", "_")
     return tasks_dir / f"{safe_id}_tasks.jsonl"
 
 

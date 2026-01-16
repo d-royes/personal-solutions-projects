@@ -29,6 +29,7 @@ class TaskDetail:
     contact_flag: bool = False  # Task requires external contact
     completed_on: Optional[datetime] = None  # When task was completed
     recurring_pattern: Optional[List[str]] = None  # Recurring days ["M", "W", "F"] or ["Monthly"]
+    modified_at: Optional[datetime] = None  # Smartsheet row modifiedAt timestamp
 
 
 @dataclass(slots=True)

@@ -69,6 +69,7 @@ class SyncResult:
 
 
 # Mapping from Smartsheet status strings to TaskStatus enum
+# Note: Both personal and work sheets use the same status values
 STATUS_MAP: Dict[str, TaskStatus] = {
     "Scheduled": TaskStatus.SCHEDULED,
     "Recurring": TaskStatus.RECURRING,
@@ -84,12 +85,6 @@ STATUS_MAP: Dict[str, TaskStatus] = {
     "Cancelled": TaskStatus.CANCELLED,
     "Delegated": TaskStatus.DELEGATED,
     "Completed": TaskStatus.COMPLETED,
-    # Work sheet uses numbered priorities
-    "5-Critical": TaskStatus.SCHEDULED,
-    "4-Urgent": TaskStatus.SCHEDULED,
-    "3-Important": TaskStatus.SCHEDULED,
-    "2-Standard": TaskStatus.SCHEDULED,
-    "1-Low": TaskStatus.SCHEDULED,
 }
 
 # Reverse mapping from TaskStatus to Smartsheet status string
@@ -184,6 +179,41 @@ PRIORITY_TO_WORK_FORMAT: Dict[str, str] = {
     "Standard": "2-Standard",
     "Low": "1-Low",
 }
+
+# Reverse mapping from work format to normalized (personal) format
+WORK_TO_NORMALIZED_PRIORITY: Dict[str, str] = {
+    "5-Critical": "Critical",
+    "4-Urgent": "Urgent",
+    "3-Important": "Important",
+    "2-Standard": "Standard",
+    "1-Low": "Low",
+}
+
+
+def _normalize_priority(value: Optional[str]) -> str:
+    """Normalize priority to consistent format for Firestore storage.
+    
+    Converts work-format priorities (5-Critical) to normalized format (Critical).
+    This ensures consistent storage regardless of source sheet.
+    
+    Args:
+        value: Priority string from Smartsheet
+        
+    Returns:
+        Normalized priority string (without numbers)
+    """
+    if not value:
+        return "Standard"
+    
+    # If it's a work-format priority, convert to normalized
+    if value in WORK_TO_NORMALIZED_PRIORITY:
+        return WORK_TO_NORMALIZED_PRIORITY[value]
+    
+    # If it's already in personal format, return as-is
+    if value in PERSONAL_PRIORITY_VALUES:
+        return value
+    
+    return "Standard"
 
 def _translate_priority(value: Optional[str], domain: str) -> str:
     """Translate priority to domain-specific Smartsheet format.
@@ -341,10 +371,13 @@ def translate_smartsheet_to_firestore(ss_task: "TaskDetail") -> Dict[str, Any]:
     elif ss_task.status == "Recurring" or (ss_task.number and 0 < ss_task.number < 1):
         recurring_type_val = RecurringType.WEEKLY.value
     
+    # Normalize priority to consistent format (without numbers)
+    normalized_priority = _normalize_priority(ss_task.priority)
+    
     return {
         "title": ss_task.title,
         "status": status.value,
-        "priority": ss_task.priority,
+        "priority": normalized_priority,
         "domain": domain,
         "project": ss_task.project,
         "planned_date": due_date,
@@ -359,6 +392,7 @@ def translate_smartsheet_to_firestore(ss_task: "TaskDetail") -> Dict[str, Any]:
         "recurring_days": recurring_days_val,
         "smartsheet_row_id": ss_task.row_id,
         "smartsheet_sheet": ss_task.source,
+        "smartsheet_modified_at": ss_task.modified_at,
     }
 
 
@@ -488,30 +522,33 @@ class SyncService:
             except Exception as e:
                 result.errors.append(f"Error syncing task {ss_task.row_id}: {e}")
         
-        # Detect and delete tasks that were removed from Smartsheet
+        # Detect and tag tasks that were removed from Smartsheet
         if detect_deletions:
-            deleted_count = self._detect_and_delete_orphans(ss_row_ids, sources)
-            # Add deleted count to result (stored in errors for now, could add proper field)
-            if deleted_count > 0:
-                result.errors.append(f"Deleted {deleted_count} orphaned tasks from Firestore")
+            orphaned_count = self._detect_and_tag_orphans(ss_row_ids, sources)
+            # Add orphaned count to result (informational, not error)
+            if orphaned_count > 0:
+                result.errors.append(f"Tagged {orphaned_count} orphaned tasks for review")
         
         return result
     
-    def _detect_and_delete_orphans(
+    def _detect_and_tag_orphans(
         self,
         ss_row_ids: set,
         sources: Optional[List[str]],
     ) -> int:
-        """Detect Firestore tasks that were deleted from Smartsheet.
+        """Detect and tag Firestore tasks that were deleted from Smartsheet.
+        
+        Instead of auto-deleting, marks tasks as 'orphaned' with an attention_reason
+        so the user can review and confirm deletion manually.
         
         Args:
             ss_row_ids: Set of row_ids that exist in Smartsheet
             sources: Source sheets that were synced
             
         Returns:
-            Number of tasks deleted
+            Number of tasks tagged as orphaned
         """
-        deleted_count = 0
+        orphaned_count = 0
         
         # Get all Firestore tasks for this user (use large limit for full scan)
         try:
@@ -532,19 +569,30 @@ class SyncService:
             if not fs_task.smartsheet_row_id:
                 continue
             
+            # Skip tasks already marked as orphaned (don't re-tag)
+            if fs_task.sync_status == SyncStatus.ORPHANED.value:
+                continue
+            
             # Skip tasks from domains we didn't sync
             if fs_task.domain not in synced_domains and fs_task.smartsheet_sheet not in synced_domains:
                 continue
             
-            # If the row_id doesn't exist in Smartsheet, it was deleted
+            # If the row_id doesn't exist in Smartsheet, tag as orphaned
             if fs_task.smartsheet_row_id not in ss_row_ids:
                 try:
-                    delete_task(self.user_email, fs_task.id)
-                    deleted_count += 1
+                    update_task(
+                        self.user_email,
+                        fs_task.id,
+                        {
+                            "sync_status": SyncStatus.ORPHANED.value,
+                            "attention_reason": "Row deleted from Smartsheet - confirm deletion or restore",
+                        }
+                    )
+                    orphaned_count += 1
                 except Exception:
                     pass
         
-        return deleted_count
+        return orphaned_count
     
     def sync_to_smartsheet(
         self,
@@ -643,6 +691,7 @@ class SyncService:
                 "pending": 0,
                 "local_only": 0,
                 "conflicts": 0,
+                "orphaned": 0,
                 "error": "Failed to fetch tasks",
             }
         
@@ -650,6 +699,7 @@ class SyncService:
         pending = sum(1 for t in all_tasks if t.sync_status == SyncStatus.PENDING.value)
         local_only = sum(1 for t in all_tasks if t.sync_status == SyncStatus.LOCAL_ONLY.value)
         conflicts = sum(1 for t in all_tasks if t.sync_status == SyncStatus.CONFLICT.value)
+        orphaned = sum(1 for t in all_tasks if t.sync_status == SyncStatus.ORPHANED.value)
         
         return {
             "total_tasks": len(all_tasks),
@@ -657,6 +707,7 @@ class SyncService:
             "pending": pending,
             "local_only": local_only,
             "conflicts": conflicts,
+            "orphaned": orphaned,
         }
     
     # ------------------------------------------------------------------
@@ -761,15 +812,38 @@ class SyncService:
     def _needs_update(self, existing: FirestoreTask, ss_task: TaskDetail) -> bool:
         """Check if Firestore task needs update from Smartsheet.
         
-        Compares key fields to detect changes.
+        Compares key fields to detect changes. Also respects local edits
+        by checking if Firestore was modified after last sync.
         
         Args:
             existing: Current FirestoreTask
             ss_task: TaskDetail from Smartsheet
             
         Returns:
-            True if update needed
+            True if update needed (and safe to update)
         """
+        # Conflict resolution using timestamps
+        # Compare Firestore's updated_at with Smartsheet's modified_at
+        if existing.updated_at and ss_task.modified_at:
+            fs_updated = existing.updated_at
+            ss_modified = ss_task.modified_at
+            
+            # If Firestore was modified more recently than Smartsheet, skip SS -> FS update
+            # The FS -> SS sync will push local changes to Smartsheet instead
+            if fs_updated > ss_modified:
+                return False
+        elif existing.last_synced_at and existing.updated_at:
+            # Fallback: if no SS modified timestamp, use the old logic
+            if existing.updated_at > existing.last_synced_at:
+                return False
+        
+        # Check if Smartsheet has newer data than what we have stored
+        # If we have the SS modified timestamp stored and it matches current, no update needed
+        if existing.smartsheet_modified_at and ss_task.modified_at:
+            if existing.smartsheet_modified_at >= ss_task.modified_at:
+                # Smartsheet hasn't changed since we last synced - check fields anyway
+                pass  # Continue to field comparison
+        
         # Compare key fields
         if existing.title != ss_task.title:
             return True
@@ -840,6 +914,7 @@ class SyncService:
             "contact_required": translated["contact_required"],
             "recurring_type": translated["recurring_type"],
             "recurring_days": translated["recurring_days"],
+            "smartsheet_modified_at": translated["smartsheet_modified_at"],
             "sync_status": SyncStatus.SYNCED.value,
             "last_synced_at": datetime.now(self._tz),
         }
@@ -884,6 +959,14 @@ class SyncService:
             last_synced_at=datetime.now(self._tz),
             source=TaskSource.SMARTSHEET_SYNC.value,
         )
+        
+        # Store Smartsheet's modified timestamp for future conflict resolution
+        if translated["smartsheet_modified_at"]:
+            update_task(
+                self.user_email,
+                task.id,
+                {"smartsheet_modified_at": translated["smartsheet_modified_at"]}
+            )
         
         return task
     

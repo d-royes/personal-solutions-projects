@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -803,6 +804,16 @@ class SmartsheetClient:
                 # Parse recurring_pattern (multi-picklist, returns list of day codes)
                 recurring_pattern = self._parse_recurring_pattern(cell_map, schema)
                 
+                # Parse Smartsheet's modifiedAt timestamp
+                modified_at_str = row.get("modifiedAt")
+                modified_at = None
+                if modified_at_str:
+                    try:
+                        # Smartsheet returns ISO format: 2026-01-15T12:34:56Z
+                        modified_at = datetime.fromisoformat(modified_at_str.replace("Z", "+00:00"))
+                    except (ValueError, AttributeError):
+                        pass
+                
                 summary = TaskDetail(
                     row_id=str(row.get("id")),
                     title=self._cell_value(cell_map, "task", schema=schema),
@@ -817,6 +828,7 @@ class SmartsheetClient:
                         self._cell_value(cell_map, "estimated_hours", allow_optional=True, schema=schema)
                     ),
                     notes=self._cell_value(cell_map, "notes", allow_optional=True, schema=schema),
+                    modified_at=modified_at,
                     next_step=None,  # No next_step column in Smartsheet schema
                     automation_hint=self._derive_hint(cell_map, schema=schema),
                     source=source_key,

@@ -268,6 +268,7 @@ export interface FirestoreTask {
   smartsheetSheet: string | null
   syncStatus: string
   lastSyncedAt: string | null
+  attentionReason: string | null
 }
 
 // Email Reply Types
