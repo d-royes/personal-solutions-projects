@@ -45,6 +45,8 @@ import {
   bulkUpdateTasks,
   updateFirestoreTask,
   deleteFirestoreTask,
+  runFirestoreAssist,
+  sendFirestoreTaskChat,
 } from './api'
 import type { AttachmentInfo } from './api'
 import type { Perspective, PortfolioStats, SavedEmailDraft, PortfolioPendingAction, BulkTaskUpdate } from './api'
@@ -210,7 +212,7 @@ function App() {
   }, [selectedTaskId, authConfig, apiBase])
 
   // Handle Firestore task selection
-  const handleSelectFirestoreTask = useCallback((task: FirestoreTask | null) => {
+  const handleSelectFirestoreTask = useCallback(async (task: FirestoreTask | null) => {
     setSelectedFirestoreTask(task)
     if (task) {
       // Clear Smartsheet task selection when selecting a Firestore task
@@ -226,8 +228,20 @@ function App() {
       setSelectedAttachmentIds(new Set())
       // Expand assist panel if collapsed
       setAssistPanelCollapsed(false)
+      
+      // Load any saved draft for this Firestore task
+      if (authConfig) {
+        try {
+          const draftResponse = await loadDraft(`fs:${task.id}`, authConfig, apiBase)
+          if (draftResponse.hasDraft && draftResponse.draft) {
+            setSavedDraft(draftResponse.draft)
+          }
+        } catch (err) {
+          console.error('Failed to load draft for Firestore task:', err)
+        }
+      }
     }
-  }, [])
+  }, [authConfig, apiBase])
 
   // Handle Firestore task update
   const handleFirestoreTaskUpdate = useCallback(async (taskId: string, updates: Record<string, unknown>) => {
@@ -514,9 +528,53 @@ function App() {
     }
   }
 
+  async function engageFirestoreTask() {
+    // Engage with a Firestore task - load context, conversation history
+    if (!selectedFirestoreTask) return
+    if (!authConfig) {
+      setAssistError('Please sign in first.')
+      return
+    }
+    setIsEngaged(true)
+    setAssistRunning(true)
+    setAssistError(null)
+    try {
+      const response = await runFirestoreAssist(selectedFirestoreTask.id, authConfig, apiBase)
+      // Set a minimal "engaged" state - plan will be null until user clicks Plan
+      setAssistPlan(response.plan ?? {
+        summary: '',
+        score: 0,
+        labels: [],
+        automationTriggers: [],
+        nextSteps: [],
+        efficiencyTips: [],
+        suggestedActions: ['plan', 'research', 'draft_email', 'follow_up'],
+        task: response.task as unknown as Task, // Type cast for compatibility
+        generator: 'none',
+        generatorNotes: [],
+      })
+      setConversation(response.history ?? [])
+
+      // Load workspace content using fs: prefixed ID
+      try {
+        const workspace = await loadWorkspace(`fs:${selectedFirestoreTask.id}`, authConfig, apiBase)
+        setWorkspaceItems(workspace.items ?? [])
+      } catch {
+        // Workspace load failed - start with empty
+        setWorkspaceItems([])
+      }
+    } catch (error) {
+      setAssistError((error as Error).message)
+    } finally {
+      setAssistRunning(false)
+    }
+  }
+
   async function handleGeneratePlan(contextItems?: string[]) {
     // Explicitly generate/update the plan based on task + conversation
-    if (!selectedTask) return
+    // Support both Smartsheet and Firestore tasks
+    const taskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) return
     if (!authConfig) {
       setAssistError('Please sign in first.')
       return
@@ -524,7 +582,7 @@ function App() {
     setPlanGenerating(true)
     setAssistError(null)
     try {
-      const response = await generatePlan(selectedTask.rowId, authConfig, apiBase, {
+      const response = await generatePlan(taskId, authConfig, apiBase, {
         source: dataSource,
         anthropicModel: import.meta.env.VITE_ANTHROPIC_MODEL,
         contextItems: contextItems && contextItems.length > 0 ? contextItems : undefined,
@@ -546,7 +604,9 @@ function App() {
 
   async function handleRunResearch() {
     // Run web research based on task context and next steps
-    if (!selectedTask) return
+    // Support both Smartsheet and Firestore tasks
+    const taskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) return
     if (!authConfig) {
       setAssistError('Please sign in first.')
       return
@@ -554,7 +614,7 @@ function App() {
     setResearchRunning(true)
     setAssistError(null)
     try {
-      const response = await runResearch(selectedTask.rowId, authConfig, apiBase, {
+      const response = await runResearch(taskId, authConfig, apiBase, {
         source: dataSource,
         nextSteps: assistPlan?.nextSteps,
       })
@@ -583,7 +643,9 @@ function App() {
 
   async function handleRunSummarize() {
     // Generate a summary of task, plan, and conversation progress
-    if (!selectedTask) return
+    // Support both Smartsheet and Firestore tasks
+    const taskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) return
     if (!authConfig) {
       setAssistError('Please sign in first.')
       return
@@ -591,7 +653,7 @@ function App() {
     setSummarizeRunning(true)
     setAssistError(null)
     try {
-      const response = await runSummarize(selectedTask.rowId, authConfig, apiBase, {
+      const response = await runSummarize(taskId, authConfig, apiBase, {
         source: dataSource,
         planSummary: assistPlan?.summary,
         nextSteps: assistPlan?.nextSteps,
@@ -622,7 +684,9 @@ function App() {
 
   async function handleRunContact(confirmSearch = false) {
     // Search for contact information based on task context
-    if (!selectedTask) return
+    // Support both Smartsheet and Firestore tasks
+    const taskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) return
     if (!authConfig) {
       setAssistError('Please sign in first.')
       return
@@ -634,7 +698,7 @@ function App() {
     }
     setAssistError(null)
     try {
-      const response = await searchContacts(selectedTask.rowId, authConfig, apiBase, {
+      const response = await searchContacts(taskId, authConfig, apiBase, {
         source: dataSource,
         confirmSearch,
       })
@@ -700,13 +764,15 @@ function App() {
     recipient?: string,
     regenerateInput?: string
   ): Promise<{ subject: string; body: string; bodyHtml?: string }> {
-    if (!selectedTask) throw new Error('No task selected')
+    // Support both Smartsheet and Firestore tasks
+    const taskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) throw new Error('No task selected')
     if (!authConfig) throw new Error('Please sign in first')
 
     setEmailDraftLoading(true)
     setEmailError(null)
     try {
-      const response = await draftEmail(selectedTask.rowId, {
+      const response = await draftEmail(taskId, {
         source: dataSource,
         sourceContent,
         recipient,
@@ -726,7 +792,7 @@ function App() {
     }
   }
 
-  // Save draft to backend
+  // Save draft to backend - supports both Smartsheet and Firestore tasks
   async function handleSaveDraft(draft: {
     to: string[]
     cc: string[]
@@ -734,11 +800,12 @@ function App() {
     body: string
     fromAccount: string
   }): Promise<void> {
-    if (!selectedTask) return
+    const taskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) return
     if (!authConfig) return
     
     try {
-      const response = await saveDraft(selectedTask.rowId, {
+      const response = await saveDraft(taskId, {
         to: draft.to,
         cc: draft.cc,
         subject: draft.subject,
@@ -751,13 +818,14 @@ function App() {
     }
   }
 
-  // Delete draft from backend
+  // Delete draft from backend - supports both Smartsheet and Firestore tasks
   async function handleDeleteDraft(): Promise<void> {
-    if (!selectedTask) return
+    const taskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) return
     if (!authConfig) return
     
     try {
-      await deleteDraft(selectedTask.rowId, authConfig, apiBase)
+      await deleteDraft(taskId, authConfig, apiBase)
       setSavedDraft(null)
     } catch (error) {
       console.error('Failed to delete draft:', error)
@@ -775,7 +843,7 @@ function App() {
     }
   }
 
-  // Email send handler
+  // Email send handler - supports both Smartsheet and Firestore tasks
   async function handleSendEmail(draft: {
     to: string[]
     cc: string[]
@@ -783,13 +851,14 @@ function App() {
     body: string
     fromAccount: string
   }): Promise<void> {
-    if (!selectedTask) throw new Error('No task selected')
+    const taskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) throw new Error('No task selected')
     if (!authConfig) throw new Error('Please sign in first')
     
     setEmailSending(true)
     setEmailError(null)
     try {
-      const response = await sendEmail(selectedTask.rowId, {
+      const response = await sendEmail(taskId, {
         source: dataSource,
         account: draft.fromAccount,
         to: draft.to,
@@ -821,10 +890,15 @@ function App() {
   async function handleAssist() {
     // Collapse task panel when engaging DATA
     setTaskPanelCollapsed(true)
-    await engageTask()
+    // Route to appropriate engage function based on task type
+    if (selectedFirestoreTask && !selectedTask) {
+      await engageFirestoreTask()
+    } else if (selectedTask) {
+      await engageTask()
+    }
   }
 
-  // Debounced workspace save
+  // Debounced workspace save - supports both Smartsheet and Firestore tasks
   const handleWorkspaceChange = useCallback((items: string[]) => {
     setWorkspaceItems(items)
     
@@ -833,37 +907,53 @@ function App() {
       clearTimeout(workspaceSaveTimeout)
     }
     
+    // Get task ID (Smartsheet or Firestore with fs: prefix)
+    const taskId = selectedTaskId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    
     // Debounce save by 1 second
-    if (selectedTaskId && authConfig) {
+    if (taskId && authConfig) {
       const timeout = setTimeout(async () => {
         try {
-          await saveWorkspace(selectedTaskId, items, authConfig, apiBase)
+          await saveWorkspace(taskId, items, authConfig, apiBase)
         } catch (error) {
           console.error('Failed to save workspace:', error)
         }
       }, 1000)
       setWorkspaceSaveTimeout(timeout)
     }
-  }, [selectedTaskId, authConfig, apiBase, workspaceSaveTimeout])
+  }, [selectedTaskId, selectedFirestoreTask, authConfig, apiBase, workspaceSaveTimeout])
 
   async function handleSendMessage(message: string, workspaceContext?: string) {
-    if (!selectedTaskId || !authConfig) return
+    // Support both Smartsheet and Firestore tasks
+    const isFirestoreTask = selectedFirestoreTask && !selectedTask
+    const taskId = isFirestoreTask ? selectedFirestoreTask?.id : selectedTaskId
+    
+    if (!taskId || !authConfig) return
 
     setSendingMessage(true)
     setAssistError(null)
 
     try {
-      const result = await sendChatMessage(
-        selectedTaskId,
-        message,
-        authConfig,
-        apiBase,
-        {
-          source: dataSource,
-          workspaceContext,
-          selectedAttachments: Array.from(selectedAttachmentIds),
-        },
-      )
+      // Route to appropriate chat API
+      const result = isFirestoreTask
+        ? await sendFirestoreTaskChat(
+            taskId,
+            message,
+            authConfig,
+            apiBase,
+            { workspaceContext },
+          )
+        : await sendChatMessage(
+            taskId,
+            message,
+            authConfig,
+            apiBase,
+            {
+              source: dataSource,
+              workspaceContext,
+              selectedAttachments: Array.from(selectedAttachmentIds),
+            },
+          )
       // Update conversation with the response
       setConversation(result.history)
       
@@ -899,9 +989,10 @@ function App() {
             updatedAt: new Date().toISOString(),
           }
         })
-        // Also save to backend
+        // Also save to backend (use fs: prefix for Firestore tasks)
+        const draftTaskId = isFirestoreTask ? `fs:${taskId}` : taskId
         if (savedDraft || update.subject || update.body) {
-          void saveDraft(selectedTaskId, {
+          void saveDraft(draftTaskId, {
             to: savedDraft?.to ?? [],
             cc: savedDraft?.cc ?? [],
             subject: update.subject ?? savedDraft?.subject ?? '',
@@ -919,47 +1010,117 @@ function App() {
   }
 
   async function handleConfirmUpdate() {
-    console.log('handleConfirmUpdate called', { selectedTaskId, authConfig: !!authConfig, pendingAction })
-    if (!selectedTaskId || !authConfig || !pendingAction) {
-      console.log('Early return - missing:', { selectedTaskId: !selectedTaskId, authConfig: !authConfig, pendingAction: !pendingAction })
+    // Check if this is a Firestore task update
+    const isFirestoreUpdate = (pendingAction as { isFirestoreTask?: boolean })?.isFirestoreTask
+    const firestoreTaskId = (pendingAction as { firestoreTaskId?: string })?.firestoreTaskId
+    
+    console.log('handleConfirmUpdate called', { 
+      selectedTaskId, 
+      firestoreTaskId,
+      isFirestoreUpdate,
+      authConfig: !!authConfig, 
+      pendingAction 
+    })
+    
+    if (!authConfig || !pendingAction) {
+      console.log('Early return - missing:', { authConfig: !authConfig, pendingAction: !pendingAction })
       return
     }
     
+    // For Firestore updates, we need the firestoreTaskId; for Smartsheet, we need selectedTaskId
+    if (!isFirestoreUpdate && !selectedTaskId) {
+      console.log('Early return - no task ID for Smartsheet update')
+      return
+    }
+
     setUpdateExecuting(true)
     setAssistError(null)
-    
+
     try {
-      const result = await updateTask(
-        selectedTaskId,
-        {
-          source: selectedTask?.source ?? 'personal',
-          action: pendingAction.action,
-          status: pendingAction.status,
-          priority: pendingAction.priority,
-          dueDate: pendingAction.dueDate,
-          comment: pendingAction.comment,
-          number: pendingAction.number,
-          contactFlag: pendingAction.contactFlag,
-          recurring: pendingAction.recurring,
-          project: pendingAction.project,
-          taskTitle: pendingAction.taskTitle,
-          assignedTo: pendingAction.assignedTo,
-          notes: pendingAction.notes,
-          estimatedHours: pendingAction.estimatedHours,
-          confirmed: true,
-        },
-        authConfig,
-        apiBase,
-      )
-      
-      if (result.status === 'success') {
+      if (isFirestoreUpdate && firestoreTaskId) {
+        // Handle Firestore task update
+        const updates: Record<string, unknown> = {}
+        
+        // Map pending action to Firestore update format
+        if (pendingAction.action === 'mark_complete') {
+          updates.done = true
+          updates.status = 'completed'
+          updates.completedOn = new Date().toISOString().split('T')[0]
+        } else if (pendingAction.action === 'update_status' && pendingAction.status) {
+          // Map Smartsheet status names to Firestore status values
+          const statusMap: Record<string, string> = {
+            'Scheduled': 'scheduled',
+            'In Progress': 'in_progress',
+            'On Hold': 'on_hold',
+            'Blocked': 'blocked',
+            'Awaiting Reply': 'awaiting_reply',
+            'Follow-up': 'follow_up',
+            'Delivered': 'delivered',
+            'Validation': 'validation',
+            'Needs Approval': 'needs_approval',
+            'Completed': 'completed',
+            'Cancelled': 'cancelled',
+            'Delegated': 'delegated',
+          }
+          updates.status = statusMap[pendingAction.status] || pendingAction.status.toLowerCase().replace(/ /g, '_')
+        } else if (pendingAction.action === 'update_due_date' && pendingAction.dueDate) {
+          updates.plannedDate = pendingAction.dueDate
+        } else if (pendingAction.action === 'update_priority' && pendingAction.priority) {
+          updates.priority = pendingAction.priority
+        }
+        
+        if (Object.keys(updates).length > 0) {
+          await updateFirestoreTask(firestoreTaskId, updates, authConfig, apiBase)
+        }
+        
         // Clear the pending action
         setPendingAction(null)
-        // Refresh tasks to show updated state
-        await refreshTasks()
-        // Refresh conversation to show the update confirmation
-        await loadConversation(selectedTaskId)
-        void refreshActivity()
+        // Refresh Firestore tasks
+        loadEmailTasks()
+        // Refresh conversation
+        const conversationId = `fs:${firestoreTaskId}`
+        const historyResponse = await fetch(
+          new URL(`/assist/firestore/${firestoreTaskId}/history`, apiBase),
+          { headers: { 'X-User-Email': authConfig.userEmail } }
+        )
+        if (historyResponse.ok) {
+          const data = await historyResponse.json()
+          setConversation(data.history ?? [])
+        }
+      } else if (selectedTaskId) {
+        // Handle Smartsheet task update (existing logic)
+        const result = await updateTask(
+          selectedTaskId,
+          {
+            source: selectedTask?.source ?? 'personal',
+            action: pendingAction.action,
+            status: pendingAction.status,
+            priority: pendingAction.priority,
+            dueDate: pendingAction.dueDate,
+            comment: pendingAction.comment,
+            number: pendingAction.number,
+            contactFlag: pendingAction.contactFlag,
+            recurring: pendingAction.recurring,
+            project: pendingAction.project,
+            taskTitle: pendingAction.taskTitle,
+            assignedTo: pendingAction.assignedTo,
+            notes: pendingAction.notes,
+            estimatedHours: pendingAction.estimatedHours,
+            confirmed: true,
+          },
+          authConfig,
+          apiBase,
+        )
+
+        if (result.status === 'success') {
+          // Clear the pending action
+          setPendingAction(null)
+          // Refresh tasks to show updated state
+          await refreshTasks()
+          // Refresh conversation to show the update confirmation
+          await loadConversation(selectedTaskId)
+          void refreshActivity()
+        }
       }
     } catch (err) {
       console.error('Update error:', err)
@@ -973,18 +1134,19 @@ function App() {
     setPendingAction(null)
   }
 
-  // Feedback submission handler
+  // Feedback submission handler - supports both Smartsheet and Firestore tasks
   async function handleFeedbackSubmit(
     feedback: FeedbackType,
     context: FeedbackContext,
     messageContent: string,
     messageId?: string
   ) {
-    if (!selectedTaskId || !authConfig) return
+    const taskId = selectedTaskId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId || !authConfig) return
     
     try {
       await submitFeedback(
-        selectedTaskId,
+        taskId,
         {
           feedback,
           context,
@@ -1002,11 +1164,13 @@ function App() {
   }
 
   // Strike message handler - hides a response from view and excludes from LLM context
+  // Supports both Smartsheet and Firestore tasks
   async function handleStrikeMessage(messageTs: string) {
-    if (!selectedTaskId || !authConfig) return
+    const taskId = selectedTaskId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId || !authConfig) return
     
     try {
-      const result = await strikeMessage(selectedTaskId, messageTs, authConfig, apiBase)
+      const result = await strikeMessage(taskId, messageTs, authConfig, apiBase)
       setConversation(result.history)
     } catch (err) {
       console.error('Strike message failed:', err)
@@ -1014,11 +1178,13 @@ function App() {
   }
 
   // Unstrike message handler - restores a struck message
+  // Supports both Smartsheet and Firestore tasks
   async function handleUnstrikeMessage(messageTs: string) {
-    if (!selectedTaskId || !authConfig) return
+    const taskId = selectedTaskId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId || !authConfig) return
     
     try {
-      const result = await unstrikeMessage(selectedTaskId, messageTs, authConfig, apiBase)
+      const result = await unstrikeMessage(taskId, messageTs, authConfig, apiBase)
       setConversation(result.history)
     } catch (err) {
       console.error('Unstrike message failed:', err)

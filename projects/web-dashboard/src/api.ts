@@ -253,6 +253,97 @@ export async function sendChatMessage(
   return resp.json()
 }
 
+// ============================================
+// Firestore Task Assist API
+// ============================================
+
+export interface FirestoreAssistResponse {
+  plan: AssistResponse['plan'] | null
+  environment: string
+  liveTasks: boolean
+  warning: string | null
+  task: {
+    rowId: string
+    title: string
+    status: string
+    due: string | null
+    priority: string
+    project: string | null
+    notes: string | null
+    isFirestoreTask: boolean
+    firestoreId: string
+  }
+  history: ConversationMessage[]
+}
+
+/**
+ * Engage with a Firestore task - load context and conversation history.
+ * Similar to runAssist but for Firestore tasks instead of Smartsheet.
+ */
+export async function runFirestoreAssist(
+  taskId: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: { resetConversation?: boolean } = {},
+): Promise<FirestoreAssistResponse> {
+  const url = new URL(`/assist/firestore/${taskId}`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      source: 'auto',
+      resetConversation: options.resetConversation ?? false,
+    }),
+  })
+
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Firestore assist failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+export interface FirestoreChatResponse extends ChatResponse {
+  pendingAction?: ChatResponse['pendingAction'] & {
+    isFirestoreTask?: boolean
+    firestoreTaskId?: string
+  }
+}
+
+/**
+ * Send a chat message about a Firestore task.
+ * Similar to sendChatMessage but uses Firestore task endpoint.
+ */
+export async function sendFirestoreTaskChat(
+  taskId: string,
+  message: string,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+  options: { workspaceContext?: string } = {},
+): Promise<FirestoreChatResponse> {
+  const url = new URL(`/assist/firestore/${taskId}/chat`, baseUrl)
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      message,
+      source: 'auto',
+      workspaceContext: options.workspaceContext,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Firestore chat failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
 export interface PlanResponse {
   plan: AssistResponse['plan']
   environment: string

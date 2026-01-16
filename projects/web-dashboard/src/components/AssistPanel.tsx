@@ -1394,6 +1394,24 @@ export function AssistPanel({
   }
 
   // After Engage DATA - Three-zone collaboration view
+  // Create unified task object that works for both Smartsheet and Firestore tasks
+  const engagedTask = selectedTask ?? (selectedFirestoreTask ? {
+    rowId: `fs:${selectedFirestoreTask.id}`,
+    title: selectedFirestoreTask.title,
+    status: selectedFirestoreTask.status || 'scheduled',
+    priority: selectedFirestoreTask.priority || 'Standard',
+    due: selectedFirestoreTask.plannedDate || selectedFirestoreTask.dueDate || '',
+    project: selectedFirestoreTask.project || '',
+    notes: selectedFirestoreTask.notes || '',
+    source: selectedFirestoreTask.domain || 'personal',
+    done: selectedFirestoreTask.done || false,
+  } : null)
+
+  // Safety check - should not happen but prevents crashes
+  if (!engagedTask) {
+    return <section className="panel assist-panel"><p>No task selected</p></section>
+  }
+
   return (
     <section className="panel assist-panel-three-zone" ref={containerRef}>
       {/* Header row */}
@@ -1401,14 +1419,14 @@ export function AssistPanel({
         <div className="header-left-group">
           <h2>Assistant</h2>
           <div className="task-badges-inline">
-            <span className="badge status">{selectedTask.status}</span>
-            {selectedTask.priority && (
-              <span className={`badge priority ${selectedTask.priority.toLowerCase()}`}>
-                {selectedTask.priority}
+            <span className="badge status">{engagedTask.status}</span>
+            {engagedTask.priority && (
+              <span className={`badge priority ${engagedTask.priority.toLowerCase()}`}>
+                {engagedTask.priority}
               </span>
             )}
           </div>
-          <strong className="task-title-compact">{selectedTask.title}</strong>
+          <strong className="task-title-compact">{engagedTask.title}</strong>
         </div>
         <div className="action-buttons-row">
           {/* Fixed actions - always available */}
@@ -1443,13 +1461,13 @@ export function AssistPanel({
       </header>
 
       {/* Notes row - full width, collapsible */}
-      {selectedTask.notes && (
+      {engagedTask.notes && (
         <div className="notes-row">
           <span className="notes-label">Notes:</span>
           <span className="notes-text">
-            {showFullNotes ? selectedTask.notes : notesPreview(selectedTask.notes)}
+            {showFullNotes ? engagedTask.notes : notesPreview(engagedTask.notes || '')}
           </span>
-          {selectedTask.notes.length > NOTES_PREVIEW_LIMIT && (
+          {(engagedTask.notes?.length || 0) > NOTES_PREVIEW_LIMIT && (
             <button className="link-button" onClick={() => setShowFullNotes(!showFullNotes)}>
               {showFullNotes ? 'less' : 'more'}
             </button>
@@ -1460,7 +1478,7 @@ export function AssistPanel({
       {/* Attachments Gallery - below notes, above Planning */}
       {attachments && attachments.length > 0 && selectedAttachmentIds && onAttachmentSelectionChange && (
         <AttachmentsGallery
-          taskId={selectedTask.rowId}
+          taskId={engagedTask.rowId}
           attachments={attachments}
           selectedIds={selectedAttachmentIds}
           onSelectionChange={onAttachmentSelectionChange}
