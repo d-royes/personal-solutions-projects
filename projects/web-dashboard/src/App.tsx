@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import './App.css'
 import { TaskList } from './components/TaskList'
 import { AssistPanel } from './components/AssistPanel'
+import { PanelDivider } from './components/PanelDivider'
 import { ActivityFeed } from './components/ActivityFeed'
 import { AuthPanel } from './components/AuthPanel'
 import { RebalancingEditor } from './components/RebalancingEditor'
@@ -42,6 +43,8 @@ import {
   unstrikeMessage,
   updateTask,
   bulkUpdateTasks,
+  updateFirestoreTask,
+  deleteFirestoreTask,
 } from './api'
 import type { AttachmentInfo } from './api'
 import type { Perspective, PortfolioStats, SavedEmailDraft, PortfolioPendingAction, BulkTaskUpdate } from './api'
@@ -123,6 +126,7 @@ function App() {
   // Email Tasks (Firestore) state
   const [emailTasks, setEmailTasks] = useState<FirestoreTask[]>([])
   const [emailTasksLoading, setEmailTasksLoading] = useState(false)
+  const [selectedFirestoreTask, setSelectedFirestoreTask] = useState<FirestoreTask | null>(null)
   
   const [environmentName, setEnvironmentName] = useState(
     import.meta.env.VITE_ENVIRONMENT ?? 'DEV',
@@ -131,6 +135,8 @@ function App() {
   const [menuView, setMenuView] = useState<'auth' | 'activity' | 'environment' | 'profile' | 'settings'>('auth')
   const [appMode, setAppMode] = useState<AppMode>('tasks')
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false)
+  const [assistPanelCollapsed, setAssistPanelCollapsed] = useState(false)
+  const [panelSplitRatio, setPanelSplitRatio] = useState(50) // Percentage for left panel
   const [isEngaged, setIsEngaged] = useState(false)  // Tracks if we've engaged with the current task
   const [autoEngageTaskId, setAutoEngageTaskId] = useState<string | null>(null)  // Auto-engage after selecting from calendar
 
@@ -202,6 +208,92 @@ function App() {
       }
     }
   }, [selectedTaskId, authConfig, apiBase])
+
+  // Handle Firestore task selection
+  const handleSelectFirestoreTask = useCallback((task: FirestoreTask | null) => {
+    setSelectedFirestoreTask(task)
+    if (task) {
+      // Clear Smartsheet task selection when selecting a Firestore task
+      setSelectedTaskId(null)
+      setAssistPlan(null)
+      setAssistError(null)
+      setConversation([])
+      setSavedDraft(null)
+      setEmailDraftOpen(false)
+      setEmailError(null)
+      setIsEngaged(false)
+      setAttachments([])
+      setSelectedAttachmentIds(new Set())
+      // Expand assist panel if collapsed
+      setAssistPanelCollapsed(false)
+    }
+  }, [])
+
+  // Handle Firestore task update
+  const handleFirestoreTaskUpdate = useCallback(async (taskId: string, updates: Record<string, unknown>) => {
+    if (!authConfig) return
+    try {
+      await updateFirestoreTask(taskId, updates, authConfig, apiBase)
+      // Refresh the task list
+      loadEmailTasks()
+      // Update the selected task if it's the one being updated
+      if (selectedFirestoreTask?.id === taskId) {
+        setSelectedFirestoreTask(prev => prev ? { ...prev, ...updates } as FirestoreTask : null)
+      }
+    } catch (error) {
+      console.error('Failed to update Firestore task:', error)
+      setAssistError((error as Error).message)
+    }
+  }, [authConfig, apiBase, selectedFirestoreTask])
+
+  // Handle Firestore task delete
+  const handleFirestoreTaskDelete = useCallback(async (taskId: string) => {
+    if (!authConfig) return
+    try {
+      await deleteFirestoreTask(taskId, authConfig, apiBase)
+      // Clear selection and refresh
+      setSelectedFirestoreTask(null)
+      loadEmailTasks()
+    } catch (error) {
+      console.error('Failed to delete Firestore task:', error)
+      setAssistError((error as Error).message)
+    }
+  }, [authConfig, apiBase])
+
+  // Handle closing Firestore task panel
+  const handleFirestoreTaskClose = useCallback(() => {
+    setSelectedFirestoreTask(null)
+  }, [])
+
+  // Panel collapse handlers
+  const handleToggleTaskPanel = useCallback(() => {
+    setTaskPanelCollapsed(prev => {
+      if (!prev) {
+        // Collapsing - ensure assist is visible
+        setAssistPanelCollapsed(false)
+      }
+      return !prev
+    })
+  }, [])
+
+  const handleToggleAssistPanel = useCallback(() => {
+    setAssistPanelCollapsed(prev => {
+      if (!prev) {
+        // Collapsing - ensure task panel is visible
+        setTaskPanelCollapsed(false)
+      }
+      return !prev
+    })
+  }, [])
+
+  // Panel divider drag handler
+  const panelsContainerRef = useRef<HTMLDivElement>(null)
+  const handlePanelDrag = useCallback((delta: number) => {
+    if (!panelsContainerRef.current) return
+    const containerWidth = panelsContainerRef.current.offsetWidth
+    const deltaPercent = (delta / containerWidth) * 100
+    setPanelSplitRatio(prev => Math.max(25, Math.min(75, prev + deltaPercent)))
+  }, [])
 
   const selectedTask =
     tasks.find((task) => task.rowId === selectedTaskId) ?? null
@@ -1280,99 +1372,153 @@ function App() {
             }}
           />
         ) : (
-          <>
-            {!taskPanelCollapsed && (
-              <TaskList
-                tasks={tasks}
-                selectedTaskId={selectedTaskId}
-                onSelect={handleSelectTask}
-                onDeselectAll={() => setSelectedTaskId(null)}
-                loading={tasksLoading}
-                liveTasks={liveTasks}
-                warning={tasksWarning}
-                onRefresh={refreshTasks}
-                refreshing={tasksLoading}
-                workBadge={workBadge}
-                emailTasks={emailTasks}
-                emailTasksLoading={emailTasksLoading}
-                onLoadEmailTasks={loadEmailTasks}
-                // Phase 1f: Firestore integration
-                auth={authConfig}
-                baseUrl={apiBase}
-                onTaskCreated={loadEmailTasks}
-                onTaskUpdated={loadEmailTasks}
-                onTaskDeleted={loadEmailTasks}
+          <div 
+            className={`tasks-panels-container ${taskPanelCollapsed ? 'left-collapsed' : ''} ${assistPanelCollapsed ? 'right-collapsed' : ''}`}
+            ref={panelsContainerRef}
+          >
+            {/* Task List Panel */}
+            {!taskPanelCollapsed ? (
+              <div 
+                className="task-panel-wrapper"
+                style={{ width: assistPanelCollapsed ? '100%' : `${panelSplitRatio}%` }}
+              >
+                <TaskList
+                  tasks={tasks}
+                  selectedTaskId={selectedTaskId}
+                  onSelect={(taskId) => {
+                    handleSelectTask(taskId)
+                    setSelectedFirestoreTask(null) // Clear Firestore selection
+                  }}
+                  onDeselectAll={() => {
+                    setSelectedTaskId(null)
+                    setSelectedFirestoreTask(null)
+                  }}
+                  loading={tasksLoading}
+                  liveTasks={liveTasks}
+                  warning={tasksWarning}
+                  onRefresh={refreshTasks}
+                  refreshing={tasksLoading}
+                  workBadge={workBadge}
+                  emailTasks={emailTasks}
+                  emailTasksLoading={emailTasksLoading}
+                  onLoadEmailTasks={loadEmailTasks}
+                  // Phase 1f: Firestore integration
+                  auth={authConfig}
+                  baseUrl={apiBase}
+                  onTaskCreated={loadEmailTasks}
+                  onTaskUpdated={loadEmailTasks}
+                  onTaskDeleted={loadEmailTasks}
+                  // Firestore task selection
+                  selectedFirestoreTask={selectedFirestoreTask}
+                  onSelectFirestoreTask={handleSelectFirestoreTask}
+                />
+              </div>
+            ) : (
+              <div className="collapsed-panel-indicator left" onClick={handleToggleTaskPanel}>
+                <span className="expand-icon">▶</span>
+                <span className="collapsed-label">Tasks</span>
+              </div>
+            )}
+
+            {/* Panel Divider with collapse arrows */}
+            {!taskPanelCollapsed && !assistPanelCollapsed && (
+              <PanelDivider
+                onDrag={handlePanelDrag}
+                onCollapseLeft={handleToggleTaskPanel}
+                onCollapseRight={handleToggleAssistPanel}
+                leftCollapsed={taskPanelCollapsed}
+                rightCollapsed={assistPanelCollapsed}
+                leftLabel="Tasks"
+                rightLabel="Assistant"
               />
             )}
 
-            <AssistPanel
-              selectedTask={selectedTask}
-              latestPlan={assistPlan}
-              isEngaged={isEngaged}
-              running={assistRunning}
-              planGenerating={planGenerating}
-              researchRunning={researchRunning}
-              summarizeRunning={summarizeRunning}
-              gmailAccount={gmailAccount}
-              onGmailChange={setGmailAccount}
-              onRunAssist={handleAssist}
-              onGeneratePlan={handleGeneratePlan}
-              onClearPlan={handleClearPlan}
-              onRunResearch={handleRunResearch}
-              onRunSummarize={handleRunSummarize}
-              onRunContact={handleRunContact}
-              contactRunning={contactRunning}
-              contactResults={contactResults}
-              contactConfirmation={contactConfirmation}
-              gmailOptions={gmailAccounts}
-              error={assistError}
-              conversation={conversation}
-              conversationLoading={conversationLoading}
-              onSendMessage={handleSendMessage}
-              sendingMessage={sendingMessage}
-              taskPanelCollapsed={taskPanelCollapsed}
-              onCollapseTasks={() => setTaskPanelCollapsed(true)}
-              onQuickAction={handleQuickAction}
-              pendingAction={pendingAction}
-              updateExecuting={updateExecuting}
-              onConfirmUpdate={handleConfirmUpdate}
-              onCancelUpdate={handleCancelUpdate}
-              onFeedbackSubmit={handleFeedbackSubmit}
-              initialWorkspaceItems={workspaceItems}
-              onWorkspaceChange={handleWorkspaceChange}
-              onDraftEmail={handleDraftEmail}
-              onSendEmail={handleSendEmail}
-              onSaveDraft={handleSaveDraft}
-              onDeleteDraft={handleDeleteDraft}
-              onToggleEmailDraft={handleToggleEmailDraft}
-              emailDraftLoading={emailDraftLoading}
-              emailSending={emailSending}
-              emailError={emailError}
-              savedDraft={savedDraft}
-              emailDraftOpen={emailDraftOpen}
-              setEmailDraftOpen={setEmailDraftOpen}
-              onStrikeMessage={handleStrikeMessage}
-              onUnstrikeMessage={handleUnstrikeMessage}
-              // Global Mode props
-              globalPerspective={globalPerspective}
-              onPerspectiveChange={handlePerspectiveChange}
-              globalConversation={globalConversation}
-              globalStats={globalStats}
-              onSendGlobalMessage={handleSendGlobalMessage}
-              globalChatLoading={globalChatLoading}
-              onClearGlobalHistory={handleClearGlobalHistory}
-              globalExpanded={globalExpanded}
-              onToggleGlobalExpand={handleToggleGlobalExpand}
-              onExpandTasks={handleExpandTasksFromGlobal}
-              onStrikeGlobalMessages={handleStrikeGlobalMessages}
-              onDeleteGlobalMessage={handleDeleteGlobalMessage}
-              // Attachment props
-              attachments={attachments}
-              attachmentsLoading={attachmentsLoading}
-              selectedAttachmentIds={selectedAttachmentIds}
-              onAttachmentSelectionChange={setSelectedAttachmentIds}
-            />
-          </>
+            {/* Assist Panel */}
+            {!assistPanelCollapsed ? (
+              <div 
+                className="assist-panel-wrapper"
+                style={{ width: taskPanelCollapsed ? '100%' : `${100 - panelSplitRatio}%` }}
+              >
+                <AssistPanel
+                  selectedTask={selectedTask}
+                  // Firestore task props
+                  selectedFirestoreTask={selectedFirestoreTask}
+                  onFirestoreTaskUpdate={handleFirestoreTaskUpdate}
+                  onFirestoreTaskDelete={handleFirestoreTaskDelete}
+                  onFirestoreTaskClose={handleFirestoreTaskClose}
+                  latestPlan={assistPlan}
+                  isEngaged={isEngaged}
+                  running={assistRunning}
+                  planGenerating={planGenerating}
+                  researchRunning={researchRunning}
+                  summarizeRunning={summarizeRunning}
+                  gmailAccount={gmailAccount}
+                  onGmailChange={setGmailAccount}
+                  onRunAssist={handleAssist}
+                  onGeneratePlan={handleGeneratePlan}
+                  onClearPlan={handleClearPlan}
+                  onRunResearch={handleRunResearch}
+                  onRunSummarize={handleRunSummarize}
+                  onRunContact={handleRunContact}
+                  contactRunning={contactRunning}
+                  contactResults={contactResults}
+                  contactConfirmation={contactConfirmation}
+                  gmailOptions={gmailAccounts}
+                  error={assistError}
+                  conversation={conversation}
+                  conversationLoading={conversationLoading}
+                  onSendMessage={handleSendMessage}
+                  sendingMessage={sendingMessage}
+                  taskPanelCollapsed={taskPanelCollapsed}
+                  onCollapseTasks={handleToggleTaskPanel}
+                  onQuickAction={handleQuickAction}
+                  pendingAction={pendingAction}
+                  updateExecuting={updateExecuting}
+                  onConfirmUpdate={handleConfirmUpdate}
+                  onCancelUpdate={handleCancelUpdate}
+                  onFeedbackSubmit={handleFeedbackSubmit}
+                  initialWorkspaceItems={workspaceItems}
+                  onWorkspaceChange={handleWorkspaceChange}
+                  onDraftEmail={handleDraftEmail}
+                  onSendEmail={handleSendEmail}
+                  onSaveDraft={handleSaveDraft}
+                  onDeleteDraft={handleDeleteDraft}
+                  onToggleEmailDraft={handleToggleEmailDraft}
+                  emailDraftLoading={emailDraftLoading}
+                  emailSending={emailSending}
+                  emailError={emailError}
+                  savedDraft={savedDraft}
+                  emailDraftOpen={emailDraftOpen}
+                  setEmailDraftOpen={setEmailDraftOpen}
+                  onStrikeMessage={handleStrikeMessage}
+                  onUnstrikeMessage={handleUnstrikeMessage}
+                  // Global Mode props
+                  globalPerspective={globalPerspective}
+                  onPerspectiveChange={handlePerspectiveChange}
+                  globalConversation={globalConversation}
+                  globalStats={globalStats}
+                  onSendGlobalMessage={handleSendGlobalMessage}
+                  globalChatLoading={globalChatLoading}
+                  onClearGlobalHistory={handleClearGlobalHistory}
+                  globalExpanded={globalExpanded}
+                  onToggleGlobalExpand={handleToggleGlobalExpand}
+                  onExpandTasks={handleExpandTasksFromGlobal}
+                  onStrikeGlobalMessages={handleStrikeGlobalMessages}
+                  onDeleteGlobalMessage={handleDeleteGlobalMessage}
+                  // Attachment props
+                  attachments={attachments}
+                  attachmentsLoading={attachmentsLoading}
+                  selectedAttachmentIds={selectedAttachmentIds}
+                  onAttachmentSelectionChange={setSelectedAttachmentIds}
+                />
+              </div>
+            ) : (
+              <div className="collapsed-panel-indicator right" onClick={handleToggleAssistPanel}>
+                <span className="collapsed-label">Assistant</span>
+                <span className="expand-icon">◀</span>
+              </div>
+            )}
+          </div>
         )}
       </main>
 

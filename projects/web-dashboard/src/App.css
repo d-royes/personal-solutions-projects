@@ -8917,3 +8917,426 @@ button:not(:disabled):hover {
   font-size: 0.75rem;
   color: rgba(134, 239, 172, 0.9);
 }
+
+/* ============================================
+   Tasks Panels Container (Two-Panel Layout)
+   ============================================ */
+
+.tasks-panels-container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  gap: 0;
+}
+
+.task-panel-wrapper,
+.assist-panel-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+
+.task-panel-wrapper > .panel,
+.assist-panel-wrapper > .panel {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ============================================
+   Panel Divider with Collapse Arrows
+   ============================================ */
+
+.panel-divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  min-width: 20px;
+  background: rgba(15, 23, 42, 0.5);
+  cursor: col-resize;
+  position: relative;
+  z-index: 10;
+}
+
+.panel-divider:hover {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.divider-handle {
+  width: 4px;
+  height: 40px;
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 2px;
+  margin: 4px 0;
+}
+
+.panel-divider:hover .divider-handle {
+  background: rgba(99, 102, 241, 0.6);
+}
+
+.divider-arrow {
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: rgba(99, 102, 241, 0.7);
+  font-size: 0.7rem;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  padding: 0;
+  line-height: 1;
+}
+
+.divider-arrow:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: rgba(99, 102, 241, 1);
+}
+
+.divider-arrow.left {
+  margin-bottom: 4px;
+}
+
+.divider-arrow.right {
+  margin-top: 4px;
+}
+
+/* ============================================
+   Collapsed Panel Indicators
+   ============================================ */
+
+.collapsed-panel-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem 0.5rem;
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.95));
+  border-radius: 18px;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  cursor: pointer;
+  min-width: 40px;
+  height: 100%;
+  transition: all 0.2s ease;
+}
+
+.collapsed-panel-indicator:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: linear-gradient(145deg, rgba(20, 28, 50, 0.9), rgba(5, 10, 30, 0.95));
+}
+
+.collapsed-panel-indicator .expand-icon {
+  color: rgba(99, 102, 241, 0.7);
+  font-size: 0.9rem;
+}
+
+.collapsed-panel-indicator .collapsed-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  color: rgba(226, 232, 240, 0.7);
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.collapsed-panel-indicator.right .collapsed-label {
+  transform: rotate(0deg);
+}
+
+/* ============================================
+   Firestore Task View in AssistPanel
+   ============================================ */
+
+.assist-panel.firestore-task-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.assist-panel.firestore-task-view header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.assist-panel.firestore-task-view .header-left-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.assist-panel.firestore-task-view .header-left-group h2 {
+  margin: 0;
+}
+
+.assist-panel.firestore-task-view .assist-header-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.close-btn-small {
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.6);
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.close-btn-small:hover {
+  color: rgba(239, 68, 68, 0.8);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Firestore task due banner */
+.fs-due-banner {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.fs-due-banner.overdue {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.fs-due-banner.due-today {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.fs-due-banner.due-soon {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* Firestore task header */
+.fs-task-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.fs-task-title {
+  font-size: 1.1rem;
+  color: rgba(226, 232, 240, 0.95);
+  line-height: 1.4;
+}
+
+.fs-task-project {
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+/* Firestore CRUD action buttons */
+.fs-crud-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0;
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.crud-btn {
+  flex: 1;
+  min-width: 80px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.crud-btn.complete-btn {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+}
+
+.crud-btn.complete-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+}
+
+.crud-btn.complete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: rgba(34, 197, 94, 0.3);
+}
+
+.crud-btn.edit-btn {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.crud-btn.edit-btn:hover {
+  background: rgba(99, 102, 241, 0.3);
+}
+
+.crud-btn.delete-btn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.crud-btn.delete-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+/* Firestore task details */
+.fs-task-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.fs-detail-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.fs-detail-label {
+  color: rgba(148, 163, 184, 0.7);
+  min-width: 60px;
+}
+
+.fs-detail-value {
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.fs-detail-row.slippage {
+  color: #fbbf24;
+  font-size: 0.8rem;
+}
+
+/* Firestore notes section */
+.fs-notes-section {
+  background: rgba(30, 41, 59, 0.3);
+  padding: 0.75rem;
+  border-radius: 6px;
+}
+
+.fs-notes-label {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.fs-notes-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.85);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Firestore recurring badge */
+.fs-recurring-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.6rem;
+  background: rgba(147, 51, 234, 0.15);
+  border: 1px solid rgba(147, 51, 234, 0.3);
+  border-radius: 6px;
+  color: #c084fc;
+  font-size: 0.8rem;
+}
+
+/* Firestore sync status */
+.fs-sync-status {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.fs-sync-status .sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.fs-sync-status .sync-badge.synced {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.fs-sync-status .sync-badge.pending {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.fs-sync-status .sync-badge.orphaned {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.fs-sync-status .sync-badge.local {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+}
+
+/* Firestore source info */
+.fs-source-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.fs-source-info .source-icon {
+  flex-shrink: 0;
+}
+
+.fs-source-info .source-text {
+  color: rgba(226, 232, 240, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Run assist button in Firestore view */
+.assist-panel.firestore-task-view .run-assist-btn {
+  margin-top: auto;
+  padding: 0.75rem;
+  font-size: 0.95rem;
+}

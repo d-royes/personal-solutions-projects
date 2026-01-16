@@ -227,8 +227,39 @@ function renderMarkdown(text: string): JSX.Element {
   return <div className="chat-markdown">{elements}</div>
 }
 
+// Firestore task type (imported from types, but need to define inline for simplicity)
+interface FirestoreTaskLocal {
+  id: string
+  title: string
+  status?: string
+  priority?: string
+  project?: string
+  notes?: string
+  nextStep?: string
+  dueDate?: string
+  plannedDate?: string
+  targetDate?: string
+  hardDeadline?: string
+  domain?: string
+  done?: boolean
+  completedOn?: string
+  timesRescheduled?: number
+  isRecurring?: boolean
+  recurringType?: string
+  recurringDays?: string[]
+  syncStatus?: string
+  source?: string
+  sourceEmailSubject?: string
+  sourceEmailAccount?: string
+}
+
 interface AssistPanelProps {
   selectedTask: Task | null
+  // Firestore task support
+  selectedFirestoreTask?: FirestoreTaskLocal | null
+  onFirestoreTaskUpdate?: (taskId: string, updates: Record<string, unknown>) => Promise<void>
+  onFirestoreTaskDelete?: (taskId: string) => Promise<void>
+  onFirestoreTaskClose?: () => void
   latestPlan: AssistPlan | null
   isEngaged?: boolean  // Whether we've engaged with the current task (separate from having a plan)
   running: boolean
@@ -401,6 +432,11 @@ function formatPendingAction(action: PendingAction): string {
 
 export function AssistPanel({
   selectedTask,
+  // Firestore task props
+  selectedFirestoreTask,
+  onFirestoreTaskUpdate,
+  onFirestoreTaskDelete,
+  onFirestoreTaskClose,
   latestPlan,
   isEngaged = false,
   running,
@@ -853,8 +889,176 @@ export function AssistPanel({
     }
   }
 
+  // Firestore task selected (not engaged) - show task details with CRUD actions
+  if (selectedFirestoreTask && !selectedTask && !isEngaged) {
+    const task = selectedFirestoreTask
+    const domain = task.domain || 'personal'
+    const status = task.status || 'scheduled'
+    const dueDate = task.plannedDate || task.dueDate
+    
+    // Format due date status - parse date as local midnight to avoid UTC issues
+    const getDueStatus = () => {
+      if (!dueDate) return { label: '', className: '' }
+      // Get today at local midnight
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      // Parse date string as local date (YYYY-MM-DD format)
+      // Using split to avoid UTC parsing issues
+      const [year, month, day] = dueDate.split('-').map(Number)
+      const due = new Date(year, month - 1, day) // month is 0-indexed
+      const diff = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      if (diff < 0) return { label: `Overdue ${Math.abs(diff)}d`, className: 'overdue' }
+      if (diff === 0) return { label: 'Due today', className: 'due-today' }
+      if (diff === 1) return { label: 'Due tomorrow', className: 'due-soon' }
+      if (diff <= 3) return { label: `Due in ${diff}d`, className: 'due-soon' }
+      return { label: `Due in ${diff}d`, className: '' }
+    }
+    const dueStatus = getDueStatus()
+    
+    return (
+      <section className="panel assist-panel firestore-task-view">
+        <header>
+          <div className="header-left-group">
+            <h2>Assistant</h2>
+            <div className="task-badges-inline">
+              <span className={`badge domain ${domain}`}>{domain.charAt(0).toUpperCase() + domain.slice(1)}</span>
+              <span className={`badge status ${status.toLowerCase().replace(/ /g, '-')}`}>
+                {status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')}
+              </span>
+              {task.priority && (
+                <span className={`badge priority ${task.priority.toLowerCase()}`}>{task.priority}</span>
+              )}
+            </div>
+          </div>
+          <div className="assist-header-controls">
+            {taskPanelCollapsed && (
+              <button className="secondary expand-btn" onClick={onExpandTasks}>
+                ⛶ Expand
+              </button>
+            )}
+            {onFirestoreTaskClose && (
+              <button className="close-btn-small" onClick={onFirestoreTaskClose} title="Close">×</button>
+            )}
+          </div>
+        </header>
+        
+        {/* Due status banner */}
+        {dueStatus.label && (
+          <div className={`fs-due-banner ${dueStatus.className}`}>{dueStatus.label}</div>
+        )}
+        
+        {/* Task title and details */}
+        <div className="fs-task-header">
+          <strong className="fs-task-title">{task.title}</strong>
+          <span className="fs-task-project">{task.project || 'No project'}</span>
+        </div>
+        
+        {/* CRUD Action Buttons */}
+        <div className="fs-crud-actions">
+          <button
+            className="crud-btn complete-btn"
+            onClick={async () => {
+              if (onFirestoreTaskUpdate) {
+                await onFirestoreTaskUpdate(task.id, {
+                  done: true,
+                  status: 'completed',
+                  completedOn: new Date().toISOString().split('T')[0],
+                })
+              }
+            }}
+            disabled={task.done}
+          >
+            {task.done ? '✓ Completed' : '✓ Mark Complete'}
+          </button>
+          <button
+            className="crud-btn edit-btn"
+            onClick={() => {
+              // TODO: Implement edit mode or modal
+              console.log('Edit task:', task.id)
+            }}
+          >
+            ✎ Edit
+          </button>
+          <button
+            className="crud-btn delete-btn"
+            onClick={async () => {
+              if (onFirestoreTaskDelete && confirm('Delete this task?')) {
+                await onFirestoreTaskDelete(task.id)
+              }
+            }}
+          >
+            🗑 Delete
+          </button>
+        </div>
+        
+        {/* Task details */}
+        <div className="fs-task-details">
+          {dueDate && (
+            <div className="fs-detail-row">
+              <span className="fs-detail-label">Due:</span>
+              <span className="fs-detail-value">{new Date(dueDate).toLocaleDateString()}</span>
+            </div>
+          )}
+          {task.targetDate && (
+            <div className="fs-detail-row">
+              <span className="fs-detail-label">Target:</span>
+              <span className="fs-detail-value">{new Date(task.targetDate).toLocaleDateString()}</span>
+            </div>
+          )}
+          {task.timesRescheduled && task.timesRescheduled > 0 && (
+            <div className="fs-detail-row slippage">
+              <span>⏳ Rescheduled {task.timesRescheduled} time{task.timesRescheduled > 1 ? 's' : ''}</span>
+            </div>
+          )}
+        </div>
+        
+        {/* Notes */}
+        {task.notes && (
+          <div className="fs-notes-section">
+            <span className="fs-notes-label">Notes:</span>
+            <p className="fs-notes-text">{task.notes}</p>
+          </div>
+        )}
+        
+        {/* Recurring indicator */}
+        {task.isRecurring && (
+          <div className="fs-recurring-badge">
+            🔄 Recurring: {task.recurringType || 'Unknown pattern'}
+          </div>
+        )}
+        
+        {/* Sync status */}
+        <div className="fs-sync-status">
+          {task.syncStatus === 'synced' && <span className="sync-badge synced">✓ Synced</span>}
+          {task.syncStatus === 'pending' && <span className="sync-badge pending">⏳ Pending sync</span>}
+          {task.syncStatus === 'orphaned' && <span className="sync-badge orphaned">⚠️ Orphaned</span>}
+          {task.syncStatus === 'local_only' && <span className="sync-badge local">📍 Local only</span>}
+        </div>
+        
+        {/* Source info */}
+        {task.source === 'email' && task.sourceEmailSubject && (
+          <div className="fs-source-info">
+            <span className="source-icon">📧</span>
+            <span className="source-text">{task.sourceEmailSubject}</span>
+          </div>
+        )}
+        
+        {/* Engage DATA button */}
+        <button
+          className="primary run-assist-btn"
+          disabled={running}
+          onClick={() => onRunAssist()}
+        >
+          {running ? 'Loading…' : 'Engage DATA'}
+        </button>
+        
+        {error && <p className="warning">{error}</p>}
+      </section>
+    )
+  }
+
   // No task selected - show Global Mode (Portfolio View)
-  if (!selectedTask) {
+  if (!selectedTask && !selectedFirestoreTask) {
     const perspective = globalPerspective ?? 'personal'
     const stats = globalStats
     // Filter out struck messages for display

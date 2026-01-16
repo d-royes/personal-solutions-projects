@@ -3,7 +3,6 @@ import type { Task, WorkBadge, FirestoreTask } from '../types'
 import type { AuthConfig } from '../auth/AuthContext'
 import { deriveDomain, PRIORITY_ORDER } from '../utils/domain'
 import { TaskCreateModal } from './TaskCreateModal'
-import { TaskDetailModal } from './TaskDetailModal'
 import { triggerSync } from '../api'
 import '../App.css'
 
@@ -98,6 +97,9 @@ interface TaskListProps {
   onTaskCreated?: () => void  // Refresh after task creation
   onTaskUpdated?: () => void  // Refresh after task update
   onTaskDeleted?: () => void  // Refresh after task deletion
+  // Firestore task selection (for AssistPanel instead of modal)
+  selectedFirestoreTask?: FirestoreTask | null
+  onSelectFirestoreTask?: (task: FirestoreTask | null) => void
 }
 
 export function TaskList({
@@ -120,14 +122,15 @@ export function TaskList({
   onTaskCreated,
   onTaskUpdated,
   onTaskDeleted,
+  // Firestore task selection (for AssistPanel)
+  selectedFirestoreTask,
+  onSelectFirestoreTask,
 }: TaskListProps) {
   const [filter, setFilter] = useState('all')
   const [searchTerm, setSearchTerm] = useState('')
   
-  // Phase 1f: Modal state
+  // Phase 1f: Modal state (only for create, not detail - detail uses AssistPanel now)
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [selectedFirestoreTask, setSelectedFirestoreTask] = useState<FirestoreTask | null>(null)
-  const [showDetailModal, setShowDetailModal] = useState(false)
   
   // Sync state
   const [syncing, setSyncing] = useState(false)
@@ -163,11 +166,12 @@ export function TaskList({
     }
   }
   
-  // Phase 1f: Handle Firestore task click
+  // Phase 1f: Handle Firestore task click - now uses AssistPanel instead of modal
   const handleFirestoreTaskClick = useCallback((task: FirestoreTask) => {
-    setSelectedFirestoreTask(task)
-    setShowDetailModal(true)
-  }, [])
+    if (onSelectFirestoreTask) {
+      onSelectFirestoreTask(task)
+    }
+  }, [onSelectFirestoreTask])
   
   // Phase 1f: Handle task creation
   const handleTaskCreated = useCallback(() => {
@@ -176,21 +180,18 @@ export function TaskList({
     if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
   }, [onTaskCreated, onLoadEmailTasks])
   
-  // Phase 1f: Handle task update
+  // Phase 1f: Handle task update - now just refreshes the list
   const handleTaskUpdated = useCallback(() => {
-    setShowDetailModal(false)
-    setSelectedFirestoreTask(null)
     if (onTaskUpdated) onTaskUpdated()
     if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
   }, [onTaskUpdated, onLoadEmailTasks])
-  
-  // Phase 1f: Handle task deletion
+
+  // Phase 1f: Handle task deletion - clear selection and refresh
   const handleTaskDeleted = useCallback(() => {
-    setShowDetailModal(false)
-    setSelectedFirestoreTask(null)
+    if (onSelectFirestoreTask) onSelectFirestoreTask(null)
     if (onTaskDeleted) onTaskDeleted()
     if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
-  }, [onTaskDeleted, onLoadEmailTasks])
+  }, [onTaskDeleted, onLoadEmailTasks, onSelectFirestoreTask])
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -526,22 +527,6 @@ export function TaskList({
           isOpen={showCreateModal}
           onClose={() => setShowCreateModal(false)}
           onTaskCreated={handleTaskCreated}
-          auth={auth}
-          baseUrl={baseUrl}
-        />
-      )}
-      
-      {/* Phase 1f: Task Detail Modal */}
-      {auth && (
-        <TaskDetailModal
-          task={selectedFirestoreTask}
-          isOpen={showDetailModal}
-          onClose={() => {
-            setShowDetailModal(false)
-            setSelectedFirestoreTask(null)
-          }}
-          onTaskUpdated={handleTaskUpdated}
-          onTaskDeleted={handleTaskDeleted}
           auth={auth}
           baseUrl={baseUrl}
         />
