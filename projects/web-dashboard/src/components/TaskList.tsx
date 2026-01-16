@@ -341,11 +341,41 @@ export function TaskList({
           )}
           {emailTasksLoading ? (
             <p>Loading DATA tasks…</p>
-          ) : emailTasks.filter(t => !t.done && t.status !== 'completed').length === 0 ? (
-            <p className="empty-state">No active tasks. Create tasks from emails or click "+ New Task" above.</p>
+          ) : emailTasks.filter(t => {
+            // Filter out completed tasks
+            if (t.done || t.status === 'completed') return false
+            // Apply search filter if there's a search term
+            if (searchTerm.trim()) {
+              const term = searchTerm.toLowerCase()
+              return (
+                t.title?.toLowerCase()?.includes(term) ||
+                t.notes?.toLowerCase()?.includes(term) ||
+                t.project?.toLowerCase()?.includes(term) ||
+                t.status?.toLowerCase()?.includes(term) ||
+                t.priority?.toLowerCase()?.includes(term)
+              )
+            }
+            return true
+          }).length === 0 ? (
+            <p className="empty-state">{searchTerm.trim() ? 'No tasks match your search.' : 'No active tasks. Create tasks from emails or click "+ New Task" above.'}</p>
           ) : (
             <ul className="task-list">
-            {emailTasks.filter(t => !t.done && t.status !== 'completed').map((task) => {
+            {emailTasks.filter(t => {
+              // Filter out completed tasks
+              if (t.done || t.status === 'completed') return false
+              // Apply search filter if there's a search term
+              if (searchTerm.trim()) {
+                const term = searchTerm.toLowerCase()
+                return (
+                  t.title?.toLowerCase()?.includes(term) ||
+                  t.notes?.toLowerCase()?.includes(term) ||
+                  t.project?.toLowerCase()?.includes(term) ||
+                  t.status?.toLowerCase()?.includes(term) ||
+                  t.priority?.toLowerCase()?.includes(term)
+                )
+              }
+              return true
+            }).map((task) => {
               const domain = task.domain.charAt(0).toUpperCase() + task.domain.slice(1)
               const status = task.status ?? 'pending'
               const dueText = (task.plannedDate || task.dueDate) 

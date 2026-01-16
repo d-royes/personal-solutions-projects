@@ -720,14 +720,20 @@ class SyncService:
         result: SyncResult,
     ) -> None:
         """Sync a single Smartsheet task to Firestore.
-        
+
         Args:
             ss_task: TaskDetail from Smartsheet
             result: SyncResult to update with counts
         """
+        # Skip Cancelled tasks - don't sync or recreate them in Firestore
+        # This handles tasks that were deleted from Firestore and marked Cancelled in SS
+        if ss_task.status == "Cancelled":
+            result.unchanged += 1
+            return
+        
         # Check if task already exists in Firestore (by smartsheet_row_id)
         existing = self._find_firestore_task_by_row_id(ss_task.row_id, ss_task.source)
-        
+
         if existing:
             # Check if update needed
             if self._needs_update(existing, ss_task):

@@ -5316,22 +5316,26 @@ def delete_firestore_task(
     if not deleted:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    # Cascade delete to Smartsheet if synced
-    ss_deleted = False
+    # Mark as Cancelled + Done in Smartsheet (instead of deleting - preserves history)
+    ss_updated = False
     if cascade_to_smartsheet and ss_row_id:
         try:
-            settings = Settings()
+            settings = _get_settings()
             client = SmartsheetClient(settings)
-            client.delete_row(ss_row_id, source=ss_sheet)
-            ss_deleted = True
+            # Mark as Cancelled and Done instead of deleting
+            client.update_row(ss_row_id, {
+                "status": "Cancelled",
+                "done": True,
+            }, source=ss_sheet)
+            ss_updated = True
         except Exception as e:
             # Log error but don't fail - Firestore delete succeeded
-            print(f"[API] Warning: Failed to delete Smartsheet row {ss_row_id}: {e}")
+            print(f"[API] Warning: Failed to update Smartsheet row {ss_row_id}: {e}")
     
     return {
         "status": "deleted",
         "taskId": task_id,
-        "smartsheetDeleted": ss_deleted,
+        "smartsheetUpdated": ss_updated,
     }
 
 
