@@ -63,7 +63,39 @@ interface EnhancedFirestoreTask extends FirestoreTask {
   isRecurring?: boolean
   recurringType?: string | null
   recurringDays?: string[]
+  recurringMonthly?: string | null
+  recurringInterval?: number | null
 }
+
+// Recurring type options
+const RECURRING_TYPE_OPTIONS = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'biweekly', label: 'Bi-weekly (every 2 weeks)' },
+  { value: 'custom', label: 'Custom interval (every N days)' },
+]
+
+// Day options for weekly/bi-weekly
+const DAY_OPTIONS = [
+  { value: 'M', label: 'Mon' },
+  { value: 'T', label: 'Tue' },
+  { value: 'W', label: 'Wed' },
+  { value: 'H', label: 'Thu' },
+  { value: 'F', label: 'Fri' },
+  { value: 'Sa', label: 'Sat' },
+  { value: 'Su', label: 'Sun' },
+]
+
+// Monthly pattern options
+const MONTHLY_OPTIONS = [
+  { value: '1', label: '1st of month' },
+  { value: '15', label: '15th of month' },
+  { value: 'last', label: 'Last day of month' },
+  { value: 'first_monday', label: 'First Monday' },
+  { value: 'first_friday', label: 'First Friday' },
+  { value: 'last_friday', label: 'Last Friday' },
+]
 
 interface TaskDetailModalProps {
   task: EnhancedFirestoreTask | null
@@ -99,6 +131,13 @@ export function TaskDetailModal({
   const [notes, setNotes] = useState('')
   const [estimatedHours, setEstimatedHours] = useState('')
   const [done, setDone] = useState(false)
+  
+  // Recurring task state
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [recurringType, setRecurringType] = useState<string>('weekly')
+  const [recurringDays, setRecurringDays] = useState<string[]>([])
+  const [recurringMonthly, setRecurringMonthly] = useState<string>('1')
+  const [recurringInterval, setRecurringInterval] = useState<number>(1)
 
   // UI state
   const [saving, setSaving] = useState(false)
@@ -120,6 +159,12 @@ export function TaskDetailModal({
       setNotes(task.notes || '')
       setEstimatedHours(task.estimatedHours?.toString() || '')
       setDone(task.done || false)
+      // Recurring fields
+      setIsRecurring(task.isRecurring || !!task.recurringType)
+      setRecurringType(task.recurringType || 'weekly')
+      setRecurringDays(task.recurringDays || [])
+      setRecurringMonthly(task.recurringMonthly || '1')
+      setRecurringInterval(task.recurringInterval || 1)
       setError(null)
       setHasChanges(false)
       setShowDeleteConfirm(false)
@@ -130,6 +175,9 @@ export function TaskDetailModal({
   useEffect(() => {
     if (!task) return
     
+    const taskIsRecurring = task.isRecurring || !!task.recurringType
+    const recurringDaysChanged = JSON.stringify(recurringDays.sort()) !== JSON.stringify((task.recurringDays || []).sort())
+    
     const changed = 
       title !== (task.title || '') ||
       status !== (task.status || 'scheduled') ||
@@ -139,10 +187,15 @@ export function TaskDetailModal({
       targetDate !== (task.targetDate?.split('T')[0] || '') ||
       hardDeadline !== (task.hardDeadline?.split('T')[0] || '') ||
       notes !== (task.notes || '') ||
-      done !== (task.done || false)
+      done !== (task.done || false) ||
+      isRecurring !== taskIsRecurring ||
+      (isRecurring && recurringType !== (task.recurringType || 'weekly')) ||
+      (isRecurring && recurringDaysChanged) ||
+      (isRecurring && recurringMonthly !== (task.recurringMonthly || '1')) ||
+      (isRecurring && recurringInterval !== (task.recurringInterval || 1))
     
     setHasChanges(changed)
-  }, [task, title, status, priority, project, plannedDate, targetDate, hardDeadline, notes, done])
+  }, [task, title, status, priority, project, plannedDate, targetDate, hardDeadline, notes, done, isRecurring, recurringType, recurringDays, recurringMonthly, recurringInterval])
 
   // Get available projects based on task domain
   const domain = task?.domain || 'personal'
@@ -166,6 +219,11 @@ export function TaskDetailModal({
         notes: notes.trim() || undefined,
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : undefined,
         done,
+        // Recurring fields - clear if not recurring, set if recurring
+        recurringType: isRecurring ? recurringType : null,
+        recurringDays: isRecurring && (recurringType === 'weekly' || recurringType === 'biweekly') ? recurringDays : [],
+        recurringMonthly: isRecurring && recurringType === 'monthly' ? recurringMonthly : null,
+        recurringInterval: isRecurring && recurringType === 'custom' ? recurringInterval : null,
       }
 
       await updateFirestoreTask(task.id, updates, auth, baseUrl)
@@ -176,7 +234,7 @@ export function TaskDetailModal({
     } finally {
       setSaving(false)
     }
-  }, [task, title, status, priority, project, plannedDate, targetDate, hardDeadline, notes, estimatedHours, done, auth, baseUrl, onTaskUpdated, onClose])
+  }, [task, title, status, priority, project, plannedDate, targetDate, hardDeadline, notes, estimatedHours, done, isRecurring, recurringType, recurringDays, recurringMonthly, recurringInterval, auth, baseUrl, onTaskUpdated, onClose])
 
   // Handle delete
   const handleDelete = useCallback(async () => {
@@ -421,6 +479,98 @@ export function TaskDetailModal({
               <span>Mark as complete</span>
             </label>
           </div>
+
+          {/* Recurring task configuration */}
+          <fieldset className="form-fieldset recurring-config">
+            <legend>
+              <label className="recurring-toggle">
+                <input
+                  type="checkbox"
+                  checked={isRecurring}
+                  onChange={e => setIsRecurring(e.target.checked)}
+                />
+                <span>Recurring Task</span>
+              </label>
+            </legend>
+            
+            {isRecurring && (
+              <div className="recurring-options">
+                {/* Recurring type selector */}
+                <div className="form-group">
+                  <label htmlFor="detail-recurring-type">Pattern</label>
+                  <select
+                    id="detail-recurring-type"
+                    value={recurringType}
+                    onChange={e => setRecurringType(e.target.value)}
+                  >
+                    {RECURRING_TYPE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Weekly/Bi-weekly: Day picker */}
+                {(recurringType === 'weekly' || recurringType === 'biweekly') && (
+                  <div className="form-group">
+                    <label>Days</label>
+                    <div className="day-picker">
+                      {DAY_OPTIONS.map(day => (
+                        <label key={day.value} className="day-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={recurringDays.includes(day.value)}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setRecurringDays([...recurringDays, day.value])
+                              } else {
+                                setRecurringDays(recurringDays.filter(d => d !== day.value))
+                              }
+                            }}
+                          />
+                          <span>{day.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Monthly: Pattern selector */}
+                {recurringType === 'monthly' && (
+                  <div className="form-group">
+                    <label htmlFor="detail-monthly-pattern">Monthly on</label>
+                    <select
+                      id="detail-monthly-pattern"
+                      value={recurringMonthly}
+                      onChange={e => setRecurringMonthly(e.target.value)}
+                    >
+                      {MONTHLY_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Custom: Interval input */}
+                {recurringType === 'custom' && (
+                  <div className="form-group">
+                    <label htmlFor="detail-interval">Every N days</label>
+                    <input
+                      id="detail-interval"
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={recurringInterval}
+                      onChange={e => setRecurringInterval(parseInt(e.target.value) || 1)}
+                    />
+                  </div>
+                )}
+
+                <p className="recurring-note">
+                  Recurring tasks reset automatically when due. Uncheck "Recurring Task" to end the series.
+                </p>
+              </div>
+            )}
+          </fieldset>
 
           {/* Metadata */}
           <div className="task-metadata">

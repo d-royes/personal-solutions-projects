@@ -18,6 +18,13 @@ const STATUS_CATEGORY: Record<string, number> = {
   'Scheduled': 3, 'Recurring': 3, 'Validation': 3, 'Create ZD Ticket': 3,   // S - Scheduled
 }
 
+// Status category for Firestore tasks (lowercase values)
+const FS_STATUS_CATEGORY: Record<string, number> = {
+  'in_progress': 1, 'follow_up': 1, 'delivered': 1,                          // A - Active
+  'on_hold': 2, 'awaiting_reply': 2, 'needs_approval': 2, 'blocked': 2,     // B - Blocked
+  'scheduled': 3, 'recurring': 3, 'validation': 3, 'pending': 3,            // S - Scheduled
+}
+
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'needs_attention', label: 'Needs attention' },
@@ -256,13 +263,25 @@ export function TaskList({
           </p>
         </div>
         <div className="task-header-buttons">
-          <input
-            type="text"
-            className="task-search"
-            placeholder="Search..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          <div className="search-container">
+            <input
+              type="text"
+              className="task-search"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button
+                className="search-clear"
+                onClick={() => setSearchTerm('')}
+                title="Clear search"
+                type="button"
+              >
+                ×
+              </button>
+            )}
+          </div>
           {/* Phase 1f: New Task button */}
           {auth && (
             <button
@@ -375,6 +394,23 @@ export function TaskList({
                 )
               }
               return true
+            }).sort((a, b) => {
+              // Sort: Due Date → Priority → Status Category (same as Smartsheet tasks)
+              // 1. Due Date (earliest first)
+              const dateA = a.plannedDate || a.dueDate || '9999-12-31'
+              const dateB = b.plannedDate || b.dueDate || '9999-12-31'
+              const dueDiff = new Date(dateA).getTime() - new Date(dateB).getTime()
+              if (dueDiff !== 0) return dueDiff
+
+              // 2. Priority (highest first: Critical > Urgent > Important > Standard > Low)
+              const priorityA = PRIORITY_ORDER[a.priority ?? ''] ?? 99
+              const priorityB = PRIORITY_ORDER[b.priority ?? ''] ?? 99
+              if (priorityA !== priorityB) return priorityA - priorityB
+
+              // 3. Status category (Active > Blocked > Scheduled)
+              const statusA = FS_STATUS_CATEGORY[a.status ?? ''] ?? 99
+              const statusB = FS_STATUS_CATEGORY[b.status ?? ''] ?? 99
+              return statusA - statusB
             }).map((task) => {
               const domain = task.domain.charAt(0).toUpperCase() + task.domain.slice(1)
               const status = task.status ?? 'pending'
@@ -408,11 +444,14 @@ export function TaskList({
                         ⏳{task.timesRescheduled}
                       </span>
                     )}
-                    {task.syncStatus === 'synced' && (
-                      <span className="badge synced" title="Synced with Smartsheet">✓</span>
+                    {task.isRecurring && (
+                      <span className="badge recurring" title={`Recurring: ${task.recurringType || 'Yes'}`}>🔄</span>
                     )}
                     {task.syncStatus === 'orphaned' && (
                       <span className="badge orphaned" title="Orphaned - deleted from Smartsheet">🔗✕</span>
+                    )}
+                    {task.syncStatus === 'synced' && (
+                      <span className="badge synced" title="Synced with Smartsheet">✓</span>
                     )}
                   </div>
                   <div className="task-title-row">

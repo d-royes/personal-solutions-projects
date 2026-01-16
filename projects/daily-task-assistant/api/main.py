@@ -5195,6 +5195,11 @@ class TaskCreateRequest(BaseModel):
     hard_deadline: Optional[str] = None
     notes: Optional[str] = None
     estimated_hours: Optional[float] = None
+    # Recurring task fields
+    recurring_type: Optional[str] = None  # weekly, monthly, biweekly, custom
+    recurring_days: Optional[List[str]] = None  # M, T, W, H, F, Sa, Su
+    recurring_monthly: Optional[str] = None  # 1, 15, last, first_monday, etc.
+    recurring_interval: Optional[int] = None  # For custom interval (days)
 
 
 @app.post("/tasks/firestore")
@@ -5251,6 +5256,10 @@ def create_firestore_task_direct(
         notes=request.notes,
         estimated_hours=request.estimated_hours,
         source=TaskSource.MANUAL.value,
+        recurring_type=request.recurring_type,
+        recurring_days=request.recurring_days,
+        recurring_monthly=request.recurring_monthly,
+        recurring_interval=request.recurring_interval,
     )
     
     return {"task": task.to_api_dict()}
@@ -5262,7 +5271,7 @@ def get_firestore_task(
     user: str = Depends(get_current_user),
 ) -> dict:
     """Get a single task from Firestore."""
-    from daily_task_assistant.tasks import get_task
+    from daily_task_assistant.task_store import get_task
     
     task = get_task(user, task_id)
     if not task:
@@ -5447,6 +5456,145 @@ def get_sync_status(
         "localOnly": status["local_only"],
         "conflicts": status["conflicts"],
         "orphaned": status.get("orphaned", 0),
+    }
+
+
+# =============================================================================
+# RECURRING TASK MANAGEMENT
+# =============================================================================
+
+@app.post("/tasks/recurring/reset")
+def reset_recurring_tasks(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Reset recurring tasks that should activate today.
+    
+    This endpoint is called by Cloud Scheduler daily at 4:00 AM ET.
+    It finds all recurring tasks where:
+    - Task has a recurring_type set (FS-managed recurring)
+    - Task is marked done=True
+    - Today matches the recurring pattern
+    
+    For each matching task, it:
+    - Sets done=False
+    - Advances planned_date to next occurrence
+    - Clears completed_on
+    
+    Returns:
+        Count of tasks reset and list of task IDs
+    """
+    from datetime import date
+    from daily_task_assistant.task_store import list_tasks, FirestoreTask
+    from daily_task_assistant.task_store.recurring import (
+        should_reset_today,
+        reset_recurring_task,
+    )
+    
+    today = date.today()
+    reset_count = 0
+    reset_task_ids = []
+    errors = []
+    
+    # Get all tasks for this user
+    try:
+        all_tasks = list_tasks(user, limit=10000)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tasks: {e}")
+    
+    # Find and reset tasks that should reset today
+    for task in all_tasks:
+        try:
+            if should_reset_today(task, today):
+                updated = reset_recurring_task(user, task)
+                if updated:
+                    reset_count += 1
+                    reset_task_ids.append(task.id)
+        except Exception as e:
+            errors.append(f"Error resetting task {task.id}: {e}")
+    
+    return {
+        "date": today.isoformat(),
+        "resetCount": reset_count,
+        "resetTaskIds": reset_task_ids,
+        "errors": errors,
+    }
+
+
+@app.get("/tasks/recurring/preview")
+def preview_recurring_resets(
+    target_date: Optional[str] = Query(None, description="Date to preview (YYYY-MM-DD), defaults to today"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Preview which recurring tasks would reset on a given date.
+    
+    Useful for testing and debugging recurring patterns without
+    actually resetting the tasks.
+    
+    Args:
+        target_date: Date to check (defaults to today)
+        
+    Returns:
+        List of tasks that would reset on that date
+    """
+    from datetime import date
+    from daily_task_assistant.task_store import list_tasks
+    from daily_task_assistant.task_store.recurring import (
+        should_reset_today,
+        get_recurring_display,
+        get_next_occurrence,
+    )
+    
+    # Parse target date
+    if target_date:
+        try:
+            check_date = date.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    else:
+        check_date = date.today()
+    
+    # Get all tasks
+    try:
+        all_tasks = list_tasks(user, limit=10000)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tasks: {e}")
+    
+    # Find tasks with recurring patterns
+    would_reset = []
+    recurring_tasks = []
+    
+    for task in all_tasks:
+        if task.recurring_type:
+            recurring_info = {
+                "id": task.id,
+                "title": task.title,
+                "recurringType": task.recurring_type,
+                "recurringDays": task.recurring_days,
+                "recurringMonthly": task.recurring_monthly,
+                "recurringInterval": task.recurring_interval,
+                "pattern": get_recurring_display(task),
+                "plannedDate": task.planned_date.isoformat() if task.planned_date else None,
+                "done": task.done,
+                "nextOccurrence": None,
+            }
+            
+            # Calculate next occurrence
+            next_occ = get_next_occurrence(task)
+            if next_occ:
+                recurring_info["nextOccurrence"] = next_occ.isoformat()
+            
+            recurring_tasks.append(recurring_info)
+            
+            # Check if would reset on target date
+            if should_reset_today(task, check_date):
+                would_reset.append(recurring_info)
+    
+    return {
+        "targetDate": check_date.isoformat(),
+        "totalRecurringTasks": len(recurring_tasks),
+        "wouldResetCount": len(would_reset),
+        "wouldReset": would_reset,
+        "allRecurringTasks": recurring_tasks,
     }
 
 

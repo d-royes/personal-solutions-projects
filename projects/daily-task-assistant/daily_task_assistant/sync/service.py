@@ -897,9 +897,17 @@ class SyncService:
         Args:
             existing: Existing FirestoreTask to update
             ss_task: TaskDetail from Smartsheet with new data
+            
+        Note: For FS-managed recurring tasks (recurring_type set in Firestore),
+        we skip updating done, planned_date, and completed_on to prevent
+        Smartsheet automation from conflicting with Firestore recurring logic.
         """
         # Use translator for consistent field mapping
         translated = translate_smartsheet_to_firestore(ss_task)
+        
+        # Check if this is a FS-managed recurring task
+        # If so, we protect recurring-sensitive fields from SS overwrites
+        is_fs_managed_recurring = bool(existing.recurring_type)
         
         # Build updates dict from translated values
         # Note: We do NOT update target_date here - it tracks original intention
@@ -910,20 +918,24 @@ class SyncService:
             "priority": translated["priority"],
             "domain": translated["domain"],
             "project": translated["project"],
-            "planned_date": translated["planned_date"],
             "hard_deadline": translated["hard_deadline"],
             "notes": translated["notes"],
             "estimated_hours": translated["estimated_hours"],
-            "done": translated["done"],
-            "completed_on": translated["completed_on"],
             "number": translated["number"],
             "contact_required": translated["contact_required"],
-            "recurring_type": translated["recurring_type"],
-            "recurring_days": translated["recurring_days"],
             "smartsheet_modified_at": translated["smartsheet_modified_at"],
             "sync_status": SyncStatus.SYNCED.value,
             "last_synced_at": datetime.now(self._tz),
         }
+        
+        # For FS-managed recurring tasks, skip recurring-sensitive fields
+        # These are managed by Firestore's recurring logic, not SS automation
+        if not is_fs_managed_recurring:
+            updates["planned_date"] = translated["planned_date"]
+            updates["done"] = translated["done"]
+            updates["completed_on"] = translated["completed_on"]
+            updates["recurring_type"] = translated["recurring_type"]
+            updates["recurring_days"] = translated["recurring_days"]
         
         # Update the task
         update_task(self.user_email, existing.id, updates)
@@ -1033,6 +1045,9 @@ class SyncService:
         Uses translation utilities to ensure all field values match
         Smartsheet's picklist validation requirements.
         
+        For FS-managed recurring tasks, sets recurring_pattern to "Monthly"
+        to indicate the task is managed by Firestore recurring logic.
+        
         Args:
             fs_task: FirestoreTask with changes
             
@@ -1072,5 +1087,11 @@ class SyncService:
             updates["estimated_hours"] = _translate_estimated_hours(fs_task.estimated_hours)
         
         updates["done"] = fs_task.done
+        
+        # One-way sync of recurring pattern to SS
+        # FS-managed recurring tasks use "Monthly" as indicator in SS
+        # This distinguishes them from SS-managed weekly recurring (M, T, W, etc.)
+        if fs_task.recurring_type:
+            updates["recurring_pattern"] = "Monthly"
         
         return updates

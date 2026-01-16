@@ -2351,6 +2351,11 @@ export interface CreateTaskRequest {
   hardDeadline?: string
   notes?: string
   estimatedHours?: number
+  // Recurring task fields
+  recurringType?: string | null
+  recurringDays?: string[]
+  recurringMonthly?: string | null
+  recurringInterval?: number | null
 }
 
 export interface UpdateTaskRequest {
@@ -2364,6 +2369,11 @@ export interface UpdateTaskRequest {
   notes?: string
   estimatedHours?: number
   done?: boolean
+  // Recurring task fields
+  recurringType?: string | null
+  recurringDays?: string[]
+  recurringMonthly?: string | null
+  recurringInterval?: number | null
 }
 
 export async function createFirestoreTask(
@@ -2391,6 +2401,11 @@ export async function createFirestoreTask(
       hard_deadline: request.hardDeadline,
       notes: request.notes,
       estimated_hours: request.estimatedHours,
+      // Recurring fields (snake_case for backend)
+      recurring_type: request.recurringType,
+      recurring_days: request.recurringDays,
+      recurring_monthly: request.recurringMonthly,
+      recurring_interval: request.recurringInterval,
     }),
   })
   if (!resp.ok) {
@@ -2425,6 +2440,11 @@ export async function updateFirestoreTask(
       notes: updates.notes,
       estimated_hours: updates.estimatedHours,
       done: updates.done,
+      // Recurring fields (snake_case for backend)
+      recurring_type: updates.recurringType,
+      recurring_days: updates.recurringDays,
+      recurring_monthly: updates.recurringMonthly,
+      recurring_interval: updates.recurringInterval,
     }),
   })
   if (!resp.ok) {
