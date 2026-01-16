@@ -4100,3 +4100,141 @@ export async function updateCalendarConversation(
   }
   return resp.json()
 }
+
+// =============================================================================
+// Global Settings API
+// =============================================================================
+
+/** Sync settings configuration */
+export interface SyncSettings {
+  enabled: boolean
+  intervalMinutes: number  // 5, 15, 30, 60
+  lastSyncAt: string | null
+  lastSyncResult: {
+    created: number
+    updated: number
+    unchanged: number
+    conflicts: number
+    errors: number
+    totalProcessed: number
+    success: boolean
+  } | null
+}
+
+/** Global application settings */
+export interface GlobalSettings {
+  inactivityTimeoutMinutes: number  // 0=disabled, 5, 10, 15, 30
+  sync: SyncSettings
+}
+
+/** Partial settings update request */
+export interface UpdateSettingsRequest {
+  inactivityTimeoutMinutes?: number
+  sync?: Partial<Pick<SyncSettings, 'enabled' | 'intervalMinutes'>>
+}
+
+/**
+ * Fetch global application settings from Firestore.
+ * Settings are shared across all email accounts.
+ */
+export async function fetchSettings(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<GlobalSettings> {
+  const url = new URL('/settings', baseUrl)
+
+  const resp = await fetch(url, {
+    headers: buildHeaders(auth),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Fetch settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/**
+ * Update global application settings.
+ * Supports partial updates - only provided fields are changed.
+ */
+export async function updateSettings(
+  updates: UpdateSettingsRequest,
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<GlobalSettings> {
+  const url = new URL('/settings', baseUrl)
+
+  // Convert to snake_case for backend
+  const body: Record<string, unknown> = {}
+  if (updates.inactivityTimeoutMinutes !== undefined) {
+    body.inactivity_timeout_minutes = updates.inactivityTimeoutMinutes
+  }
+  if (updates.sync) {
+    body.sync = {}
+    if (updates.sync.enabled !== undefined) {
+      (body.sync as Record<string, unknown>).enabled = updates.sync.enabled
+    }
+    if (updates.sync.intervalMinutes !== undefined) {
+      (body.sync as Record<string, unknown>).interval_minutes = updates.sync.intervalMinutes
+    }
+  }
+
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Update settings failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}
+
+/** Sync result from manual or scheduled sync */
+export interface SyncResult {
+  ran: boolean
+  reason?: string
+  success?: boolean
+  created?: number
+  updated?: number
+  unchanged?: number
+  conflicts?: number
+  errors?: number
+  totalProcessed?: number
+  syncedAt?: string
+  syncEnabled?: boolean
+  intervalMinutes?: number
+  lastSyncAt?: string | null
+}
+
+/**
+ * Trigger a manual bidirectional sync.
+ * Uses the existing /sync/now endpoint.
+ */
+export async function triggerSyncNow(
+  auth: AuthConfig,
+  baseUrl: string = defaultBase,
+): Promise<SyncResult> {
+  const url = new URL('/sync/now', baseUrl)
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildHeaders(auth),
+    },
+    body: JSON.stringify({
+      direction: 'bidirectional',
+      include_work: false,
+    }),
+  })
+  if (!resp.ok) {
+    const detail = await safeJson(resp)
+    throw new Error(detail?.detail ?? `Sync failed: ${resp.statusText}`)
+  }
+  return resp.json()
+}

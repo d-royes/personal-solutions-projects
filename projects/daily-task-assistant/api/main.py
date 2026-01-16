@@ -5598,6 +5598,172 @@ def preview_recurring_resets(
     }
 
 
+# =============================================================================
+# GLOBAL SETTINGS
+# =============================================================================
+
+class UpdateSettingsRequest(BaseModel):
+    """Request body for updating global settings."""
+    inactivity_timeout_minutes: Optional[int] = Field(
+        None,
+        description="Inactivity timeout in minutes (0=disabled, 5, 10, 15, 30)"
+    )
+    sync: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Sync settings: enabled (bool), interval_minutes (5, 15, 30, 60)"
+    )
+
+
+@app.get("/settings")
+def get_settings_endpoint(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Fetch global application settings.
+    
+    Returns all user preferences stored in Firestore, including:
+    - inactivityTimeoutMinutes: Auto-logout timeout
+    - sync: Bidirectional sync configuration
+    
+    Settings are shared across all email accounts (work/church).
+    """
+    from daily_task_assistant.settings import get_settings
+    
+    settings = get_settings()
+    return settings.to_api_dict()
+
+
+@app.put("/settings")
+def update_settings_endpoint(
+    request: UpdateSettingsRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update global application settings.
+    
+    Supports partial updates - only provided fields are changed.
+    Settings are shared across all email accounts (work/church).
+    """
+    from daily_task_assistant.settings import update_settings
+    
+    updates = {}
+    
+    if request.inactivity_timeout_minutes is not None:
+        # Validate timeout value
+        valid_timeouts = [0, 5, 10, 15, 30]
+        if request.inactivity_timeout_minutes not in valid_timeouts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timeout. Must be one of: {valid_timeouts}"
+            )
+        updates["inactivity_timeout_minutes"] = request.inactivity_timeout_minutes
+    
+    if request.sync is not None:
+        sync_updates = {}
+        
+        if "enabled" in request.sync:
+            sync_updates["enabled"] = bool(request.sync["enabled"])
+        
+        if "interval_minutes" in request.sync:
+            valid_intervals = [5, 15, 30, 60]
+            interval = request.sync["interval_minutes"]
+            if interval not in valid_intervals:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid sync interval. Must be one of: {valid_intervals}"
+                )
+            sync_updates["interval_minutes"] = interval
+        
+        if sync_updates:
+            updates["sync"] = sync_updates
+    
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid settings to update")
+    
+    settings = update_settings(updates)
+    return settings.to_api_dict()
+
+
+@app.post("/sync/scheduled")
+def sync_scheduled(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Scheduled sync endpoint for Cloud Scheduler.
+    
+    This endpoint is called by Cloud Scheduler every 5 minutes.
+    It checks the user's sync settings to determine if a sync should run:
+    - Sync must be enabled
+    - Enough time must have passed since last_sync_at based on interval_minutes
+    
+    If conditions are met, runs bidirectional sync and records the result.
+    """
+    from daily_task_assistant.settings import (
+        get_settings,
+        should_run_scheduled_sync,
+        record_sync_result,
+    )
+    from daily_task_assistant.sync import SyncService
+    from daily_task_assistant.config import Settings
+    
+    # Check if sync should run
+    if not should_run_scheduled_sync():
+        settings = get_settings()
+        return {
+            "ran": False,
+            "reason": "skipped" if settings.sync.enabled else "disabled",
+            "syncEnabled": settings.sync.enabled,
+            "intervalMinutes": settings.sync.interval_minutes,
+            "lastSyncAt": settings.sync.last_sync_at,
+        }
+    
+    # Run bidirectional sync
+    try:
+        api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
+    
+    sync_service = SyncService(api_settings, user_email=user)
+    
+    try:
+        result = sync_service.sync_bidirectional(
+            sources=None,
+            include_work=False,
+        )
+    except Exception as e:
+        # Record failed sync
+        record_sync_result({
+            "success": False,
+            "errors": 1,
+            "created": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "conflicts": 0,
+            "total_processed": 0,
+        })
+        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
+    
+    # Record successful sync result
+    record_sync_result({
+        "success": result.success,
+        "created": result.created,
+        "updated": result.updated,
+        "unchanged": result.unchanged,
+        "conflicts": result.conflicts,
+        "errors": result.errors,
+        "total_processed": result.total_processed,
+    })
+    
+    return {
+        "ran": True,
+        "success": result.success,
+        "created": result.created,
+        "updated": result.updated,
+        "unchanged": result.unchanged,
+        "conflicts": result.conflicts,
+        "errors": result.errors,
+        "totalProcessed": result.total_processed,
+        "syncedAt": result.synced_at.isoformat(),
+    }
+
+
 # --- Email Memory Endpoints (Phase C) ---
 # Note: All memory endpoints are now keyed by account (church/personal), not user login.
 

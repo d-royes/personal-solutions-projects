@@ -1225,7 +1225,11 @@ function App() {
                   <p className="subtle">Sign in to view profile.</p>
                 ))}
               {menuView === 'settings' && (
-                <SettingsPanel onClose={() => setMenuOpen(false)} />
+                <SettingsPanel
+                  onClose={() => setMenuOpen(false)}
+                  authConfig={authConfig}
+                  apiBase={apiBase}
+                />
               )}
             </div>
           </div>
