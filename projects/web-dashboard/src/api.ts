@@ -2255,14 +2255,21 @@ export async function getTaskPreviewFromEmail(
   return resp.json()
 }
 
-export interface TaskCreateRequest {
+export interface EmailTaskCreateRequest {
   emailId: string
+  threadId?: string  // For email conversation linking
   title: string
-  dueDate?: string
+  // Three-date model
+  plannedDate?: string
+  targetDate?: string
+  hardDeadline?: string
+  // Core fields
+  status?: string
   priority: string
   domain: string
   project?: string
   notes?: string
+  estimatedHours?: number
 }
 
 export interface FirestoreTask {
@@ -2302,6 +2309,7 @@ export interface FirestoreTask {
   // Source tracking
   source: string
   sourceEmailId: string | null
+  sourceEmailThreadId: string | null
   sourceEmailAccount: string | null
   sourceEmailSubject: string | null
   // Sync tracking
@@ -2313,10 +2321,10 @@ export interface FirestoreTask {
 
 export async function createTaskFromEmail(
   account: EmailAccount,
-  request: TaskCreateRequest,
+  request: EmailTaskCreateRequest,
   auth: AuthConfig,
   baseUrl: string = defaultBase,
-): Promise<{ status: string; account: string; emailId: string; task: FirestoreTask }> {
+): Promise<{ status: string; account: string; emailId: string; task: FirestoreTask; syncResult?: { success: boolean; created: number; errors?: string[] | null; error?: string } }> {
   const url = new URL(`/email/${account}/task-create`, baseUrl)
   
   const resp = await fetch(url, {
@@ -2327,12 +2335,19 @@ export async function createTaskFromEmail(
     },
     body: JSON.stringify({
       email_id: request.emailId,
+      thread_id: request.threadId,
       title: request.title,
-      due_date: request.dueDate,
+      // Three-date model (snake_case for backend)
+      planned_date: request.plannedDate,
+      target_date: request.targetDate,
+      hard_deadline: request.hardDeadline,
+      // Core fields
+      status: request.status,
       priority: request.priority,
       domain: request.domain,
       project: request.project,
       notes: request.notes,
+      estimated_hours: request.estimatedHours,
     }),
   })
   if (!resp.ok) {

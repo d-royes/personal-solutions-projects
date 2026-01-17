@@ -184,6 +184,9 @@ export function TaskList({
   // Domain sub-filter for Needs Attention view
   const [attentionDomain, setAttentionDomain] = useState<'all' | 'personal' | 'church' | 'work'>('all')
   
+  // Domain sub-filter for DATA Tasks view
+  const [dataTasksDomain, setDataTasksDomain] = useState<'all' | 'personal' | 'church' | 'work'>('all')
+  
   // Phase 1f: Modal state (only for create, not detail - detail uses AssistPanel now)
   const [showCreateModal, setShowCreateModal] = useState(false)
   
@@ -391,9 +394,9 @@ export function TaskList({
       {/* DATA Tasks Filter - Show Firestore tasks */}
       {filter === 'data_tasks' ? (
         <>
-          {/* Sync controls for DATA Tasks */}
-          {auth && (
-            <div className="data-tasks-sync-bar">
+          {/* Sync controls and domain filter for DATA Tasks */}
+          <div className="data-tasks-sync-bar">
+            {auth && (
               <button
                 className="secondary sync-btn"
                 onClick={handleSync}
@@ -402,18 +405,32 @@ export function TaskList({
               >
                 {syncing ? '↻ Syncing...' : '↻ Sync with Smartsheet'}
               </button>
-              {lastSyncResult && (
-                <span className="sync-result">
-                  Created: {lastSyncResult.created}, Updated: {lastSyncResult.updated}
-                </span>
-              )}
+            )}
+            {/* Domain sub-filter buttons */}
+            <div className="domain-filter-inline">
+              {(['all', 'personal', 'church', 'work'] as const).map((domain) => (
+                <button
+                  key={domain}
+                  className={`domain-filter-btn ${dataTasksDomain === domain ? 'active' : ''}`}
+                  onClick={() => setDataTasksDomain(domain)}
+                >
+                  {domain.charAt(0).toUpperCase() + domain.slice(1)}
+                </button>
+              ))}
             </div>
-          )}
+            {lastSyncResult && (
+              <span className="sync-result">
+                Created: {lastSyncResult.created}, Updated: {lastSyncResult.updated}
+              </span>
+            )}
+          </div>
           {emailTasksLoading ? (
             <p>Loading DATA tasks…</p>
           ) : emailTasks.filter(t => {
             // Filter out completed tasks
             if (t.done || t.status === 'completed') return false
+            // Apply domain filter
+            if (dataTasksDomain !== 'all' && t.domain?.toLowerCase() !== dataTasksDomain) return false
             // Apply search filter if there's a search term
             if (searchTerm.trim()) {
               const term = searchTerm.toLowerCase()
@@ -427,12 +444,14 @@ export function TaskList({
             }
             return true
           }).length === 0 ? (
-            <p className="empty-state">{searchTerm.trim() ? 'No tasks match your search.' : 'No active tasks. Create tasks from emails or click "+ New Task" above.'}</p>
+            <p className="empty-state">{searchTerm.trim() ? 'No tasks match your search.' : (dataTasksDomain !== 'all' ? `No active ${dataTasksDomain} tasks.` : 'No active tasks. Create tasks from emails or click "+ New Task" above.')}</p>
           ) : (
             <ul className="task-list">
             {emailTasks.filter(t => {
               // Filter out completed tasks
               if (t.done || t.status === 'completed') return false
+              // Apply domain filter
+              if (dataTasksDomain !== 'all' && t.domain?.toLowerCase() !== dataTasksDomain) return false
               // Apply search filter if there's a search term
               if (searchTerm.trim()) {
                 const term = searchTerm.toLowerCase()

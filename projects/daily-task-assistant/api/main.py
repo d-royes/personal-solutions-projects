@@ -5283,15 +5283,22 @@ class TaskPreviewRequest(BaseModel):
     email_id: str = Field(..., description="Gmail message ID")
 
 
-class TaskCreateRequest(BaseModel):
+class EmailTaskCreateRequest(BaseModel):
     """Request to create a task from email."""
     email_id: str = Field(..., description="Gmail message ID")
+    thread_id: Optional[str] = Field(None, description="Gmail thread ID for conversation linking")
     title: str = Field(..., description="Task title")
-    due_date: Optional[str] = Field(None, description="Due date (YYYY-MM-DD)")
+    # Three-date model (replaces due_date)
+    planned_date: Optional[str] = Field(None, description="When to work on it (YYYY-MM-DD)")
+    target_date: Optional[str] = Field(None, description="Original goal date (YYYY-MM-DD)")
+    hard_deadline: Optional[str] = Field(None, description="External commitment date (YYYY-MM-DD)")
+    # Core fields
+    status: Optional[str] = Field(None, description="Task status")
     priority: str = Field("Standard", description="Task priority")
     domain: str = Field("personal", description="Task domain")
     project: Optional[str] = Field(None, description="Project category")
     notes: Optional[str] = Field(None, description="Task notes")
+    estimated_hours: Optional[float] = Field(None, description="Estimated hours to complete")
 
 
 @app.post("/email/{account}/task-preview")
@@ -5354,55 +5361,106 @@ def preview_task_from_email(
 @app.post("/email/{account}/task-create")
 def create_task_from_email_endpoint(
     account: Literal["church", "personal"],
-    request: TaskCreateRequest,
+    request: EmailTaskCreateRequest,
     user: str = Depends(get_current_user),
 ) -> dict:
     """Create a task in Firestore from an email.
     
     Creates the task with the user-confirmed details and links
-    it back to the source email.
+    it back to the source email. Automatically syncs to Smartsheet.
     """
-    from datetime import date
+    from datetime import date, datetime
     from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message
     from daily_task_assistant.task_store import create_task_from_email, FirestoreTask
     
-    # Load the email for subject reference
+    # Load the email for subject and sender details
     try:
         gmail_config = load_account_from_env(account)
         email = get_message(gmail_config, request.email_id)
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
     
-    # Parse due date if provided
-    due_date = None
-    if request.due_date:
+    # Parse dates (three-date model)
+    planned_date = None
+    target_date = None
+    hard_deadline = None
+    
+    if request.planned_date:
         try:
-            due_date = date.fromisoformat(request.due_date)
+            planned_date = date.fromisoformat(request.planned_date)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid due_date format (use YYYY-MM-DD)")
+            raise HTTPException(status_code=400, detail="Invalid planned_date format (use YYYY-MM-DD)")
+    
+    if request.target_date:
+        try:
+            target_date = date.fromisoformat(request.target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid target_date format (use YYYY-MM-DD)")
+    
+    if request.hard_deadline:
+        try:
+            hard_deadline = date.fromisoformat(request.hard_deadline)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid hard_deadline format (use YYYY-MM-DD)")
+    
+    # Build enhanced notes with email source details
+    sender = email.from_name or email.from_address or "Unknown"
+    email_date = email.date.strftime("%Y-%m-%d") if email.date else "Unknown"
+    
+    source_info = f"\n\n---\nSource: Email from {sender} ({account})\nSubject: {email.subject}\nDate: {email_date}"
+    
+    notes = request.notes or ""
+    if notes:
+        notes = notes.rstrip() + source_info
+    else:
+        notes = source_info.lstrip("\n")
     
     # Create the task
     try:
         task = create_task_from_email(
             user_id=user,
             email_id=request.email_id,
+            email_thread_id=request.thread_id,
             email_account=account,
             email_subject=email.subject,
             title=request.title,
-            due_date=due_date,
+            planned_date=planned_date,
+            target_date=target_date,
+            hard_deadline=hard_deadline,
+            status=request.status,
             priority=request.priority,
             domain=request.domain,
             project=request.project,
-            notes=request.notes,
+            notes=notes,
+            estimated_hours=request.estimated_hours,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to create task: {exc}")
+    
+    # Auto-sync to Smartsheet
+    sync_result = None
+    try:
+        from daily_task_assistant.sync.service import SyncService
+        from daily_task_assistant.config import Settings
+        import os
+        
+        api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+        sync_service = SyncService(api_settings, user_email=user)
+        result = sync_service.sync_to_smartsheet(task_ids=[task.id])
+        sync_result = {
+            "success": result.success,
+            "created": result.created,
+            "errors": result.errors if result.errors else None,
+        }
+    except Exception as e:
+        sync_result = {"success": False, "error": str(e)}
     
     return {
         "status": "created",
         "account": account,
         "emailId": request.email_id,
         "task": task.to_api_dict(),
+        "syncResult": sync_result,
     }
 
 

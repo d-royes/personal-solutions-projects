@@ -1518,6 +1518,7 @@ function App() {
             setCache={setEmailCache}
             selectedAccount={emailSelectedAccount}
             setSelectedAccount={setEmailSelectedAccount}
+            onTaskCreated={loadEmailTasks}
           />
         ) : appMode === 'calendar' ? (
           <CalendarDashboard

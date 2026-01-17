@@ -196,6 +196,7 @@ class FirestoreTask:
     # Source tracking
     source: str = TaskSource.MANUAL.value
     source_email_id: Optional[str] = None  # Links to Gmail message ID
+    source_email_thread_id: Optional[str] = None  # Links to Gmail thread ID
     source_email_account: Optional[str] = None  # "personal" or "church"
     source_email_subject: Optional[str] = None  # For reference
     
@@ -288,6 +289,7 @@ class FirestoreTask:
             # Source tracking
             "source": self.source,
             "source_email_id": self.source_email_id,
+            "source_email_thread_id": self.source_email_thread_id,
             "source_email_account": self.source_email_account,
             "source_email_subject": self.source_email_subject,
             
@@ -357,6 +359,7 @@ class FirestoreTask:
             # Source tracking
             source=data.get("source", TaskSource.MANUAL.value),
             source_email_id=data.get("source_email_id"),
+            source_email_thread_id=data.get("source_email_thread_id"),
             source_email_account=data.get("source_email_account"),
             source_email_subject=data.get("source_email_subject"),
             
@@ -420,6 +423,7 @@ class FirestoreTask:
             # Source tracking
             "source": self.source,
             "sourceEmailId": self.source_email_id,
+            "sourceEmailThreadId": self.source_email_thread_id,
             "sourceEmailAccount": self.source_email_account,
             "sourceEmailSubject": self.source_email_subject,
             
@@ -505,6 +509,7 @@ def create_task(
     # Source tracking
     source: str = TaskSource.MANUAL.value,
     source_email_id: Optional[str] = None,
+    source_email_thread_id: Optional[str] = None,
     source_email_account: Optional[str] = None,
     source_email_subject: Optional[str] = None,
     # Sync tracking
@@ -540,6 +545,7 @@ def create_task(
         recurring_interval: Interval for custom recurring
         source: Where task originated
         source_email_id: Gmail message ID if from email
+        source_email_thread_id: Gmail thread ID if from email
         source_email_account: "personal" or "church" email account
         source_email_subject: Original email subject
         smartsheet_row_id: Smartsheet row ID for sync
@@ -588,6 +594,7 @@ def create_task(
         updated_at=now,
         source=source,
         source_email_id=source_email_id,
+        source_email_thread_id=source_email_thread_id,
         source_email_account=source_email_account,
         source_email_subject=source_email_subject,
         smartsheet_row_id=smartsheet_row_id,
@@ -1044,26 +1051,38 @@ def create_task_from_email(
     email_account: Literal["personal", "church"],
     email_subject: str,
     *,
+    email_thread_id: Optional[str] = None,
     title: Optional[str] = None,
-    due_date: Optional[date] = None,
+    # Three-date model
+    planned_date: Optional[date] = None,
+    target_date: Optional[date] = None,
+    hard_deadline: Optional[date] = None,
+    # Core fields
+    status: Optional[str] = None,
     priority: str = TaskPriority.STANDARD.value,
     domain: Optional[str] = None,
     project: Optional[str] = None,
     notes: Optional[str] = None,
+    estimated_hours: Optional[float] = None,
 ) -> FirestoreTask:
     """Create a task from an email.
     
     Args:
         user_id: The user creating the task
         email_id: Gmail message ID
+        email_thread_id: Gmail thread ID for conversation linking
         email_account: "personal" or "church"
         email_subject: Original email subject
         title: Task title (defaults to email subject)
-        due_date: Optional due date
+        planned_date: When to work on it (auto-rolls forward)
+        target_date: Original goal date (tracks slippage)
+        hard_deadline: External commitment date
+        status: Task status (defaults to scheduled)
         priority: Task priority
         domain: Task domain (defaults based on email account)
         project: Project category (e.g., "Church Tasks", "Around The House")
         notes: Optional notes
+        estimated_hours: Estimated time to complete
     
     Returns:
         Created FirestoreTask
@@ -1083,13 +1102,18 @@ def create_task_from_email(
     return create_task(
         user_id=user_id,
         title=title,
+        status=status or TaskStatus.SCHEDULED.value,
         priority=priority,
         domain=domain,
-        due_date=due_date,
+        planned_date=planned_date,
+        target_date=target_date,
+        hard_deadline=hard_deadline,
         project=project,
         notes=notes,
+        estimated_hours=estimated_hours,
         source=TaskSource.EMAIL.value,
         source_email_id=email_id,
+        source_email_thread_id=email_thread_id,
         source_email_account=email_account,
         source_email_subject=email_subject,
     )
