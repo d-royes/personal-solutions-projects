@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import type { AuthConfig } from '../auth/AuthContext'
+import type { AuthConfig } from '../auth/types'
 import { createFirestoreTask, type CreateTaskRequest } from '../api'
 import '../App.css'
 

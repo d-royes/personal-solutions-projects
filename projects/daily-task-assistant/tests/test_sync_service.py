@@ -214,9 +214,9 @@ class TestFieldTranslation:
         assert _translate_estimated_hours(100.0) == "8"
     
     def test_translate_estimated_hours_default(self):
-        """None or zero hours should default to 1."""
-        assert _translate_estimated_hours(None) == "1"
-        assert _translate_estimated_hours(0) == "1"
+        """None or zero hours should return None (preserve existing Smartsheet value)."""
+        assert _translate_estimated_hours(None) is None
+        assert _translate_estimated_hours(0) is None
 
 
 class TestTranslateSmartsheetToFirestore:

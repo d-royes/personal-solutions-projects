@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react'
 import type { Task, WorkBadge, FirestoreTask } from '../types'
-import type { AuthConfig } from '../auth/AuthContext'
+import type { AuthConfig } from '../auth/types'
 import { deriveDomain, PRIORITY_ORDER } from '../utils/domain'
 import { TaskCreateModal } from './TaskCreateModal'
 import { triggerSync } from '../api'
@@ -238,18 +238,10 @@ export function TaskList({
     if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
   }, [onTaskCreated, onLoadEmailTasks])
   
-  // Phase 1f: Handle task update - now just refreshes the list
-  const handleTaskUpdated = useCallback(() => {
-    if (onTaskUpdated) onTaskUpdated()
-    if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
-  }, [onTaskUpdated, onLoadEmailTasks])
-
-  // Phase 1f: Handle task deletion - clear selection and refresh
-  const handleTaskDeleted = useCallback(() => {
-    if (onSelectFirestoreTask) onSelectFirestoreTask(null)
-    if (onTaskDeleted) onTaskDeleted()
-    if (onLoadEmailTasks) onLoadEmailTasks() // Refresh Firestore tasks
-  }, [onTaskDeleted, onLoadEmailTasks, onSelectFirestoreTask])
+  // Phase 1f: Task update and deletion are now handled by AssistPanel
+  // These props are kept for API compatibility but not used here
+  void onTaskUpdated
+  void onTaskDeleted
 
   const filteredTasks = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -267,7 +259,6 @@ export function TaskList({
         if (!matchesSearch) return false
       }
       const domain = deriveDomain(task)
-      const status = task.status ?? ''
       switch (filter) {
         case 'needs_attention':
           // Needs Attention now uses Firestore tasks, not Smartsheet

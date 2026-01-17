@@ -968,7 +968,8 @@ function App() {
         // Update the saved draft with the new content
         setSavedDraft(prev => {
           if (!prev) {
-            // Create a new draft if none exists
+            // Create a new draft if none exists (requires a task ID)
+            if (!selectedTaskId) return null
             return {
               taskId: selectedTaskId,
               to: [],
@@ -1077,11 +1078,10 @@ function App() {
         setPendingAction(null)
         // Refresh Firestore tasks
         loadEmailTasks()
-        // Refresh conversation
-        const conversationId = `fs:${firestoreTaskId}`
+        // Refresh conversation for this Firestore task
         const historyResponse = await fetch(
           new URL(`/assist/firestore/${firestoreTaskId}/history`, apiBase),
-          { headers: { 'X-User-Email': authConfig.userEmail } }
+          { headers: authConfig.userEmail ? { 'X-User-Email': authConfig.userEmail } : {} }
         )
         if (historyResponse.ok) {
           const data = await historyResponse.json()
