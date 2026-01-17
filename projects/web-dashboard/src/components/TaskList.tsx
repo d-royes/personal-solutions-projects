@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Task, WorkBadge, FirestoreTask } from '../types'
+import { deriveDomain, PRIORITY_ORDER } from '../utils/domain'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
@@ -11,12 +12,6 @@ const STATUS_CATEGORY: Record<string, number> = {
   'In Progress': 1, 'Follow-up': 1, 'Delivered': 1,                          // A - Active
   'On Hold': 2, 'Awaiting Reply': 2, 'Needs Approval': 2,                    // B - Blocked
   'Scheduled': 3, 'Recurring': 3, 'Validation': 3, 'Create ZD Ticket': 3,   // S - Scheduled
-}
-
-// Priority order for sorting (highest priority first)
-const PRIORITY_ORDER: Record<string, number> = {
-  'Critical': 1, 'Urgent': 2, 'Important': 3, 'Standard': 4, 'Low': 5,
-  '5-Critical': 1, '4-Urgent': 2, '3-Important': 3, '2-Standard': 4, '1-Low': 5
 }
 
 const FILTERS = [
@@ -37,30 +32,33 @@ function previewText(task: Task) {
   return `${textSource.slice(0, PREVIEW_LIMIT)}…`
 }
 
-function deriveDomain(task: Task): 'Personal' | 'Church' | 'Work' {
-  // Use source field if available (from multi-sheet), otherwise derive from project
-  if (task.source === 'work') return 'Work'
+// deriveDomain is now imported from '../utils/domain'
+// Returns lowercase domain ('personal' | 'church' | 'work')
 
-  // For personal sheet, derive from project name
-  const project = task.project
-  if (!project) return 'Personal'
-  const value = project.toLowerCase()
-  if (value.includes('church')) return 'Church'
-  return 'Personal'
+// Parse date string and normalize to local midnight for accurate day comparisons
+function toLocalMidnight(dateStr: string): Date {
+  // Parse as local date by splitting the date string (avoids UTC interpretation)
+  const [year, month, day] = dateStr.split('T')[0].split('-').map(Number)
+  return new Date(year, month - 1, day, 0, 0, 0, 0)
+}
+
+function getTodayMidnight(): Date {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
 }
 
 function isDueSoon(due: string) {
-  const dueDate = new Date(due)
-  const now = new Date()
-  const diff = dueDate.getTime() - now.getTime()
+  const dueDate = toLocalMidnight(due)
+  const today = getTodayMidnight()
+  const diff = dueDate.getTime() - today.getTime()
   const days = diff / (1000 * 60 * 60 * 24)
   // Only tasks due within the next 3 days (not overdue)
   return days >= 0 && days <= 3
 }
 
 function dueLabel(due: string) {
-  const dueDate = new Date(due)
-  const today = new Date()
+  const dueDate = toLocalMidnight(due)
+  const today = getTodayMidnight()
   const diff = dueDate.getTime() - today.getTime()
   const days = Math.round(diff / (1000 * 60 * 60 * 24))
   if (days < 0) return `Overdue ${Math.abs(days)}d`
@@ -116,10 +114,14 @@ export function TaskList({
       // First apply search filter if there's a search term
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase()
-        const matchesSearch = 
-          (task.title?.toLowerCase().includes(term)) ||
-          (task.notes?.toLowerCase().includes(term)) ||
-          (task.project?.toLowerCase().includes(term))
+        const matchesSearch =
+          (task.title?.toLowerCase()?.includes(term)) ||
+          (task.notes?.toLowerCase()?.includes(term)) ||
+          (task.project?.toLowerCase()?.includes(term)) ||
+          (task.nextStep?.toLowerCase()?.includes(term)) ||
+          (task.automationHint?.toLowerCase()?.includes(term)) ||
+          (task.assignedTo?.toLowerCase()?.includes(term)) ||
+          (task.status?.toLowerCase()?.includes(term))
         if (!matchesSearch) return false
       }
       const domain = deriveDomain(task)
@@ -137,9 +139,9 @@ export function TaskList({
           // Email tasks are handled separately, not in this filter
           return false
         case 'personal':
-          return domain === 'Personal'
+          return domain === 'personal'
         case 'church':
-          return domain === 'Church'
+          return domain === 'church'
         case 'work':
           // Only show work tasks (from work sheet)
           return task.source === 'work'
@@ -297,7 +299,7 @@ export function TaskList({
                 onClick={() => onSelect(task.rowId)}
               >
                 <div className="task-signals">
-                  <span className={`badge domain ${domain.toLowerCase()}`}>{domain}</span>
+                  <span className={`badge domain ${domain}`}>{domain.charAt(0).toUpperCase() + domain.slice(1)}</span>
                   <span className="badge status">{status}</span>
                   {task.priority && (
                     <span className={`badge priority ${task.priority.toLowerCase()}`}>

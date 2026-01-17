@@ -41,6 +41,9 @@ import {
   getEmailPrivacyStatus,
   decideSuggestion,
   decideRuleSuggestion,
+  pinEmail,
+  unpinEmail,
+  getPinnedEmails,
   type EmailPendingAction,
   type EmailActionSuggestion,
   type GmailLabel,
@@ -48,6 +51,7 @@ import {
   type EmailTaskInfo,
   type DismissReason,
   type EmailPrivacyStatus,
+  type PinnedEmail,
 } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 import { HaikuSettingsPanel } from './HaikuSettingsPanel'
@@ -75,6 +79,7 @@ export interface AccountCache {
   actionSuggestions: EmailActionSuggestion[]  // Email action suggestions (Suggestions tab)
   availableLabels: GmailLabel[]
   emailTaskLinks: Record<string, EmailTaskInfo>  // email_id -> task info
+  pinnedEmails: PinnedEmail[]  // Pinned emails for quick reference
   loaded: boolean
   lastAnalysis: LastAnalysisResult | null  // Last analysis result for auditing
 }
@@ -87,6 +92,7 @@ export const emptyEmailCache = (): AccountCache => ({
   actionSuggestions: [],
   availableLabels: [],
   emailTaskLinks: {},
+  pinnedEmails: [],
   loaded: false,
   lastAnalysis: null,
 })
@@ -104,7 +110,7 @@ interface EmailDashboardProps {
   setSelectedAccount?: React.Dispatch<React.SetStateAction<EmailAccount>>
 }
 
-type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention' | 'settings'
+type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention' | 'pinned' | 'settings'
 
 // Quick action types for email management
 type EmailQuickAction =
@@ -241,6 +247,7 @@ export function EmailDashboard({
   const actionSuggestions = cache[selectedAccount].actionSuggestions  // Email action suggestions
   const availableLabels = cache[selectedAccount].availableLabels
   const emailTaskLinks = cache[selectedAccount].emailTaskLinks  // Emails that have linked tasks
+  const pinnedEmails = cache[selectedAccount].pinnedEmails  // Pinned emails for quick reference
 
   // Thread count by threadId (for "N in thread" badge)
   const threadCounts = useMemo(() => {
@@ -319,6 +326,13 @@ export function EmailDashboard({
   const [generatingReply, setGeneratingReply] = useState(false)
   const [sendingReply, setSendingReply] = useState(false)
   const [replyError, setReplyError] = useState<string | null>(null)
+
+  // Email preview panel controls
+  const [emailPreviewCollapsed, setEmailPreviewCollapsed] = useState(false)
+  const [showDismissMenu, setShowDismissMenu] = useState(false)
+
+  // Pinned emails state
+  const [loadingPinned, setLoadingPinned] = useState(false)
 
   // Helper to update cache for current account
   const updateCache = useCallback((updates: Partial<AccountCache>) => {
@@ -567,6 +581,19 @@ export function EmailDashboard({
   // Suppress unused warning - available for future explicit label loading
   void loadLabels
 
+  // Load pinned emails (Pinned tab)
+  const loadPinnedEmails = useCallback(async () => {
+    setLoadingPinned(true)
+    try {
+      const response = await getPinnedEmails(selectedAccount, authConfig, apiBase)
+      updateCache({ pinnedEmails: response.pinned })
+    } catch (err) {
+      console.warn('Failed to load pinned emails:', err)
+    } finally {
+      setLoadingPinned(false)
+    }
+  }, [selectedAccount, authConfig, apiBase, updateCache])
+
   // Load persisted rule suggestions from storage (without re-analyzing)
   const loadPersistedRules = useCallback(async () => {
     try {
@@ -678,6 +705,34 @@ export function EmailDashboard({
     }
   }, [selectedAccount, authConfig, apiBase, updateCache, attentionItems])
 
+  // Dismiss from DATA panel (clears selection after dismiss)
+  const handleDismissFromPanel = useCallback(async (reason: DismissReason) => {
+    if (!selectedEmailId) return
+    try {
+      await handleDismiss(selectedEmailId, reason)
+      setSelectedEmailId(null)
+      setChatHistory([])
+      setPendingEmailAction(null)
+      setEmailPreviewCollapsed(false)
+      setShowDismissMenu(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Dismiss failed')
+    }
+  }, [selectedEmailId, handleDismiss])
+
+  // Close email panel without dismissing (just clears selection)
+  const handleCloseEmailPanel = useCallback(() => {
+    setSelectedEmailId(null)
+    setChatHistory([])
+    setPendingEmailAction(null)
+    setPrivacyStatus(null)
+    setPrivacyOverrideGranted(false)
+    setEmailBodyExpanded(false)
+    setEmailPreviewCollapsed(false)
+    setFullEmailBody(null)
+    setShowDismissMenu(false)
+  }, [])
+
   // Refresh all data for current account
   const refreshAll = useCallback(() => {
     loadInbox(true)
@@ -718,6 +773,7 @@ export function EmailDashboard({
     loadPersistedAttention()  // Load persisted attention items on account change
     loadPersistedRules()  // Load persisted rule suggestions on account change
     loadPersistedActionSuggestions()  // Load persisted action suggestions on account change
+    loadPinnedEmails()  // Load pinned emails on account change
   }, [selectedAccount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-select first email when inbox loads and nothing is selected
@@ -1135,6 +1191,10 @@ export function EmailDashboard({
     setFullEmailBody(null)
     setFetchedEmail(null)
 
+    // Reset preview panel state
+    setEmailPreviewCollapsed(false)
+    setShowDismissMenu(false)
+
     // Fetch full email body in the background
     fetchFullEmailBody(emailId)
 
@@ -1228,6 +1288,17 @@ export function EmailDashboard({
         updateCache({
           attentionItems: attentionItems.filter(item => item.emailId !== emailId)
         })
+        // Also unpin if this email is pinned (stale cleanup)
+        if (pinnedEmails.some(p => p.emailId === emailId)) {
+          try {
+            await unpinEmail(selectedAccount, emailId, authConfig, apiBase)
+          } catch {
+            // Ignore unpin errors - just update local state
+          }
+          updateCache({
+            pinnedEmails: pinnedEmails.filter(p => p.emailId !== emailId)
+          })
+        }
         // Clear selection
         setSelectedEmailId(null)
         return
@@ -1825,11 +1896,48 @@ export function EmailDashboard({
   }
 
   // Get selected email details (check search results, recent messages, and fetched email)
-  const selectedEmail = selectedEmailId 
-    ? (emailSearchResults?.find(m => m.id === selectedEmailId) 
+  const selectedEmail = selectedEmailId
+    ? (emailSearchResults?.find(m => m.id === selectedEmailId)
        ?? inboxSummary?.recentMessages?.find(m => m.id === selectedEmailId)
        ?? (fetchedEmail?.id === selectedEmailId ? fetchedEmail : null))
     : null
+
+  // Check if selected email is an attention item (for showing dismiss button)
+  const isSelectedEmailAttentionItem = selectedEmailId
+    ? attentionItems.some(item => item.emailId === selectedEmailId)
+    : false
+
+  // Check if selected email is pinned (for pin button state)
+  const isSelectedEmailPinned = selectedEmailId
+    ? pinnedEmails.some(p => p.emailId === selectedEmailId)
+    : false
+
+  // Toggle pin state for current email
+  const handleTogglePin = async () => {
+    if (!selectedEmailId || !selectedEmail) return
+    try {
+      if (isSelectedEmailPinned) {
+        await unpinEmail(selectedAccount, selectedEmailId, authConfig, apiBase)
+        updateCache({
+          pinnedEmails: pinnedEmails.filter(p => p.emailId !== selectedEmailId)
+        })
+      } else {
+        await pinEmail(
+          selectedAccount,
+          selectedEmailId,
+          selectedEmail.subject,
+          selectedEmail.fromAddress,
+          selectedEmail.snippet,
+          selectedEmail.threadId,
+          authConfig,
+          apiBase
+        )
+        loadPinnedEmails()  // Refresh to get server timestamp
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Pin operation failed')
+    }
+  }
 
   return (
     <div className={`email-dashboard two-panel ${emailPanelCollapsed ? 'email-collapsed' : ''} ${assistPanelCollapsed ? 'assist-collapsed' : ''}`}>
@@ -1915,6 +2023,15 @@ export function EmailDashboard({
                 }}
               >
                 Attention {attentionItems.length > 0 && `(${attentionItems.length})`}
+              </button>
+              <button
+                className={activeTab === 'pinned' ? 'active' : ''}
+                onClick={() => {
+                  setActiveTab('pinned')
+                  if (pinnedEmails.length === 0) loadPinnedEmails()
+                }}
+              >
+                Pinned {pinnedEmails.length > 0 && `(${pinnedEmails.length})`}
               </button>
               <button
                 className={activeTab === 'settings' ? 'active' : ''}
@@ -2676,6 +2793,49 @@ export function EmailDashboard({
           </div>
         )}
 
+        {/* Pinned Tab */}
+        {activeTab === 'pinned' && (
+          <div className="pinned-emails-section">
+            <h3>Pinned Emails</h3>
+            {loadingPinned ? (
+              <div className="loading">Loading pinned emails...</div>
+            ) : pinnedEmails.length === 0 ? (
+              <div className="empty-state">
+                <p>No pinned emails.</p>
+                <p className="hint">Click {"\u{1F4CC}"} on any email to pin it for quick reference.</p>
+              </div>
+            ) : (
+              <div className="pinned-list">
+                {pinnedEmails.map(pinned => (
+                  <div
+                    key={pinned.emailId}
+                    className={`pinned-item ${selectedEmailId === pinned.emailId ? 'selected' : ''}`}
+                    onClick={() => handleSelectEmail(pinned.emailId, pinned.threadId)}
+                    style={{
+                      padding: '12px',
+                      borderBottom: '1px solid rgba(255,255,255,0.1)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div className="pinned-from" style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                      {pinned.fromAddress}
+                    </div>
+                    <div className="pinned-subject" style={{ marginBottom: '4px' }}>
+                      {pinned.subject}
+                    </div>
+                    <div className="pinned-snippet" style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>
+                      {pinned.snippet}
+                    </div>
+                    <div className="pinned-date" style={{ fontSize: '10px', opacity: 0.5 }}>
+                      Pinned {new Date(pinned.pinnedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Settings Tab */}
         {activeTab === 'settings' && (
           <div className="settings-view">
@@ -2787,15 +2947,166 @@ export function EmailDashboard({
               {/* Email preview when selected */}
               {selectedEmail && (
                 <div className="email-preview">
-                  <div className="preview-header">
-                    <strong>{selectedEmail.fromName || selectedEmail.fromAddress}</strong>
-                    <span className="preview-date">
-                      {selectedEmail.date ? new Date(selectedEmail.date).toLocaleString() : ''}
-                    </span>
-                  </div>
-                  <div className="preview-subject">{selectedEmail.subject}</div>
+                  <div className="preview-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong>{selectedEmail.fromName || selectedEmail.fromAddress}</strong>
+                      <span className="preview-date" style={{ marginLeft: '12px' }}>
+                        {selectedEmail.date ? new Date(selectedEmail.date).toLocaleString() : ''}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', flexShrink: 0, marginLeft: '8px' }}>
+                      {/* Minimize button */}
+                      <button
+                        onClick={() => setEmailPreviewCollapsed(!emailPreviewCollapsed)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          fontSize: '10px',
+                          lineHeight: 1,
+                        }}
+                        title={emailPreviewCollapsed ? 'Expand details' : 'Collapse details'}
+                      >
+                        {emailPreviewCollapsed ? '▼' : '▲'}
+                      </button>
 
-                  {/* Privacy indicator and override button */}
+                      {/* Dismiss button (only for attention items) */}
+                      {isSelectedEmailAttentionItem && (
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            onClick={() => setShowDismissMenu(!showDismissMenu)}
+                            style={{
+                              background: 'transparent',
+                              border: '1px solid rgba(255,255,255,0.2)',
+                              borderRadius: '4px',
+                              padding: '2px 6px',
+                              cursor: 'pointer',
+                              color: 'inherit',
+                              fontSize: '14px',
+                              lineHeight: 1,
+                            }}
+                            title="Dismiss from attention"
+                          >
+                            ✔
+                          </button>
+                          {showDismissMenu && (
+                            <div style={{
+                              position: 'absolute',
+                              top: '100%',
+                              right: 0,
+                              marginTop: '4px',
+                              background: '#1a1a2e',
+                              border: '1px solid rgba(255,255,255,0.2)',
+                              borderRadius: '4px',
+                              zIndex: 100,
+                              minWidth: '140px',
+                            }}>
+                              <button
+                                onClick={() => handleDismissFromPanel('handled')}
+                                style={{
+                                  display: 'block',
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'inherit',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                Already handled
+                              </button>
+                              <button
+                                onClick={() => handleDismissFromPanel('not_actionable')}
+                                style={{
+                                  display: 'block',
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'inherit',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                Not actionable
+                              </button>
+                              <button
+                                onClick={() => handleDismissFromPanel('false_positive')}
+                                style={{
+                                  display: 'block',
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'inherit',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                False positive
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Pin button */}
+                      <button
+                        onClick={handleTogglePin}
+                        style={{
+                          background: isSelectedEmailPinned ? 'rgba(255,200,0,0.2)' : 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          color: isSelectedEmailPinned ? '#ffc800' : 'inherit',
+                          fontSize: '10px',
+                          lineHeight: 1,
+                        }}
+                        title={isSelectedEmailPinned ? 'Unpin email' : 'Pin email'}
+                      >
+                        {"\u{1F4CC}"}
+                      </button>
+
+                      {/* Close button */}
+                      <button
+                        onClick={handleCloseEmailPanel}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          fontSize: '10px',
+                          lineHeight: 1,
+                        }}
+                        title="Close email panel"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Collapsible content - hidden when minimized */}
+                  {!emailPreviewCollapsed && (
+                    <>
+                      <div className="preview-subject">{selectedEmail.subject}</div>
+
+                      {/* Privacy indicator and override button */}
                   {privacyStatus && !privacyStatus.canSeeBody && (
                     <div className="privacy-indicator">
                       <span className="privacy-badge blocked" title={privacyStatus.blockedReasonDisplay || 'DATA cannot see email body'}>
@@ -2929,7 +3240,9 @@ export function EmailDashboard({
                     >
                       {actionLoading === 'delete' ? '⏳' : '🗑️'}
                     </button>
-                  </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -3062,6 +3375,13 @@ export function EmailDashboard({
                   ) : (
                     chatHistory.map((msg, idx) => (
                       <div key={idx} className={`chat-message ${msg.role}`}>
+                        <button
+                          className="chat-message-delete"
+                          onClick={() => setChatHistory(prev => prev.filter((_, i) => i !== idx))}
+                          title="Delete message"
+                        >
+                          ✕
+                        </button>
                         <div className="chat-message-content">{msg.content}</div>
                       </div>
                     ))
