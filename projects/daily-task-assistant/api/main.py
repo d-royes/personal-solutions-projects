@@ -5448,7 +5448,7 @@ def create_task_from_email_endpoint(
         from daily_task_assistant.config import Settings
         import os
         
-        api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+        api_settings = Settings(smartsheet_token=(os.getenv("SMARTSHEET_API_TOKEN", "") or "").strip())
         sync_service = SyncService(api_settings, user_email=user)
         result = sync_service.sync_to_smartsheet(task_ids=[task.id])
         sync_result = {
@@ -5633,7 +5633,7 @@ def create_firestore_task_direct(
             from daily_task_assistant.config import Settings
             import os
             
-            api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+            api_settings = Settings(smartsheet_token=(os.getenv("SMARTSHEET_API_TOKEN", "") or "").strip())
             sync_service = SyncService(api_settings, user_email=user)
             
             # Sync just this task to Smartsheet
@@ -5771,7 +5771,7 @@ def sync_now(
     logger.info(f"[SYNC/NOW] Manual sync triggered for user: {user}, direction: {request.direction}, sources: {request.sources}")
     
     try:
-        settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+        settings = Settings(smartsheet_token=(os.getenv("SMARTSHEET_API_TOKEN", "") or "").strip())
         logger.info(f"[SYNC/NOW] Settings loaded, token present: {bool(settings.smartsheet_token)}")
     except Exception as e:
         logger.error(f"[SYNC/NOW] Failed to load settings: {e}")
@@ -5840,7 +5840,7 @@ def get_sync_status(
     from daily_task_assistant.config import Settings
     
     try:
-        settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+        settings = Settings(smartsheet_token=(os.getenv("SMARTSHEET_API_TOKEN", "") or "").strip())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
     
@@ -6156,7 +6156,7 @@ def sync_scheduled(
     # Run bidirectional sync
     logger.info("[SYNC] Running bidirectional sync...")
     try:
-        api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+        api_settings = Settings(smartsheet_token=(os.getenv("SMARTSHEET_API_TOKEN", "") or "").strip())
     except Exception as e:
         logger.error(f"[SYNC] Failed to load settings: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
