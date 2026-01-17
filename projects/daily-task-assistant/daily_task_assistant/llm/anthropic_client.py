@@ -1807,7 +1807,7 @@ def chat_with_email(
             temperature=0.5,
             system=EMAIL_CHAT_SYSTEM_PROMPT,
             messages=messages,
-            tools=[EMAIL_ACTION_TOOL],
+            tools=[EMAIL_ACTION_TOOL, WEB_SEARCH_TOOL],
         )
     except APIStatusError as exc:
         raise AnthropicError(f"Anthropic API error: {exc}") from exc
