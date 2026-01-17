@@ -129,6 +129,7 @@ class AttentionRecord:
     date: datetime
     snippet: str
     from_name: Optional[str] = None
+    thread_id: Optional[str] = None  # Gmail thread ID for conversation persistence
     labels: List[str] = field(default_factory=list)  # Gmail label IDs
 
     # Analysis results
@@ -191,6 +192,7 @@ class AttentionRecord:
             "subject": self.subject,
             "from_address": self.from_address,
             "from_name": self.from_name,
+            "thread_id": self.thread_id,
             "date": dt_to_str(self.date),
             "snippet": self.snippet,
             "labels": self.labels,
@@ -224,6 +226,7 @@ class AttentionRecord:
 
         return {
             "emailId": self.email_id,
+            "threadId": self.thread_id,
             "emailAccount": self.email_account,
             "subject": self.subject,
             "fromAddress": self.from_address,
@@ -267,6 +270,7 @@ class AttentionRecord:
             subject=data["subject"],
             from_address=data["from_address"],
             from_name=data.get("from_name"),
+            thread_id=data.get("thread_id"),
             date=str_to_dt(data["date"]) or _now(),
             snippet=data.get("snippet", ""),
             labels=data.get("labels", []),

@@ -3159,6 +3159,7 @@ def analyze_inbox(
             subject=item.email.subject,
             from_address=item.email.from_address,
             from_name=item.email.from_name,
+            thread_id=item.email.thread_id,
             date=item.email.date,
             snippet=item.email.snippet,
             labels=item.email.labels,
@@ -5127,13 +5128,16 @@ Email Body:
 - Important: {"Yes" if email.is_important else "No"}
 - Starred: {"Yes" if email.is_starred else "No"}{blocked_note}"""
 
-    # Load existing conversation history (persistent across sessions)
-    history = request.history  # Use provided history as fallback
-    if not history:
-        # Try loading persisted conversation
-        persisted_msgs = fetch_email_conversation(account, thread_id, limit=20)
-        if persisted_msgs:
-            history = [{"role": m.role, "content": m.content} for m in persisted_msgs]
+    # Always load persisted history from Firestore (source of truth)
+    # This ensures conversation continuity even when frontend hasn't loaded history yet
+    persisted_msgs = fetch_email_conversation(account, thread_id, limit=20)
+    if persisted_msgs:
+        history = [{"role": m.role, "content": m.content} for m in persisted_msgs]
+    elif request.history:
+        # Fallback to provided history only if no persisted history exists
+        history = request.history
+    else:
+        history = None
 
     # Chat with DATA
     try:

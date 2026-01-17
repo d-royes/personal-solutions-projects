@@ -110,6 +110,7 @@ export interface RuleSuggestion {
 
 export interface AttentionItem {
   emailId: string
+  threadId?: string  // Gmail thread ID for conversation persistence
   subject: string
   fromAddress: string
   fromName: string

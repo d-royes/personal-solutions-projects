@@ -1226,7 +1226,8 @@ export function EmailDashboard({
     setShowDismissMenu(false)
 
     // Fetch full email body in the background
-    fetchFullEmailBody(emailId)
+    // Pass whether we already have threadId so fallback can load conversation if needed
+    fetchFullEmailBody(emailId, !!threadId)
 
     // Always fetch privacy status (for badge display)
     loadPrivacyStatus(emailId)
@@ -1297,7 +1298,8 @@ export function EmailDashboard({
   }
 
   // Fetch full email body when email is selected
-  async function fetchFullEmailBody(emailId: string) {
+  // hasThreadId indicates if caller already has threadId (so we can skip fallback conversation load)
+  async function fetchFullEmailBody(emailId: string, hasThreadId: boolean = false) {
     setLoadingFullBody(true)
     try {
       const response = await getEmailFull(selectedAccount, emailId, authConfig, apiBase, true)
@@ -1341,6 +1343,13 @@ export function EmailDashboard({
         bodyHtml: response.message.bodyHtml ?? null,
         attachmentCount: response.message.attachmentCount ?? 0,
       })
+      
+      // Fallback: If caller didn't have threadId but email has one, load conversation
+      // This handles older attention items that don't have threadId stored
+      if (response.message.threadId && !hasThreadId) {
+        setCurrentThreadId(response.message.threadId)
+        loadConversationHistory(response.message.threadId)
+      }
     } catch (err) {
       console.error('Failed to load full email body:', err)
       // Don't show error to user - they can still work with snippet
@@ -2684,7 +2693,7 @@ export function EmailDashboard({
                   <li 
                     key={item.emailId} 
                     className={`attention-card ${item.urgency} ${selectedEmailId === item.emailId ? 'selected' : ''}`}
-                    onClick={() => handleSelectEmail(item.emailId)}
+                    onClick={() => handleSelectEmail(item.emailId, item.threadId)}
                   >
                     <div className="attention-header">
                       <span className={`urgency-badge ${item.urgency}`}>
