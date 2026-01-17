@@ -6125,9 +6125,12 @@ def sync_scheduled(
     from daily_task_assistant.sync import SyncService
     from daily_task_assistant.config import Settings
     
+    logger.info(f"[SYNC] Scheduled sync triggered for user: {user}")
+    
     # Check if sync should run
     if not should_run_scheduled_sync():
         settings = get_settings()
+        logger.info(f"[SYNC] Skipped - enabled={settings.sync.enabled}, interval={settings.sync.interval_minutes}min, lastSync={settings.sync.last_sync_at}")
         return {
             "ran": False,
             "reason": "skipped" if settings.sync.enabled else "disabled",
@@ -6137,9 +6140,11 @@ def sync_scheduled(
         }
     
     # Run bidirectional sync
+    logger.info("[SYNC] Running bidirectional sync...")
     try:
         api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
     except Exception as e:
+        logger.error(f"[SYNC] Failed to load settings: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
     
     sync_service = SyncService(api_settings, user_email=user)
@@ -6149,7 +6154,12 @@ def sync_scheduled(
             sources=None,
             include_work=True,
         )
+        logger.info(f"[SYNC] Result: created={result.created}, updated={result.updated}, unchanged={result.unchanged}, errors={len(result.errors)}")
+        if result.errors:
+            for err in result.errors[:5]:  # Log first 5 errors
+                logger.warning(f"[SYNC] Error: {err}")
     except Exception as e:
+        logger.error(f"[SYNC] Sync failed with exception: {e}")
         # Record failed sync
         record_sync_result({
             "success": False,
