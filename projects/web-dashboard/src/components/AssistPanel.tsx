@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AssistPlan, ConversationMessage, Task } from '../types'
+import type { AssistPlan, ConversationMessage, Task, FirestoreTask } from '../types'
 import type { AttachmentInfo, ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 import { AttachmentsGallery } from './AttachmentsGallery'
@@ -227,36 +227,12 @@ function renderMarkdown(text: string): JSX.Element {
   return <div className="chat-markdown">{elements}</div>
 }
 
-// Firestore task type (imported from types, but need to define inline for simplicity)
-interface FirestoreTaskLocal {
-  id: string
-  title: string
-  status?: string
-  priority?: string
-  project?: string
-  notes?: string
-  nextStep?: string
-  dueDate?: string
-  plannedDate?: string
-  targetDate?: string
-  hardDeadline?: string
-  domain?: string
-  done?: boolean
-  completedOn?: string
-  timesRescheduled?: number
-  isRecurring?: boolean
-  recurringType?: string
-  recurringDays?: string[]
-  syncStatus?: string
-  source?: string
-  sourceEmailSubject?: string
-  sourceEmailAccount?: string
-}
+// FirestoreTask is imported from types
 
 interface AssistPanelProps {
   selectedTask: Task | null
   // Firestore task support
-  selectedFirestoreTask?: FirestoreTaskLocal | null
+  selectedFirestoreTask?: FirestoreTask | null
   onFirestoreTaskUpdate?: (taskId: string, updates: Record<string, unknown>) => Promise<void>
   onFirestoreTaskDelete?: (taskId: string) => Promise<void>
   onFirestoreTaskClose?: () => void
@@ -1505,7 +1481,10 @@ export function AssistPanel({
   }
 
   // Task selected but not engaged - show preview with Engage button
-  if (!isEngaged) {
+  // Note: At this point, selectedTask must be non-null because:
+  // - If selectedFirestoreTask was set and selectedTask was null, we returned at line ~894
+  // - If both were null, we returned at line ~1202 (Global Mode)
+  if (!isEngaged && selectedTask) {
     return (
       <section className="panel assist-panel">
         <header>

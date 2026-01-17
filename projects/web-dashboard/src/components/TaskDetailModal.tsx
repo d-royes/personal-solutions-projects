@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import type { AuthConfig } from '../auth/AuthContext'
+import type { AuthConfig } from '../auth/types'
 import type { FirestoreTask } from '../types'
 import { updateFirestoreTask, deleteFirestoreTask, type UpdateTaskRequest } from '../api'
 import '../App.css'
@@ -53,19 +53,8 @@ const PROJECT_OPTIONS: Record<string, string[]> = {
   ],
 }
 
-// Enhanced FirestoreTask with three-date model fields
-interface EnhancedFirestoreTask extends FirestoreTask {
-  plannedDate?: string | null
-  targetDate?: string | null
-  hardDeadline?: string | null
-  timesRescheduled?: number
-  syncStatus?: string
-  isRecurring?: boolean
-  recurringType?: string | null
-  recurringDays?: string[]
-  recurringMonthly?: string | null
-  recurringInterval?: number | null
-}
+// Enhanced FirestoreTask - alias for the base type which already has all fields
+type EnhancedFirestoreTask = FirestoreTask
 
 // Recurring type options
 const RECURRING_TYPE_OPTIONS = [

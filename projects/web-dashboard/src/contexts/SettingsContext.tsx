@@ -61,16 +61,23 @@ const DEFAULT_SETTINGS: AppSettings = {
   attentionSignals: DEFAULT_ATTENTION_SIGNALS,
 }
 
+/** Deep partial type for settings updates - allows partial nested objects */
+interface SettingsUpdates {
+  inactivityTimeoutMinutes?: InactivityTimeoutOption
+  sync?: Partial<SyncSettings>
+  attentionSignals?: Partial<AttentionSignals>
+}
+
 interface SettingsContextValue {
   settings: AppSettings
   settingsLoading: boolean
   settingsError: string | null
-  updateSettings: (updates: Partial<AppSettings>) => void
+  updateSettings: (updates: SettingsUpdates) => void
   resetSettings: () => void
   /** Load settings from API (call when authenticated) */
   loadFromApi: (auth: AuthConfig, baseUrl?: string) => Promise<void>
   /** Save current settings to API */
-  saveToApi: (auth: AuthConfig, updates: Partial<AppSettings>, baseUrl?: string) => Promise<void>
+  saveToApi: (auth: AuthConfig, updates: SettingsUpdates, baseUrl?: string) => Promise<void>
   /** Trigger manual sync */
   triggerSync: (auth: AuthConfig, baseUrl?: string) => Promise<SyncResult>
 }
@@ -136,7 +143,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     saveSettingsLocal(settings)
   }, [settings])
 
-  const updateSettings = useCallback((updates: Partial<AppSettings>) => {
+  const updateSettings = useCallback((updates: SettingsUpdates) => {
     setSettings((prev) => {
       const newSettings = { ...prev }
       if (updates.inactivityTimeoutMinutes !== undefined) {
@@ -175,7 +182,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const saveToApi = useCallback(async (
     auth: AuthConfig,
-    updates: Partial<AppSettings>,
+    updates: SettingsUpdates,
     baseUrl?: string
   ) => {
     setSettingsError(null)
