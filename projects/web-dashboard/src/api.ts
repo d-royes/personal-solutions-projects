@@ -4212,16 +4212,25 @@ export interface SyncSettings {
   } | null
 }
 
+/** Attention signal thresholds for Needs Attention filter */
+export interface AttentionSignals {
+  slippageThreshold: number   // 1-5: times rescheduled to trigger
+  hardDeadlineDays: number    // 1-7: days before deadline to trigger
+  staleDays: number           // 3-14: days without update while in_progress
+}
+
 /** Global application settings */
 export interface GlobalSettings {
   inactivityTimeoutMinutes: number  // 0=disabled, 5, 10, 15, 30
   sync: SyncSettings
+  attentionSignals: AttentionSignals
 }
 
 /** Partial settings update request */
 export interface UpdateSettingsRequest {
   inactivityTimeoutMinutes?: number
   sync?: Partial<Pick<SyncSettings, 'enabled' | 'intervalMinutes'>>
+  attentionSignals?: Partial<AttentionSignals>
 }
 
 /**
@@ -4267,6 +4276,18 @@ export async function updateSettings(
     }
     if (updates.sync.intervalMinutes !== undefined) {
       (body.sync as Record<string, unknown>).interval_minutes = updates.sync.intervalMinutes
+    }
+  }
+  if (updates.attentionSignals) {
+    body.attention_signals = {}
+    if (updates.attentionSignals.slippageThreshold !== undefined) {
+      (body.attention_signals as Record<string, unknown>).slippage_threshold = updates.attentionSignals.slippageThreshold
+    }
+    if (updates.attentionSignals.hardDeadlineDays !== undefined) {
+      (body.attention_signals as Record<string, unknown>).hard_deadline_days = updates.attentionSignals.hardDeadlineDays
+    }
+    if (updates.attentionSignals.staleDays !== undefined) {
+      (body.attention_signals as Record<string, unknown>).stale_days = updates.attentionSignals.staleDays
     }
   }
 
@@ -4320,7 +4341,7 @@ export async function triggerSyncNow(
     },
     body: JSON.stringify({
       direction: 'bidirectional',
-      include_work: false,
+      include_work: true,
     }),
   })
   if (!resp.ok) {

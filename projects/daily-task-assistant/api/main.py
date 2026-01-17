@@ -5499,6 +5499,8 @@ class TaskCreateRequest(BaseModel):
     recurring_days: Optional[List[str]] = None  # M, T, W, H, F, Sa, Su
     recurring_monthly: Optional[str] = None  # 1, 15, last, first_monday, etc.
     recurring_interval: Optional[int] = None  # For custom interval (days)
+    # Auto-sync to Smartsheet after creation
+    auto_sync: bool = True  # Default to auto-sync
 
 
 @app.post("/tasks/firestore")
@@ -5561,7 +5563,28 @@ def create_firestore_task_direct(
         recurring_interval=request.recurring_interval,
     )
     
-    return {"task": task.to_api_dict()}
+    # Auto-sync to Smartsheet if requested
+    sync_result = None
+    if request.auto_sync:
+        try:
+            from daily_task_assistant.sync.service import SyncService
+            from daily_task_assistant.config import Settings
+            import os
+            
+            api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+            sync_service = SyncService(api_settings, user_email=user)
+            
+            # Sync just this task to Smartsheet
+            result = sync_service.sync_to_smartsheet(task_ids=[task.id])
+            sync_result = {
+                "synced": result.success,
+                "created": result.created,
+                "errors": result.errors if result.errors else None,
+            }
+        except Exception as e:
+            sync_result = {"synced": False, "error": str(e)}
+    
+    return {"task": task.to_api_dict(), "sync": sync_result}
 
 
 @app.get("/tasks/firestore/{task_id}")
@@ -5911,6 +5934,10 @@ class UpdateSettingsRequest(BaseModel):
         None,
         description="Sync settings: enabled (bool), interval_minutes (5, 15, 30, 60)"
     )
+    attention_signals: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Attention signal thresholds: slippage_threshold (1-5), hard_deadline_days (1-7), stale_days (3-14)"
+    )
 
 
 @app.get("/settings")
@@ -5922,6 +5949,7 @@ def get_settings_endpoint(
     Returns all user preferences stored in Firestore, including:
     - inactivityTimeoutMinutes: Auto-logout timeout
     - sync: Bidirectional sync configuration
+    - attentionSignals: Needs Attention filter thresholds
     
     Settings are shared across all email accounts (work/church).
     """
@@ -5974,6 +6002,39 @@ def update_settings_endpoint(
         if sync_updates:
             updates["sync"] = sync_updates
     
+    if request.attention_signals is not None:
+        attention_updates = {}
+        
+        if "slippage_threshold" in request.attention_signals:
+            threshold = request.attention_signals["slippage_threshold"]
+            if not (1 <= threshold <= 5):
+                raise HTTPException(
+                    status_code=400,
+                    detail="slippage_threshold must be between 1 and 5"
+                )
+            attention_updates["slippage_threshold"] = threshold
+        
+        if "hard_deadline_days" in request.attention_signals:
+            days = request.attention_signals["hard_deadline_days"]
+            if not (1 <= days <= 7):
+                raise HTTPException(
+                    status_code=400,
+                    detail="hard_deadline_days must be between 1 and 7"
+                )
+            attention_updates["hard_deadline_days"] = days
+        
+        if "stale_days" in request.attention_signals:
+            days = request.attention_signals["stale_days"]
+            if not (3 <= days <= 14):
+                raise HTTPException(
+                    status_code=400,
+                    detail="stale_days must be between 3 and 14"
+                )
+            attention_updates["stale_days"] = days
+        
+        if attention_updates:
+            updates["attention_signals"] = attention_updates
+    
     if not updates:
         raise HTTPException(status_code=400, detail="No valid settings to update")
     
@@ -6024,7 +6085,7 @@ def sync_scheduled(
     try:
         result = sync_service.sync_bidirectional(
             sources=None,
-            include_work=False,
+            include_work=True,
         )
     except Exception as e:
         # Record failed sync

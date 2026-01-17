@@ -41,6 +41,16 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
   const [localSyncInterval, setLocalSyncInterval] = useState<SyncIntervalOption>(
     settings.sync.intervalMinutes as SyncIntervalOption
   )
+  // Attention signals local state
+  const [localSlippageThreshold, setLocalSlippageThreshold] = useState(
+    settings.attentionSignals.slippageThreshold
+  )
+  const [localHardDeadlineDays, setLocalHardDeadlineDays] = useState(
+    settings.attentionSignals.hardDeadlineDays
+  )
+  const [localStaleDays, setLocalStaleDays] = useState(
+    settings.attentionSignals.staleDays
+  )
   const [hasChanges, setHasChanges] = useState(false)
   const [showSaved, setShowSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -59,6 +69,9 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
     setLocalTimeout(settings.inactivityTimeoutMinutes)
     setLocalSyncEnabled(settings.sync.enabled)
     setLocalSyncInterval(settings.sync.intervalMinutes as SyncIntervalOption)
+    setLocalSlippageThreshold(settings.attentionSignals.slippageThreshold)
+    setLocalHardDeadlineDays(settings.attentionSignals.hardDeadlineDays)
+    setLocalStaleDays(settings.attentionSignals.staleDays)
   }, [settings])
 
   // Check for changes
@@ -66,8 +79,14 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
     const timeoutChanged = localTimeout !== settings.inactivityTimeoutMinutes
     const syncEnabledChanged = localSyncEnabled !== settings.sync.enabled
     const syncIntervalChanged = localSyncInterval !== settings.sync.intervalMinutes
-    setHasChanges(timeoutChanged || syncEnabledChanged || syncIntervalChanged)
-  }, [localTimeout, localSyncEnabled, localSyncInterval, settings])
+    const slippageChanged = localSlippageThreshold !== settings.attentionSignals.slippageThreshold
+    const hardDeadlineChanged = localHardDeadlineDays !== settings.attentionSignals.hardDeadlineDays
+    const staleChanged = localStaleDays !== settings.attentionSignals.staleDays
+    setHasChanges(
+      timeoutChanged || syncEnabledChanged || syncIntervalChanged ||
+      slippageChanged || hardDeadlineChanged || staleChanged
+    )
+  }, [localTimeout, localSyncEnabled, localSyncInterval, localSlippageThreshold, localHardDeadlineDays, localStaleDays, settings])
 
   const handleTimeoutChange = (value: InactivityTimeoutOption) => {
     setLocalTimeout(value)
@@ -84,11 +103,27 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
     setShowSaved(false)
   }
 
+  const handleSlippageChange = (value: number) => {
+    setLocalSlippageThreshold(value)
+    setShowSaved(false)
+  }
+
+  const handleHardDeadlineChange = (value: number) => {
+    setLocalHardDeadlineDays(value)
+    setShowSaved(false)
+  }
+
+  const handleStaleDaysChange = (value: number) => {
+    setLocalStaleDays(value)
+    setShowSaved(false)
+  }
+
   const handleSave = async () => {
     // Build updates object
     const updates: {
       inactivityTimeoutMinutes?: InactivityTimeoutOption
       sync?: { enabled?: boolean; intervalMinutes?: number }
+      attentionSignals?: { slippageThreshold?: number; hardDeadlineDays?: number; staleDays?: number }
     } = {}
     
     if (localTimeout !== settings.inactivityTimeoutMinutes) {
@@ -104,6 +139,21 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
     }
     if (Object.keys(syncUpdates).length > 0) {
       updates.sync = syncUpdates
+    }
+
+    // Attention signals updates
+    const attentionUpdates: { slippageThreshold?: number; hardDeadlineDays?: number; staleDays?: number } = {}
+    if (localSlippageThreshold !== settings.attentionSignals.slippageThreshold) {
+      attentionUpdates.slippageThreshold = localSlippageThreshold
+    }
+    if (localHardDeadlineDays !== settings.attentionSignals.hardDeadlineDays) {
+      attentionUpdates.hardDeadlineDays = localHardDeadlineDays
+    }
+    if (localStaleDays !== settings.attentionSignals.staleDays) {
+      attentionUpdates.staleDays = localStaleDays
+    }
+    if (Object.keys(attentionUpdates).length > 0) {
+      updates.attentionSignals = attentionUpdates
     }
 
     // Update local state immediately
@@ -135,6 +185,9 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
     setLocalTimeout(15)
     setLocalSyncEnabled(true)
     setLocalSyncInterval(30)
+    setLocalSlippageThreshold(3)
+    setLocalHardDeadlineDays(2)
+    setLocalStaleDays(7)
     setHasChanges(false)
     
     // Save defaults to API
@@ -144,6 +197,7 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
         await saveToApi(authConfig, {
           inactivityTimeoutMinutes: 15,
           sync: { enabled: true, intervalMinutes: 30 },
+          attentionSignals: { slippageThreshold: 3, hardDeadlineDays: 2, staleDays: 7 },
         }, apiBase)
       } catch (err) {
         console.error('Failed to reset settings:', err)
@@ -184,6 +238,9 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
       setLocalTimeout(settings.inactivityTimeoutMinutes)
       setLocalSyncEnabled(settings.sync.enabled)
       setLocalSyncInterval(settings.sync.intervalMinutes as SyncIntervalOption)
+      setLocalSlippageThreshold(settings.attentionSignals.slippageThreshold)
+      setLocalHardDeadlineDays(settings.attentionSignals.hardDeadlineDays)
+      setLocalStaleDays(settings.attentionSignals.staleDays)
       setHasChanges(false)
     }
     onClose()
@@ -347,6 +404,97 @@ export function SettingsPanel({ onClose, authConfig, apiBase }: SettingsPanelPro
               {syncMessage}
             </div>
           )}
+        </div>
+
+        {/* Task Attention Signals Section */}
+        <div className="settings-section">
+          <h3 className="settings-section-title">Task Attention Signals</h3>
+          <p className="settings-section-description">
+            Configure which tasks appear in the "Needs Attention" filter based on these signals.
+          </p>
+          
+          {/* Slippage Threshold */}
+          <div className="settings-item">
+            <div className="settings-item-info">
+              <label htmlFor="slippage-threshold" className="settings-label">
+                Slippage Threshold
+              </label>
+              <p className="settings-description">
+                Show tasks that have been rescheduled this many times or more.
+              </p>
+            </div>
+            
+            <select
+              id="slippage-threshold"
+              className="settings-select"
+              value={localSlippageThreshold}
+              onChange={(e) => handleSlippageChange(Number(e.target.value))}
+            >
+              {[1, 2, 3, 4, 5].map((value) => (
+                <option key={value} value={value}>
+                  {value} {value === 1 ? 'time' : 'times'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Hard Deadline Warning */}
+          <div className="settings-item">
+            <div className="settings-item-info">
+              <label htmlFor="hard-deadline-days" className="settings-label">
+                Hard Deadline Warning
+              </label>
+              <p className="settings-description">
+                Show tasks with a hard deadline within this many days.
+              </p>
+            </div>
+            
+            <select
+              id="hard-deadline-days"
+              className="settings-select"
+              value={localHardDeadlineDays}
+              onChange={(e) => handleHardDeadlineChange(Number(e.target.value))}
+            >
+              {[1, 2, 3, 4, 5, 6, 7].map((value) => (
+                <option key={value} value={value}>
+                  {value} {value === 1 ? 'day' : 'days'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Stale Task Detection */}
+          <div className="settings-item">
+            <div className="settings-item-info">
+              <label htmlFor="stale-days" className="settings-label">
+                Stale Task Detection
+              </label>
+              <p className="settings-description">
+                Show in-progress tasks that haven't been updated in this many days.
+              </p>
+            </div>
+            
+            <select
+              id="stale-days"
+              className="settings-select"
+              value={localStaleDays}
+              onChange={(e) => handleStaleDaysChange(Number(e.target.value))}
+            >
+              {[3, 5, 7, 10, 14].map((value) => (
+                <option key={value} value={value}>
+                  {value} days
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Info about always-on signals */}
+          <div className="settings-item settings-item-info-box">
+            <p className="settings-info-text">
+              <strong>Always shown:</strong> Orphaned tasks (deleted from Smartsheet) and 
+              blocked tasks (On Hold, Awaiting Reply, Needs Approval) always appear in Needs Attention.
+            </p>
+          </div>
         </div>
       </div>
 

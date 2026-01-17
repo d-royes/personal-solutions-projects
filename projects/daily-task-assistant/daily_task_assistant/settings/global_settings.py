@@ -11,6 +11,10 @@ Supported settings:
   - interval_minutes: Sync frequency (5, 15, 30, 60)
   - last_sync_at: Timestamp of last sync
   - last_sync_result: Summary of last sync operation
+- attention_signals: Configurable thresholds for Needs Attention filter
+  - slippage_threshold: Times rescheduled to trigger (1-5, default 3)
+  - hard_deadline_days: Days before deadline to trigger (1-7, default 2)
+  - stale_days: Days without update while in_progress (3-14, default 7)
 """
 from __future__ import annotations
 
@@ -53,15 +57,46 @@ class SyncSettings:
 
 
 @dataclass
+class AttentionSignalsSettings:
+    """Configurable thresholds for Needs Attention filter.
+    
+    Controls which tasks appear in the "Needs Attention" view based on:
+    - Slippage: Tasks rescheduled multiple times
+    - Hard Deadline: Tasks with approaching external deadlines
+    - Stale: In-progress tasks with no recent updates
+    """
+    slippage_threshold: int = 3      # 1-5: times rescheduled to trigger
+    hard_deadline_days: int = 2      # 1-7: days before deadline to trigger
+    stale_days: int = 7              # 3-14: days without update while in_progress
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "slippage_threshold": self.slippage_threshold,
+            "hard_deadline_days": self.hard_deadline_days,
+            "stale_days": self.stale_days,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AttentionSignalsSettings":
+        return cls(
+            slippage_threshold=data.get("slippage_threshold", 3),
+            hard_deadline_days=data.get("hard_deadline_days", 2),
+            stale_days=data.get("stale_days", 7),
+        )
+
+
+@dataclass
 class GlobalSettings:
     """Global application settings."""
     inactivity_timeout_minutes: int = 15  # 0=disabled, 5, 10, 15, 30
     sync: SyncSettings = field(default_factory=SyncSettings)
+    attention_signals: AttentionSignalsSettings = field(default_factory=AttentionSignalsSettings)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
             "inactivity_timeout_minutes": self.inactivity_timeout_minutes,
             "sync": self.sync.to_dict(),
+            "attention_signals": self.attention_signals.to_dict(),
         }
     
     def to_api_dict(self) -> Dict[str, Any]:
@@ -74,14 +109,21 @@ class GlobalSettings:
                 "lastSyncAt": self.sync.last_sync_at,
                 "lastSyncResult": self.sync.last_sync_result,
             },
+            "attentionSignals": {
+                "slippageThreshold": self.attention_signals.slippage_threshold,
+                "hardDeadlineDays": self.attention_signals.hard_deadline_days,
+                "staleDays": self.attention_signals.stale_days,
+            },
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "GlobalSettings":
         sync_data = data.get("sync", {})
+        attention_data = data.get("attention_signals", {})
         return cls(
             inactivity_timeout_minutes=data.get("inactivity_timeout_minutes", 15),
             sync=SyncSettings.from_dict(sync_data),
+            attention_signals=AttentionSignalsSettings.from_dict(attention_data),
         )
 
 
@@ -110,10 +152,11 @@ def update_settings(updates: Dict[str, Any]) -> GlobalSettings:
     """Update global settings in Firestore.
     
     Args:
-        updates: Partial settings to update. Supports nested updates for sync:
+        updates: Partial settings to update. Supports nested updates:
             - {"inactivity_timeout_minutes": 30}
             - {"sync": {"enabled": False}}
             - {"sync": {"interval_minutes": 15}}
+            - {"attention_signals": {"slippage_threshold": 2}}
             
     Returns:
         Updated GlobalSettings.
@@ -125,7 +168,7 @@ def update_settings(updates: Dict[str, Any]) -> GlobalSettings:
     current = get_settings()
     current_dict = current.to_dict()
     
-    # Apply updates (handle nested sync updates)
+    # Apply updates (handle nested updates)
     if "inactivity_timeout_minutes" in updates:
         current_dict["inactivity_timeout_minutes"] = updates["inactivity_timeout_minutes"]
     
@@ -133,6 +176,11 @@ def update_settings(updates: Dict[str, Any]) -> GlobalSettings:
         # Merge sync updates
         for key, value in updates["sync"].items():
             current_dict["sync"][key] = value
+    
+    if "attention_signals" in updates and isinstance(updates["attention_signals"], dict):
+        # Merge attention_signals updates
+        for key, value in updates["attention_signals"].items():
+            current_dict["attention_signals"][key] = value
     
     # Save to Firestore
     doc_ref.set(current_dict)

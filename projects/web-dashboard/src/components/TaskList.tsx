@@ -4,11 +4,10 @@ import type { AuthConfig } from '../auth/AuthContext'
 import { deriveDomain, PRIORITY_ORDER } from '../utils/domain'
 import { TaskCreateModal } from './TaskCreateModal'
 import { triggerSync } from '../api'
+import { useSettings, type AttentionSignals } from '../contexts/SettingsContext'
 import '../App.css'
 
 const PREVIEW_LIMIT = 240
-const BLOCKED_STATUSES = ['On Hold', 'Awaiting Reply', 'Needs Approval']
-const URGENT_PRIORITIES = ['Critical', 'Urgent', '5-Critical', '4-Urgent']
 
 // Status category for sorting (A=Active first, B=Blocked second, S=Scheduled last)
 const STATUS_CATEGORY: Record<string, number> = {
@@ -24,13 +23,72 @@ const FS_STATUS_CATEGORY: Record<string, number> = {
   'scheduled': 3, 'recurring': 3, 'validation': 3, 'pending': 3,            // S - Scheduled
 }
 
+// Blocked statuses for Firestore tasks (always trigger attention)
+const FS_BLOCKED_STATUSES = ['on_hold', 'awaiting_reply', 'needs_approval', 'blocked']
+
+/**
+ * Check if a Firestore task needs attention based on configurable signals.
+ * Returns true if any attention signal is triggered.
+ */
+function needsAttention(task: FirestoreTask, signals: AttentionSignals): boolean {
+  // Skip completed tasks
+  if (task.done || task.status === 'completed') return false
+  
+  // Always-on signals (not configurable)
+  
+  // 1. Orphaned tasks - deleted from Smartsheet
+  if (task.syncStatus === 'orphaned') return true
+  
+  // 2. Blocked status
+  if (FS_BLOCKED_STATUSES.includes(task.status?.toLowerCase() || '')) return true
+  
+  // Configurable signals
+  
+  // 3. Slippage - rescheduled too many times
+  if (task.timesRescheduled >= signals.slippageThreshold) return true
+  
+  // 4. Hard deadline approaching
+  if (task.daysUntilDeadline !== null && task.daysUntilDeadline >= 0 && task.daysUntilDeadline <= signals.hardDeadlineDays) {
+    return true
+  }
+  
+  // 5. Stale - in_progress with no recent updates
+  if (task.status?.toLowerCase() === 'in_progress' && task.updatedAt) {
+    const updatedDate = new Date(task.updatedAt)
+    const today = new Date()
+    const daysSinceUpdate = Math.floor((today.getTime() - updatedDate.getTime()) / (1000 * 60 * 60 * 24))
+    if (daysSinceUpdate >= signals.staleDays) return true
+  }
+  
+  return false
+}
+
+/**
+ * Get a human-readable reason why a task needs attention.
+ */
+function getAttentionReason(task: FirestoreTask, signals: AttentionSignals): string {
+  if (task.syncStatus === 'orphaned') return 'Orphaned - deleted from Smartsheet'
+  if (FS_BLOCKED_STATUSES.includes(task.status?.toLowerCase() || '')) return `Blocked - ${task.status}`
+  if (task.timesRescheduled >= signals.slippageThreshold) return `Slippage - rescheduled ${task.timesRescheduled}x`
+  if (task.daysUntilDeadline !== null && task.daysUntilDeadline >= 0 && task.daysUntilDeadline <= signals.hardDeadlineDays) {
+    return task.daysUntilDeadline === 0 ? 'Hard deadline today!' : `Hard deadline in ${task.daysUntilDeadline} day${task.daysUntilDeadline === 1 ? '' : 's'}`
+  }
+  if (task.status?.toLowerCase() === 'in_progress' && task.updatedAt) {
+    const updatedDate = new Date(task.updatedAt)
+    const today = new Date()
+    const daysSinceUpdate = Math.floor((today.getTime() - updatedDate.getTime()) / (1000 * 60 * 60 * 24))
+    if (daysSinceUpdate >= signals.staleDays) return `Stale - no updates in ${daysSinceUpdate} days`
+  }
+  return ''
+}
+
 const FILTERS = [
+  { id: 'data_tasks', label: 'DATA Tasks' },
+  { id: 'needs_attention', label: 'Needs Attention' },
   { id: 'all', label: 'All' },
-  { id: 'needs_attention', label: 'Needs attention' },
   { id: 'personal', label: 'Personal' },
   { id: 'church', label: 'Church' },
   { id: 'work', label: 'Work' },
-  { id: 'data_tasks', label: 'DATA Tasks' },
 ]
 
 function previewText(task: Task) {
@@ -55,15 +113,6 @@ function toLocalMidnight(dateStr: string): Date {
 function getTodayMidnight(): Date {
   const now = new Date()
   return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-}
-
-function isDueSoon(due: string) {
-  const dueDate = toLocalMidnight(due)
-  const today = getTodayMidnight()
-  const diff = dueDate.getTime() - today.getTime()
-  const days = diff / (1000 * 60 * 60 * 24)
-  // Only tasks due within the next 3 days (not overdue)
-  return days >= 0 && days <= 3
 }
 
 function dueLabel(due: string) {
@@ -126,8 +175,14 @@ export function TaskList({
   selectedFirestoreTask,
   onSelectFirestoreTask,
 }: TaskListProps) {
-  const [filter, setFilter] = useState('all')
+  const [filter, setFilter] = useState('data_tasks')
   const [searchTerm, setSearchTerm] = useState('')
+  
+  // Get attention signals settings
+  const { settings } = useSettings()
+  
+  // Domain sub-filter for Needs Attention view
+  const [attentionDomain, setAttentionDomain] = useState<'all' | 'personal' | 'church' | 'work'>('all')
   
   // Phase 1f: Modal state (only for create, not detail - detail uses AssistPanel now)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -144,7 +199,7 @@ export function TaskList({
     setLastSyncResult(null)
     try {
       const result = await triggerSync(
-        { direction: 'bidirectional' },
+        { direction: 'bidirectional', include_work: true },
         auth,
         baseUrl
       )
@@ -212,13 +267,8 @@ export function TaskList({
       const status = task.status ?? ''
       switch (filter) {
         case 'needs_attention':
-          // Exclude work tasks from "Needs attention" unless explicitly in Work filter
-          if (task.source === 'work') return false
-          return (
-            URGENT_PRIORITIES.includes(task.priority ?? '') ||
-            isDueSoon(task.due) ||
-            BLOCKED_STATUSES.includes(status)
-          )
+          // Needs Attention now uses Firestore tasks, not Smartsheet
+          return false
         case 'data_tasks':
           // DATA tasks are handled separately, not in this filter
           return false
@@ -478,6 +528,118 @@ export function TaskList({
             })}
           </ul>
           )}
+        </>
+      ) : filter === 'needs_attention' ? (
+        /* Needs Attention Filter - Show Firestore tasks that need attention */
+        <>
+          {/* Domain sub-filter bar */}
+          <div className="attention-domain-filter">
+            {(['all', 'personal', 'church', 'work'] as const).map((domain) => (
+              <button
+                key={domain}
+                className={`domain-filter-btn ${attentionDomain === domain ? 'active' : ''}`}
+                onClick={() => setAttentionDomain(domain)}
+              >
+                {domain.charAt(0).toUpperCase() + domain.slice(1)}
+              </button>
+            ))}
+          </div>
+          
+          {emailTasksLoading ? (
+            <p>Loading tasks…</p>
+          ) : (() => {
+            // Filter tasks that need attention
+            const attentionTasks = emailTasks.filter(t => {
+              if (!needsAttention(t, settings.attentionSignals)) return false
+              // Apply domain filter
+              if (attentionDomain !== 'all' && t.domain?.toLowerCase() !== attentionDomain) return false
+              // Apply search filter if there's a search term
+              if (searchTerm.trim()) {
+                const term = searchTerm.toLowerCase()
+                return (
+                  t.title?.toLowerCase()?.includes(term) ||
+                  t.notes?.toLowerCase()?.includes(term) ||
+                  t.project?.toLowerCase()?.includes(term) ||
+                  t.status?.toLowerCase()?.includes(term) ||
+                  t.priority?.toLowerCase()?.includes(term)
+                )
+              }
+              return true
+            })
+            
+            if (attentionTasks.length === 0) {
+              return <p className="empty-state">{searchTerm.trim() ? 'No tasks match your search.' : 'No tasks need attention right now. Great job! 🎉'}</p>
+            }
+            
+            return (
+              <ul className="task-list needs-attention-list">
+                {attentionTasks.sort((a, b) => {
+                  // Sort: Orphaned first, then by urgency (deadline, slippage)
+                  // 1. Orphaned tasks first
+                  if (a.syncStatus === 'orphaned' && b.syncStatus !== 'orphaned') return -1
+                  if (b.syncStatus === 'orphaned' && a.syncStatus !== 'orphaned') return 1
+                  
+                  // 2. Hard deadline (closest first)
+                  const deadlineA = a.daysUntilDeadline ?? 999
+                  const deadlineB = b.daysUntilDeadline ?? 999
+                  if (deadlineA !== deadlineB) return deadlineA - deadlineB
+                  
+                  // 3. Slippage (highest first)
+                  if (a.timesRescheduled !== b.timesRescheduled) {
+                    return b.timesRescheduled - a.timesRescheduled
+                  }
+                  
+                  // 4. Blocked status
+                  const aBlocked = FS_BLOCKED_STATUSES.includes(a.status?.toLowerCase() || '')
+                  const bBlocked = FS_BLOCKED_STATUSES.includes(b.status?.toLowerCase() || '')
+                  if (aBlocked && !bBlocked) return -1
+                  if (bBlocked && !aBlocked) return 1
+                  
+                  return 0
+                }).map((task) => {
+                  const domain = task.domain.charAt(0).toUpperCase() + task.domain.slice(1)
+                  const reason = getAttentionReason(task, settings.attentionSignals)
+                  const dueText = (task.plannedDate || task.dueDate) 
+                    ? dueLabel(task.plannedDate || task.dueDate || '')
+                    : 'No due date'
+                  return (
+                    <li
+                      key={task.id}
+                      className={
+                        selectedFirestoreTask?.id === task.id ? 'task-item attention-item selected' : 'task-item attention-item'
+                      }
+                      onClick={() => handleFirestoreTaskClick(task)}
+                    >
+                      <div className="attention-reason">
+                        {task.syncStatus === 'orphaned' && <span className="attention-icon orphaned">🔗✕</span>}
+                        {task.timesRescheduled >= settings.attentionSignals.slippageThreshold && <span className="attention-icon slippage">⏳{task.timesRescheduled}</span>}
+                        {task.daysUntilDeadline !== null && task.daysUntilDeadline <= settings.attentionSignals.hardDeadlineDays && <span className="attention-icon deadline">🔴</span>}
+                        {FS_BLOCKED_STATUSES.includes(task.status?.toLowerCase() || '') && <span className="attention-icon blocked">🚧</span>}
+                        {reason.includes('Stale') && <span className="attention-icon stale">💤</span>}
+                        <span className="attention-text">{reason}</span>
+                      </div>
+                      <div className="task-signals">
+                        <span className={`badge domain ${domain.toLowerCase()}`}>{domain}</span>
+                        <span className="badge status">{task.status}</span>
+                        {task.priority && (
+                          <span className={`badge priority ${task.priority.toLowerCase()}`}>
+                            {task.priority}
+                          </span>
+                        )}
+                        <span className="badge due">{dueText}</span>
+                      </div>
+                      <div className="task-title-row">
+                        <div className="task-title">{task.title}</div>
+                      </div>
+                      <div className="task-meta">
+                        <span>{task.project || 'No project'}</span>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )
+          })()}
         </>
       ) : loading ? (
         <p>Loading tasks…</p>

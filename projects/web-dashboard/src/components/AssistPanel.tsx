@@ -519,6 +519,17 @@ export function AssistPanel({
   // Portfolio dashboard collapsed state (for global mode)
   const [dashboardCollapsed, setDashboardCollapsed] = useState(true)
   
+  // Firestore task edit mode state
+  const [isEditingFirestore, setIsEditingFirestore] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editStatus, setEditStatus] = useState('')
+  const [editPriority, setEditPriority] = useState('')
+  const [editPlannedDate, setEditPlannedDate] = useState('')
+  const [editTargetDate, setEditTargetDate] = useState('')
+  const [editHardDeadline, setEditHardDeadline] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  
   // Workspace items (content pushed from chat) - initialized from props
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(() => {
     if (initialWorkspaceItems && initialWorkspaceItems.length > 0) {
@@ -560,6 +571,20 @@ export function AssistPanel({
     // Clear workspace selections when task changes
     setSelectedWorkspaceIds(new Set())
   }, [selectedTask?.rowId])
+  
+  // Reset edit mode when Firestore task changes
+  useEffect(() => {
+    setIsEditingFirestore(false)
+    if (selectedFirestoreTask) {
+      setEditTitle(selectedFirestoreTask.title || '')
+      setEditStatus(selectedFirestoreTask.status || 'scheduled')
+      setEditPriority(selectedFirestoreTask.priority || 'Standard')
+      setEditPlannedDate(selectedFirestoreTask.plannedDate || selectedFirestoreTask.dueDate || '')
+      setEditTargetDate(selectedFirestoreTask.targetDate || '')
+      setEditHardDeadline(selectedFirestoreTask.hardDeadline || '')
+      setEditNotes(selectedFirestoreTask.notes || '')
+    }
+  }, [selectedFirestoreTask?.id])
   
   // Notify parent when workspace changes (for persistence) - only if modified by user
   useEffect(() => {
@@ -954,42 +979,182 @@ export function AssistPanel({
         </div>
         
         {/* CRUD Action Buttons */}
-        <div className="fs-crud-actions">
-          <button
-            className="crud-btn complete-btn"
-            onClick={async () => {
-              if (onFirestoreTaskUpdate) {
-                await onFirestoreTaskUpdate(task.id, {
-                  done: true,
-                  status: 'completed',
-                  completedOn: new Date().toISOString().split('T')[0],
-                })
-              }
-            }}
-            disabled={task.done}
-          >
-            {task.done ? '✓ Completed' : '✓ Mark Complete'}
-          </button>
-          <button
-            className="crud-btn edit-btn"
-            onClick={() => {
-              // TODO: Implement edit mode or modal
-              console.log('Edit task:', task.id)
-            }}
-          >
-            ✎ Edit
-          </button>
-          <button
-            className="crud-btn delete-btn"
-            onClick={async () => {
-              if (onFirestoreTaskDelete && confirm('Delete this task?')) {
-                await onFirestoreTaskDelete(task.id)
-              }
-            }}
-          >
-            🗑 Delete
-          </button>
-        </div>
+        {!isEditingFirestore ? (
+          <div className="fs-crud-actions">
+            <button
+              className="crud-btn complete-btn"
+              onClick={async () => {
+                if (onFirestoreTaskUpdate) {
+                  // For recurring tasks: only check Done box (don't change status)
+                  // This allows Smartsheet automation to reset the task
+                  const isRecurring = task.isRecurring || !!task.recurringType
+                  if (isRecurring) {
+                    await onFirestoreTaskUpdate(task.id, {
+                      done: true,
+                      completedOn: new Date().toISOString().split('T')[0],
+                    })
+                  } else {
+                    // For regular tasks: set both status and done
+                    await onFirestoreTaskUpdate(task.id, {
+                      done: true,
+                      status: 'completed',
+                      completedOn: new Date().toISOString().split('T')[0],
+                    })
+                  }
+                }
+              }}
+              disabled={task.done}
+            >
+              {task.done ? '✓ Completed' : '✓ Mark Complete'}
+            </button>
+            <button
+              className="crud-btn edit-btn"
+              onClick={() => {
+                setEditTitle(task.title || '')
+                setEditStatus(task.status || 'scheduled')
+                setEditPriority(task.priority || 'Standard')
+                setEditPlannedDate(task.plannedDate || task.dueDate || '')
+                setEditTargetDate(task.targetDate || '')
+                setEditHardDeadline(task.hardDeadline || '')
+                setEditNotes(task.notes || '')
+                setIsEditingFirestore(true)
+              }}
+            >
+              ✎ Edit
+            </button>
+            <button
+              className="crud-btn delete-btn"
+              onClick={async () => {
+                if (onFirestoreTaskDelete && confirm('Delete this task?')) {
+                  await onFirestoreTaskDelete(task.id)
+                }
+              }}
+            >
+              🗑 Delete
+            </button>
+          </div>
+        ) : (
+          /* Edit Form */
+          <div className="fs-edit-form">
+            <div className="fs-edit-field">
+              <label>Title</label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="fs-edit-input"
+              />
+            </div>
+            <div className="fs-edit-row">
+              <div className="fs-edit-field">
+                <label>Status</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="fs-edit-select"
+                >
+                  <option value="scheduled">Scheduled</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="on_hold">On Hold</option>
+                  <option value="awaiting_reply">Awaiting Reply</option>
+                  <option value="follow_up">Follow-up</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+              <div className="fs-edit-field">
+                <label>Priority</label>
+                <select
+                  value={editPriority}
+                  onChange={(e) => setEditPriority(e.target.value)}
+                  className="fs-edit-select"
+                >
+                  <option value="Critical">Critical</option>
+                  <option value="Urgent">Urgent</option>
+                  <option value="Important">Important</option>
+                  <option value="Standard">Standard</option>
+                  <option value="Low">Low</option>
+                </select>
+              </div>
+            </div>
+            {/* Dates - Three-Date Model */}
+            <fieldset className="fs-edit-dates">
+              <legend>Dates (Three-Date Model)</legend>
+              <div className="fs-edit-date-row">
+                <div className="fs-edit-field">
+                  <label>Planned Date</label>
+                  <input
+                    type="date"
+                    value={editPlannedDate}
+                    onChange={(e) => setEditPlannedDate(e.target.value)}
+                    className="fs-edit-input"
+                  />
+                </div>
+                <div className="fs-edit-field">
+                  <label>Target Date</label>
+                  <input
+                    type="date"
+                    value={editTargetDate}
+                    onChange={(e) => setEditTargetDate(e.target.value)}
+                    className="fs-edit-input"
+                  />
+                </div>
+                <div className="fs-edit-field">
+                  <label>Hard Deadline</label>
+                  <input
+                    type="date"
+                    value={editHardDeadline}
+                    onChange={(e) => setEditHardDeadline(e.target.value)}
+                    className="fs-edit-input"
+                  />
+                </div>
+              </div>
+            </fieldset>
+            <div className="fs-edit-field">
+              <label>Notes</label>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                className="fs-edit-textarea"
+                rows={3}
+              />
+            </div>
+            <div className="fs-edit-actions">
+              <button
+                className="crud-btn save-btn"
+                disabled={editSaving}
+                onClick={async () => {
+                  if (onFirestoreTaskUpdate) {
+                    setEditSaving(true)
+                    try {
+                      await onFirestoreTaskUpdate(task.id, {
+                        title: editTitle,
+                        status: editStatus,
+                        priority: editPriority,
+                        plannedDate: editPlannedDate,
+                        targetDate: editTargetDate || null,
+                        hardDeadline: editHardDeadline || null,
+                        notes: editNotes,
+                      })
+                      setIsEditingFirestore(false)
+                    } finally {
+                      setEditSaving(false)
+                    }
+                  }
+                }}
+              >
+                {editSaving ? 'Saving...' : '✓ Save'}
+              </button>
+              <button
+                className="crud-btn cancel-btn"
+                onClick={() => setIsEditingFirestore(false)}
+                disabled={editSaving}
+              >
+                ✕ Cancel
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Task details */}
         <div className="fs-task-details">

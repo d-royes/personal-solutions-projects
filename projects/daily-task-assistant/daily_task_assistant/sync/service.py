@@ -122,17 +122,17 @@ RECURRING_PATTERN_MAP: Dict[str, Tuple[RecurringType, List[str]]] = {
 # Allowed estimated_hours values (must be EXACT match for Smartsheet picklist)
 ESTIMATED_HOURS_VALUES = [".05", ".15", ".25", ".50", ".75", "1", "2", "3", "4", "5", "6", "7", "8"]
 
-def _translate_estimated_hours(value: Optional[float]) -> str:
+def _translate_estimated_hours(value: Optional[float]) -> Optional[str]:
     """Translate numeric estimated_hours to Smartsheet picklist format.
     
     Args:
         value: Hours as float (e.g., 0.25, 1.0, 2.0)
         
     Returns:
-        Smartsheet picklist string (e.g., ".25", "1", "2")
+        Smartsheet picklist string (e.g., ".25", "1", "2") or None if no value
     """
     if value is None or value <= 0:
-        return "1"  # Default to 1 hour
+        return None  # Don't set a default - preserve existing Smartsheet value
     
     # Direct mappings for fractional hours
     fraction_map = {
@@ -422,9 +422,13 @@ def translate_firestore_to_smartsheet(fs_task: FirestoreTask) -> Dict[str, Any]:
         "priority": _translate_priority(fs_task.priority, domain),
         "project": _translate_project(fs_task.project, domain),
         "due_date": due_str,
-        "estimated_hours": _translate_estimated_hours(fs_task.estimated_hours),
         "assigned_to": fs_task.assigned_to or "david.a.royes@gmail.com",
     }
+    
+    # Only include estimated_hours if explicitly set
+    translated_hours = _translate_estimated_hours(fs_task.estimated_hours)
+    if translated_hours:
+        task_data["estimated_hours"] = translated_hours
     
     # Optional fields
     if fs_task.notes:
@@ -524,7 +528,7 @@ class SyncService:
         
         # Detect and tag tasks that were removed from Smartsheet
         if detect_deletions:
-            orphaned_count = self._detect_and_tag_orphans(ss_row_ids, sources)
+            orphaned_count = self._detect_and_tag_orphans(ss_row_ids, sources, include_work)
             # Add orphaned count to result (informational, not error)
             if orphaned_count > 0:
                 result.errors.append(f"Tagged {orphaned_count} orphaned tasks for review")
@@ -535,6 +539,7 @@ class SyncService:
         self,
         ss_row_ids: set,
         sources: Optional[List[str]],
+        include_work: bool = False,
     ) -> int:
         """Detect and tag Firestore tasks that were deleted from Smartsheet.
         
@@ -544,6 +549,7 @@ class SyncService:
         Args:
             ss_row_ids: Set of row_ids that exist in Smartsheet
             sources: Source sheets that were synced
+            include_work: If True, also check work domain for orphans
             
         Returns:
             Number of tasks tagged as orphaned
@@ -561,7 +567,10 @@ class SyncService:
         if sources:
             synced_domains = set(sources)
         else:
-            synced_domains = {"personal"}  # Default
+            # Default: personal + church, and work if include_work=True
+            synced_domains = {"personal", "church"}
+            if include_work:
+                synced_domains.add("work")
         
         # Find orphaned tasks (have SS row_id but row_id not in SS)
         for fs_task in all_fs_tasks:
@@ -1045,8 +1054,9 @@ class SyncService:
         Uses translation utilities to ensure all field values match
         Smartsheet's picklist validation requirements.
         
-        For FS-managed recurring tasks, sets recurring_pattern to "Monthly"
-        to indicate the task is managed by Firestore recurring logic.
+        Note: Does NOT update recurring_pattern - that field is managed by
+        Smartsheet and should not be overwritten by sync. SS-managed recurring
+        tasks use patterns like M, T, W, etc. set directly in Smartsheet.
         
         Args:
             fs_task: FirestoreTask with changes
@@ -1060,8 +1070,8 @@ class SyncService:
         # Always include fsid to ensure bidirectional linking
         updates["fsid"] = fs_task.id
         
-        # Always include core fields that might have changed
-        # Use translation utilities to format correctly
+        # Include fields that have actual values
+        # Only sync fields that were explicitly set (not None)
         if fs_task.title:
             updates["task"] = fs_task.title
         
@@ -1083,15 +1093,18 @@ class SyncService:
         if fs_task.notes is not None:
             updates["notes"] = fs_task.notes
         
-        if fs_task.estimated_hours is not None:
-            updates["estimated_hours"] = _translate_estimated_hours(fs_task.estimated_hours)
+        # Only include estimated_hours if explicitly set (not None)
+        # _translate_estimated_hours returns None for None/0 values
+        if fs_task.estimated_hours is not None and fs_task.estimated_hours > 0:
+            translated_hours = _translate_estimated_hours(fs_task.estimated_hours)
+            if translated_hours:
+                updates["estimated_hours"] = translated_hours
         
         updates["done"] = fs_task.done
         
-        # One-way sync of recurring pattern to SS
-        # FS-managed recurring tasks use "Monthly" as indicator in SS
-        # This distinguishes them from SS-managed weekly recurring (M, T, W, etc.)
-        if fs_task.recurring_type:
-            updates["recurring_pattern"] = "Monthly"
+        # IMPORTANT: Do NOT overwrite recurring_pattern for tasks synced FROM Smartsheet
+        # Only set recurring_pattern for FS-created recurring tasks (source != smartsheet_sync)
+        # SS-managed recurring tasks have their pattern set in Smartsheet (M, T, W, etc.)
+        # and we should preserve it, not overwrite with "Monthly"
         
         return updates

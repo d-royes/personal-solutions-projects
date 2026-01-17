@@ -7,6 +7,7 @@ import {
   type GlobalSettings,
   type SyncSettings,
   type SyncResult,
+  type AttentionSignals,
 } from '../api'
 
 const SETTINGS_STORAGE_KEY = 'dta-app-settings'
@@ -37,6 +38,8 @@ export interface AppSettings {
   inactivityTimeoutMinutes: InactivityTimeoutOption
   /** Sync configuration */
   sync: SyncSettings
+  /** Attention signal thresholds for Needs Attention filter */
+  attentionSignals: AttentionSignals
 }
 
 const DEFAULT_SYNC_SETTINGS: SyncSettings = {
@@ -46,9 +49,16 @@ const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   lastSyncResult: null,
 }
 
+const DEFAULT_ATTENTION_SIGNALS: AttentionSignals = {
+  slippageThreshold: 3,
+  hardDeadlineDays: 2,
+  staleDays: 7,
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   inactivityTimeoutMinutes: 15,
   sync: DEFAULT_SYNC_SETTINGS,
+  attentionSignals: DEFAULT_ATTENTION_SIGNALS,
 }
 
 interface SettingsContextValue {
@@ -82,6 +92,10 @@ function loadSettings(): AppSettings {
           ...DEFAULT_SYNC_SETTINGS,
           ...(parsed.sync || {}),
         },
+        attentionSignals: {
+          ...DEFAULT_ATTENTION_SIGNALS,
+          ...(parsed.attentionSignals || {}),
+        },
       }
     }
   } catch {
@@ -108,6 +122,7 @@ function apiToAppSettings(apiSettings: GlobalSettings): AppSettings {
   return {
     inactivityTimeoutMinutes: apiSettings.inactivityTimeoutMinutes as InactivityTimeoutOption,
     sync: apiSettings.sync,
+    attentionSignals: apiSettings.attentionSignals || DEFAULT_ATTENTION_SIGNALS,
   }
 }
 
@@ -129,6 +144,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       }
       if (updates.sync) {
         newSettings.sync = { ...prev.sync, ...updates.sync }
+      }
+      if (updates.attentionSignals) {
+        newSettings.attentionSignals = { ...prev.attentionSignals, ...updates.attentionSignals }
       }
       return newSettings
     })
@@ -166,6 +184,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const apiUpdates: {
         inactivityTimeoutMinutes?: number
         sync?: { enabled?: boolean; intervalMinutes?: number }
+        attentionSignals?: { slippageThreshold?: number; hardDeadlineDays?: number; staleDays?: number }
       } = {}
       
       if (updates.inactivityTimeoutMinutes !== undefined) {
@@ -179,6 +198,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         }
         if (updates.sync.intervalMinutes !== undefined) {
           apiUpdates.sync.intervalMinutes = updates.sync.intervalMinutes
+        }
+      }
+      
+      if (updates.attentionSignals) {
+        apiUpdates.attentionSignals = {}
+        if (updates.attentionSignals.slippageThreshold !== undefined) {
+          apiUpdates.attentionSignals.slippageThreshold = updates.attentionSignals.slippageThreshold
+        }
+        if (updates.attentionSignals.hardDeadlineDays !== undefined) {
+          apiUpdates.attentionSignals.hardDeadlineDays = updates.attentionSignals.hardDeadlineDays
+        }
+        if (updates.attentionSignals.staleDays !== undefined) {
+          apiUpdates.attentionSignals.staleDays = updates.attentionSignals.staleDays
         }
       }
       
@@ -250,4 +282,4 @@ export function useSettings() {
 }
 
 // Re-export types for convenience
-export type { SyncSettings, SyncResult }
+export type { SyncSettings, SyncResult, AttentionSignals }
