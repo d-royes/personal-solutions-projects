@@ -5763,12 +5763,18 @@ def sync_now(
     Returns:
         Sync results including counts of created, updated, unchanged, conflicts, and errors.
     """
+    import time
     from daily_task_assistant.sync import SyncService, SyncDirection
     from daily_task_assistant.config import Settings
     
+    start_time = time.time()
+    logger.info(f"[SYNC/NOW] Manual sync triggered for user: {user}, direction: {request.direction}, sources: {request.sources}")
+    
     try:
         settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+        logger.info(f"[SYNC/NOW] Settings loaded, token present: {bool(settings.smartsheet_token)}")
     except Exception as e:
+        logger.error(f"[SYNC/NOW] Failed to load settings: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
     
     sync_service = SyncService(settings, user_email=user)
@@ -5780,6 +5786,7 @@ def sync_now(
         "bidirectional": SyncDirection.BIDIRECTIONAL,
     }
     direction = direction_map.get(request.direction, SyncDirection.BIDIRECTIONAL)
+    logger.info(f"[SYNC/NOW] Starting sync with direction: {direction.value}")
     
     try:
         if direction == SyncDirection.SMARTSHEET_TO_FIRESTORE:
@@ -5794,7 +5801,14 @@ def sync_now(
                 sources=request.sources,
                 include_work=request.include_work,
             )
+        
+        elapsed = time.time() - start_time
+        logger.info(f"[SYNC/NOW] Completed in {elapsed:.2f}s - created={result.created}, updated={result.updated}, unchanged={result.unchanged}, errors={len(result.errors)}")
+        if result.errors:
+            for err in result.errors[:5]:
+                logger.warning(f"[SYNC/NOW] Error: {err}")
     except Exception as e:
+        logger.error(f"[SYNC/NOW] Sync failed with exception: {e}")
         raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
     
     return {

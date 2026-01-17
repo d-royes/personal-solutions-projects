@@ -8,11 +8,14 @@ This service handles:
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, date
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
 
 from ..config import Settings
 from ..smartsheet_client import SmartsheetClient
@@ -505,14 +508,18 @@ class SyncService:
             SyncResult with counts of created, updated, unchanged, conflicts
         """
         result = SyncResult(direction=SyncDirection.SMARTSHEET_TO_FIRESTORE)
+        logger.info(f"[SYNC] sync_from_smartsheet starting - sources={sources}, include_work={include_work}, user={self.user_email}")
         
         try:
             # Fetch all tasks from Smartsheet
+            logger.info("[SYNC] Fetching tasks from Smartsheet...")
             smartsheet_tasks = self.smartsheet.list_tasks(
                 sources=sources,
                 include_work_in_all=include_work,
             )
+            logger.info(f"[SYNC] Fetched {len(smartsheet_tasks)} tasks from Smartsheet")
         except Exception as e:
+            logger.error(f"[SYNC] Failed to fetch Smartsheet tasks: {e}")
             result.errors.append(f"Failed to fetch Smartsheet tasks: {e}")
             return result
         
