@@ -12,6 +12,11 @@ DEV_BYPASS_ENV = "DTA_DEV_AUTH_BYPASS"
 CLIENT_ID_ENV = "GOOGLE_OAUTH_CLIENT_ID"
 ALLOWED_AUDIENCE_ENV = "GOOGLE_OAUTH_AUDIENCE"
 ALLOWED_EMAILS_ENV = "DTA_ALLOWED_EMAILS"
+# Cloud Scheduler service account for automated sync
+SCHEDULER_SERVICE_ACCOUNT_ENV = "CLOUD_SCHEDULER_SA"
+DEFAULT_SCHEDULER_SA = "cloud-scheduler-invoker@daily-task-assistant-church.iam.gserviceaccount.com"
+# Default user for scheduled operations
+SCHEDULER_DEFAULT_USER = "davidroyes@southpointsda.org"
 
 # Default allowed emails (can be overridden via DTA_ALLOWED_EMAILS env var)
 DEFAULT_ALLOWED_EMAILS = {
@@ -42,6 +47,32 @@ def _allowed_emails() -> set[str]:
     return {email.lower() for email in DEFAULT_ALLOWED_EMAILS}
 
 
+def _verify_cloud_scheduler_token(token: str) -> str | None:
+    """Verify if token is from Cloud Scheduler service account.
+    
+    Returns the default user email if valid, None otherwise.
+    """
+    try:
+        # Cloud Scheduler OIDC tokens have the Cloud Run URL as audience
+        # We verify the token without audience check first, then validate the email
+        request = google_requests.Request()
+        # Decode without audience verification to check issuer
+        idinfo = id_token.verify_oauth2_token(
+            token, request, audience=None,
+            clock_skew_in_seconds=10
+        )
+        
+        email = idinfo.get("email", "")
+        scheduler_sa = os.getenv(SCHEDULER_SERVICE_ACCOUNT_ENV, DEFAULT_SCHEDULER_SA)
+        
+        if email == scheduler_sa:
+            # Valid Cloud Scheduler request - return default user
+            return SCHEDULER_DEFAULT_USER
+        return None
+    except Exception:
+        return None
+
+
 def get_current_user(
     authorization: str | None = Header(default=None, alias="Authorization"),
     dev_user: str | None = Header(default=None, alias="X-User-Email"),
@@ -49,6 +80,7 @@ def get_current_user(
     """Return the authenticated user's email.
 
     During development/testing set DTA_DEV_AUTH_BYPASS=1 and supply X-User-Email.
+    Also accepts Cloud Scheduler OIDC tokens for automated sync.
     """
 
     if os.getenv(DEV_BYPASS_ENV) == "1":
@@ -69,6 +101,13 @@ def get_current_user(
         raise AuthError("Missing Bearer token.")
 
     token = authorization.split(" ", 1)[1].strip()
+    
+    # First, check if this is a Cloud Scheduler request
+    scheduler_user = _verify_cloud_scheduler_token(token)
+    if scheduler_user:
+        return scheduler_user
+    
+    # Otherwise, verify as normal OAuth token
     request = google_requests.Request()
     audiences = _audiences()
     if not audiences:
