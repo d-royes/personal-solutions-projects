@@ -1656,6 +1656,10 @@ def _describe_portfolio_action(action: PortfolioTaskUpdateAction) -> str:
 
 EMAIL_CHAT_SYSTEM_PROMPT = """You are DATA, David's personal AI assistant helping manage emails.
 
+IMPORTANT: Your conversations with David about emails ARE persisted across sessions.
+When you see conversation history in your context, those are real messages from previous
+interactions. Acknowledge this continuity when relevant - you DO have memory for each email thread.
+
 Your role is to help David:
 1. Triage and categorize emails efficiently
 2. Suggest actions (archive, delete, star, flag as important)
@@ -1803,7 +1807,7 @@ def chat_with_email(
             temperature=0.5,
             system=EMAIL_CHAT_SYSTEM_PROMPT,
             messages=messages,
-            tools=[EMAIL_ACTION_TOOL],
+            tools=[EMAIL_ACTION_TOOL, WEB_SEARCH_TOOL],
         )
     except APIStatusError as exc:
         raise AnthropicError(f"Anthropic API error: {exc}") from exc

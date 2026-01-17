@@ -118,6 +118,7 @@ class AttentionItem:
         """Convert to API-friendly dict (camelCase for JavaScript)."""
         return {
             "emailId": self.email.id,
+            "threadId": self.email.thread_id,
             "subject": self.email.subject,
             "fromAddress": self.email.from_address,
             "fromName": self.email.from_name,
