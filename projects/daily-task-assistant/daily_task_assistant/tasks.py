@@ -24,6 +24,12 @@ class TaskDetail:
     source: str = "personal"  # "personal" or "work" - identifies which sheet
     done: bool = False  # True if Done checkbox is checked
     number: Optional[float] = None  # # field for ordering: 0.1-0.9 for recurring (early AM), 1+ for regular tasks
+    # Additional fields for full sync support
+    deadline: Optional[datetime] = None  # Hard deadline (external commitment)
+    contact_flag: bool = False  # Task requires external contact
+    completed_on: Optional[datetime] = None  # When task was completed
+    recurring_pattern: Optional[List[str]] = None  # Recurring days ["M", "W", "F"] or ["Monthly"]
+    modified_at: Optional[datetime] = None  # Smartsheet row modifiedAt timestamp
 
 
 @dataclass(slots=True)

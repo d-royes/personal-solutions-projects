@@ -131,6 +131,43 @@ def serialize_task(task: TaskDetail) -> dict:
     }
 
 
+def serialize_firestore_task(task) -> dict:
+    """Serialize a FirestoreTask to the format expected by the LLM context assembler.
+    
+    This maps Firestore task fields to match the Smartsheet task format for compatibility
+    with existing LLM prompts and context assembly.
+    """
+    # Use planned_date or due_date, format as ISO string
+    due_str = None
+    if task.planned_date:
+        due_str = task.planned_date.isoformat() if hasattr(task.planned_date, 'isoformat') else str(task.planned_date)
+    elif task.due_date:
+        due_str = task.due_date.isoformat() if hasattr(task.due_date, 'isoformat') else str(task.due_date)
+    
+    return {
+        "rowId": f"fs:{task.id}",  # Prefix with fs: to distinguish from Smartsheet rows
+        "title": task.title,
+        "status": task.status or "scheduled",
+        "due": due_str,
+        "priority": task.priority or "Standard",
+        "project": task.project,
+        "assignedTo": task.assigned_to,
+        "estimatedHours": task.estimated_hours,
+        "notes": task.notes,
+        "nextStep": task.next_step,
+        "automationHint": None,  # Firestore tasks don't have automation hints yet
+        "source": task.domain or "personal",  # Map domain to source
+        "done": task.done,
+        # Additional Firestore-specific fields
+        "firestoreId": task.id,
+        "isFirestoreTask": True,
+        "targetDate": task.target_date.isoformat() if task.target_date else None,
+        "hardDeadline": task.hard_deadline.isoformat() if task.hard_deadline else None,
+        "timesRescheduled": task.times_rescheduled,
+        "recurringType": task.recurring_type,
+    }
+
+
 def serialize_plan(result: AssistExecutionResult) -> dict:
     plan = result.plan
     return {
@@ -148,6 +185,66 @@ def serialize_plan(result: AssistExecutionResult) -> dict:
         "commentPosted": result.comment_posted,
         "warnings": result.warnings,
     }
+
+
+def get_task_by_id(task_id: str, user: str, source: str = "auto") -> tuple:
+    """Fetch a task by ID, handling both Smartsheet and Firestore tasks.
+    
+    Args:
+        task_id: Task ID, optionally prefixed with 'fs:' for Firestore tasks
+        user: User email for Firestore lookups
+        source: Data source for Smartsheet lookups
+        
+    Returns:
+        Tuple of (TaskDetail, is_firestore_task, settings, live_tasks, warning)
+        
+    Raises:
+        HTTPException: If task not found
+    """
+    from daily_task_assistant.task_store import get_task as get_firestore_task
+    from datetime import datetime
+    
+    # Check if this is a Firestore task (prefixed with 'fs:')
+    if task_id.startswith("fs:"):
+        firestore_id = task_id[3:]  # Remove 'fs:' prefix
+        fs_task = get_firestore_task(user, firestore_id)
+        if not fs_task:
+            raise HTTPException(status_code=404, detail="Firestore task not found.")
+        
+        # Convert to TaskDetail-compatible object
+        due_datetime = datetime.combine(
+            fs_task.planned_date or fs_task.due_date or datetime.now().date(),
+            datetime.min.time()
+        )
+        
+        task_detail = TaskDetail(
+            row_id=task_id,  # Keep the fs: prefix for conversation IDs
+            title=fs_task.title,
+            status=fs_task.status or "scheduled",
+            due=due_datetime,
+            priority=fs_task.priority or "Standard",
+            project=fs_task.project or "",
+            assigned_to=fs_task.assigned_to,
+            estimated_hours=fs_task.estimated_hours,
+            notes=fs_task.notes,
+            next_step=fs_task.next_step,
+            automation_hint=None,
+            source=fs_task.domain or "personal",
+            done=fs_task.done,
+        )
+        
+        settings = _get_settings()
+        return (task_detail, True, settings, True, None)
+    
+    # Smartsheet task - use existing logic
+    tasks, live_tasks, settings, warning = fetch_task_dataset(
+        limit=None, source=source, include_work_in_all=True
+    )
+    target = next((task for task in tasks if task.row_id == task_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    
+    return (target, False, settings, live_tasks, warning)
 
 
 class AssistRequest(BaseModel):
@@ -1061,6 +1158,218 @@ def delete_global_message(
     }
 
 
+# --- Firestore Task Endpoints ---
+# NOTE: These routes MUST be defined BEFORE /assist/{task_id} routes
+# to prevent FastAPI from matching "firestore" as a task_id
+
+@app.post("/assist/firestore/{task_id}")
+def assist_firestore_task(
+    task_id: str,
+    request: AssistRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Engage with a Firestore task (load context and conversation history).
+    
+    Similar to /assist/{task_id} for Smartsheet tasks, but fetches the task
+    from Firestore instead. Uses conversation ID prefix 'fs:' to separate
+    Firestore task conversations from Smartsheet task conversations.
+    
+    Use /assist/firestore/{task_id}/chat for conversational messages.
+    """
+    from daily_task_assistant.task_store import get_task
+    from daily_task_assistant.conversations.history import get_latest_plan
+    
+    settings = _get_settings()
+    
+    # Fetch task from Firestore
+    task = get_task(user, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Firestore task not found.")
+    
+    # Use fs: prefix for conversation ID to separate from Smartsheet conversations
+    conversation_id = f"fs:{task_id}"
+    
+    if request.reset_conversation:
+        clear_conversation(conversation_id)
+    
+    history = fetch_conversation(conversation_id, limit=100)
+    
+    # Retrieve the latest plan from conversation history (if any)
+    latest_plan = get_latest_plan(conversation_id)
+    
+    # Build plan response object if we have a saved plan
+    plan_response = None
+    if latest_plan:
+        plan_response = {
+            "summary": latest_plan.get("summary", ""),
+            "score": 0,
+            "labels": latest_plan.get("labels", []),
+            "automationTriggers": [],
+            "nextSteps": latest_plan.get("next_steps", []),
+            "efficiencyTips": latest_plan.get("efficiency_tips", []),
+            "suggestedActions": latest_plan.get("suggested_actions", ["plan", "research", "draft_email", "follow_up"]),
+            "task": serialize_firestore_task(task),
+            "generator": "history",
+            "generatorNotes": [],
+            "generatedAt": latest_plan.get("generatedAt"),
+        }
+    
+    response = {
+        "plan": plan_response,
+        "environment": settings.environment,
+        "liveTasks": True,  # Firestore is always "live"
+        "warning": None,
+        "task": serialize_firestore_task(task),  # Include task data for frontend
+        "history": [
+            ConversationMessageModel(**asdict(msg)).model_dump()
+            for msg in history
+        ],
+    }
+    return response
+
+
+class FirestoreChatRequest(BaseModel):
+    """Request body for Firestore task chat endpoint."""
+    model_config = {"populate_by_name": True}
+    
+    message: str = Field(..., description="The user's message")
+    workspace_context: Optional[str] = Field(
+        None,
+        alias="workspaceContext",
+        description="Selected workspace content to include in context"
+    )
+
+
+@app.post("/assist/firestore/{task_id}/chat")
+def chat_with_firestore_task(
+    task_id: str,
+    request: FirestoreChatRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Send a conversational message about a Firestore task and get a response from DATA.
+
+    If DATA detects a task update intent, returns a pending_action that the
+    frontend can use to show a confirmation dialog.
+    """
+    from daily_task_assistant.task_store import get_task
+    from daily_task_assistant.llm.anthropic_client import chat_with_tools, AnthropicError
+    from daily_task_assistant.tasks import TaskDetail
+    from datetime import datetime
+    
+    # Fetch task from Firestore
+    task = get_task(user, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Firestore task not found.")
+    
+    # Use fs: prefix for conversation ID
+    conversation_id = f"fs:{task_id}"
+    
+    # Create a TaskDetail-compatible object for chat_with_tools
+    # Convert date to datetime for compatibility
+    due_datetime = datetime.combine(
+        task.planned_date or task.due_date or datetime.now().date(),
+        datetime.min.time()
+    )
+    
+    task_detail = TaskDetail(
+        row_id=f"fs:{task_id}",
+        title=task.title,
+        status=task.status or "scheduled",
+        due=due_datetime,
+        priority=task.priority or "Standard",
+        project=task.project or "",
+        assigned_to=task.assigned_to,
+        estimated_hours=task.estimated_hours,
+        notes=task.notes,
+        next_step=task.next_step,
+        automation_hint=None,
+        source=task.domain or "personal",
+        done=task.done,
+    )
+    
+    # Fetch existing conversation history
+    history = fetch_conversation(conversation_id, limit=50)
+    llm_history_messages = fetch_conversation_for_llm(conversation_id, limit=50)
+    
+    # Log the user message
+    user_turn = log_user_message(
+        conversation_id,
+        content=request.message,
+        user_email=user,
+        metadata={"source": "firestore", "task_id": task_id},
+    )
+    
+    # Build history for LLM
+    llm_history: List[Dict[str, str]] = [
+        {"role": msg.role, "content": msg.content} for msg in llm_history_messages
+    ]
+    
+    # Note: Firestore tasks don't have Smartsheet attachments (yet)
+    # In the future, we could support Firestore-native attachments
+    
+    # Call Anthropic with tool support for task updates
+    try:
+        chat_response = chat_with_tools(
+            task=task_detail,
+            user_message=request.message,
+            history=llm_history,
+            workspace_context=request.workspace_context,
+            attachments=None,  # No Smartsheet attachments for Firestore tasks
+        )
+    except AnthropicError as exc:
+        raise HTTPException(status_code=502, detail=f"AI service error: {exc}")
+    
+    # Log the assistant response
+    assistant_turn = log_assistant_message(
+        conversation_id,
+        content=chat_response.message,
+        plan=None,
+        metadata={
+            "source": "firestore_chat",
+            "task_id": task_id,
+            "has_pending_action": chat_response.pending_action is not None,
+        },
+    )
+    
+    # Fetch updated history
+    updated_history = fetch_conversation(conversation_id, limit=100)
+    
+    # Build response
+    response_data = {
+        "response": chat_response.message,
+        "history": [
+            ConversationMessageModel(**asdict(msg)).model_dump()
+            for msg in updated_history
+        ],
+    }
+    
+    # Include pending action if DATA detected an update intent
+    # Note: For Firestore tasks, frontend will need to call Firestore update API
+    if chat_response.pending_action:
+        action = chat_response.pending_action
+        response_data["pendingAction"] = {
+            "action": action.action,
+            "status": action.status,
+            "priority": action.priority,
+            "dueDate": action.due_date,
+            "comment": action.comment,
+            "reason": action.reason,
+            "isFirestoreTask": True,  # Flag to tell frontend to use Firestore API
+            "firestoreTaskId": task_id,
+        }
+    
+    # Include email draft update if DATA suggested changes
+    if chat_response.email_draft_update:
+        update = chat_response.email_draft_update
+        response_data["emailDraftUpdate"] = {
+            "subject": update.subject,
+            "body": update.body,
+            "reason": update.reason,
+        }
+    
+    return response_data
+
+
 # --- Task-Scoped Endpoints ---
 
 @app.post("/assist/{task_id}")
@@ -1147,13 +1456,11 @@ def generate_plan(
     
     This is triggered explicitly by the user clicking the 'Plan' action button.
     The plan is stored in conversation history for persistence across sessions.
+    Supports both Smartsheet tasks and Firestore tasks (prefixed with 'fs:').
     """
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+    target, is_firestore, settings, live_tasks, warning = get_task_by_id(
+        task_id, user, request.source
     )
-    target = next((task for task in tasks if task.row_id == task_id), None)
-    if not target:
-        raise HTTPException(status_code=404, detail="Task not found.")
 
     # Fetch conversation history to include in plan consideration (excluding struck messages)
     history = fetch_conversation_for_llm(task_id, limit=100)
@@ -1567,15 +1874,13 @@ def research_task_endpoint(
     
     Returns formatted research results for display in the action output area.
     Also logs a summary to the conversation history.
+    Supports both Smartsheet tasks and Firestore tasks (prefixed with 'fs:').
     """
     from daily_task_assistant.llm.anthropic_client import research_task, AnthropicError
 
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+    target, is_firestore, settings, live_tasks, warning = get_task_by_id(
+        task_id, user, request.source
     )
-    target = next((task for task in tasks if task.row_id == task_id), None)
-    if not target:
-        raise HTTPException(status_code=404, detail="Task not found.")
 
     try:
         research_results = research_task(
@@ -1649,15 +1954,13 @@ def contact_search_endpoint(
     
     Extracts entities (people, organizations) from task details and searches
     for their contact information. Returns structured contact cards.
+    Supports both Smartsheet tasks and Firestore tasks (prefixed with 'fs:').
     """
     from daily_task_assistant.contacts import search_contacts, ContactCard
 
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+    target, is_firestore, settings, live_tasks, warning = get_task_by_id(
+        task_id, user, request.source
     )
-    target = next((task for task in tasks if task.row_id == task_id), None)
-    if not target:
-        raise HTTPException(status_code=404, detail="Task not found.")
 
     # Perform contact search
     result = search_contacts(target)
@@ -1754,15 +2057,13 @@ def summarize_task_endpoint(
     
     Reviews the task details, current plan, and conversation history to provide
     a comprehensive summary of where things stand and recommendations for next steps.
+    Supports both Smartsheet tasks and Firestore tasks (prefixed with 'fs:').
     """
     from daily_task_assistant.llm.anthropic_client import summarize_task, AnthropicError
 
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+    target, is_firestore, settings, live_tasks, warning = get_task_by_id(
+        task_id, user, request.source
     )
-    target = next((task for task in tasks if task.row_id == task_id), None)
-    if not target:
-        raise HTTPException(status_code=404, detail="Task not found.")
 
     # Fetch conversation history (excluding struck messages for LLM)
     history = fetch_conversation_for_llm(task_id, limit=100)
@@ -1834,15 +2135,13 @@ def draft_email_endpoint(
     
     If sourceContent is provided, it will be used as the primary content for the email.
     Otherwise, the task notes and context will be used.
+    Supports both Smartsheet tasks and Firestore tasks (prefixed with 'fs:').
     """
     from daily_task_assistant.llm.anthropic_client import generate_email_draft, AnthropicError
 
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+    target, is_firestore, settings, live_tasks, warning = get_task_by_id(
+        task_id, user, request.source
     )
-    target = next((task for task in tasks if task.row_id == task_id), None)
-    if not target:
-        raise HTTPException(status_code=404, detail="Task not found.")
 
     # Build source content - include regenerate instructions if provided
     source_content = request.source_content
@@ -2860,6 +3159,7 @@ def analyze_inbox(
             subject=item.email.subject,
             from_address=item.email.from_address,
             from_name=item.email.from_name,
+            thread_id=item.email.thread_id,
             date=item.email.date,
             snippet=item.email.snippet,
             labels=item.email.labels,
@@ -4828,13 +5128,16 @@ Email Body:
 - Important: {"Yes" if email.is_important else "No"}
 - Starred: {"Yes" if email.is_starred else "No"}{blocked_note}"""
 
-    # Load existing conversation history (persistent across sessions)
-    history = request.history  # Use provided history as fallback
-    if not history:
-        # Try loading persisted conversation
-        persisted_msgs = fetch_email_conversation(account, thread_id, limit=20)
-        if persisted_msgs:
-            history = [{"role": m.role, "content": m.content} for m in persisted_msgs]
+    # Always load persisted history from Firestore (source of truth)
+    # This ensures conversation continuity even when frontend hasn't loaded history yet
+    persisted_msgs = fetch_email_conversation(account, thread_id, limit=20)
+    if persisted_msgs:
+        history = [{"role": m.role, "content": m.content} for m in persisted_msgs]
+    elif request.history:
+        # Fallback to provided history only if no persisted history exists
+        history = request.history
+    else:
+        history = None
 
     # Chat with DATA
     try:
@@ -4984,15 +5287,22 @@ class TaskPreviewRequest(BaseModel):
     email_id: str = Field(..., description="Gmail message ID")
 
 
-class TaskCreateRequest(BaseModel):
+class EmailTaskCreateRequest(BaseModel):
     """Request to create a task from email."""
     email_id: str = Field(..., description="Gmail message ID")
+    thread_id: Optional[str] = Field(None, description="Gmail thread ID for conversation linking")
     title: str = Field(..., description="Task title")
-    due_date: Optional[str] = Field(None, description="Due date (YYYY-MM-DD)")
+    # Three-date model (replaces due_date)
+    planned_date: Optional[str] = Field(None, description="When to work on it (YYYY-MM-DD)")
+    target_date: Optional[str] = Field(None, description="Original goal date (YYYY-MM-DD)")
+    hard_deadline: Optional[str] = Field(None, description="External commitment date (YYYY-MM-DD)")
+    # Core fields
+    status: Optional[str] = Field(None, description="Task status")
     priority: str = Field("Standard", description="Task priority")
     domain: str = Field("personal", description="Task domain")
     project: Optional[str] = Field(None, description="Project category")
     notes: Optional[str] = Field(None, description="Task notes")
+    estimated_hours: Optional[float] = Field(None, description="Estimated hours to complete")
 
 
 @app.post("/email/{account}/task-preview")
@@ -5055,55 +5365,106 @@ def preview_task_from_email(
 @app.post("/email/{account}/task-create")
 def create_task_from_email_endpoint(
     account: Literal["church", "personal"],
-    request: TaskCreateRequest,
+    request: EmailTaskCreateRequest,
     user: str = Depends(get_current_user),
 ) -> dict:
     """Create a task in Firestore from an email.
     
     Creates the task with the user-confirmed details and links
-    it back to the source email.
+    it back to the source email. Automatically syncs to Smartsheet.
     """
-    from datetime import date
+    from datetime import date, datetime
     from daily_task_assistant.mailer import GmailError, load_account_from_env, get_message
     from daily_task_assistant.task_store import create_task_from_email, FirestoreTask
     
-    # Load the email for subject reference
+    # Load the email for subject and sender details
     try:
         gmail_config = load_account_from_env(account)
         email = get_message(gmail_config, request.email_id)
     except GmailError as exc:
         raise HTTPException(status_code=502, detail=f"Gmail API error: {exc}")
     
-    # Parse due date if provided
-    due_date = None
-    if request.due_date:
+    # Parse dates (three-date model)
+    planned_date = None
+    target_date = None
+    hard_deadline = None
+    
+    if request.planned_date:
         try:
-            due_date = date.fromisoformat(request.due_date)
+            planned_date = date.fromisoformat(request.planned_date)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid due_date format (use YYYY-MM-DD)")
+            raise HTTPException(status_code=400, detail="Invalid planned_date format (use YYYY-MM-DD)")
+    
+    if request.target_date:
+        try:
+            target_date = date.fromisoformat(request.target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid target_date format (use YYYY-MM-DD)")
+    
+    if request.hard_deadline:
+        try:
+            hard_deadline = date.fromisoformat(request.hard_deadline)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid hard_deadline format (use YYYY-MM-DD)")
+    
+    # Build enhanced notes with email source details
+    sender = email.from_name or email.from_address or "Unknown"
+    email_date = email.date.strftime("%Y-%m-%d") if email.date else "Unknown"
+    
+    source_info = f"\n\n---\nSource: Email from {sender} ({account})\nSubject: {email.subject}\nDate: {email_date}"
+    
+    notes = request.notes or ""
+    if notes:
+        notes = notes.rstrip() + source_info
+    else:
+        notes = source_info.lstrip("\n")
     
     # Create the task
     try:
         task = create_task_from_email(
             user_id=user,
             email_id=request.email_id,
+            email_thread_id=request.thread_id,
             email_account=account,
             email_subject=email.subject,
             title=request.title,
-            due_date=due_date,
+            planned_date=planned_date,
+            target_date=target_date,
+            hard_deadline=hard_deadline,
+            status=request.status,
             priority=request.priority,
             domain=request.domain,
             project=request.project,
-            notes=request.notes,
+            notes=notes,
+            estimated_hours=request.estimated_hours,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to create task: {exc}")
+    
+    # Auto-sync to Smartsheet
+    sync_result = None
+    try:
+        from daily_task_assistant.sync.service import SyncService
+        from daily_task_assistant.config import Settings
+        import os
+        
+        api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+        sync_service = SyncService(api_settings, user_email=user)
+        result = sync_service.sync_to_smartsheet(task_ids=[task.id])
+        sync_result = {
+            "success": result.success,
+            "created": result.created,
+            "errors": result.errors if result.errors else None,
+        }
+    except Exception as e:
+        sync_result = {"success": False, "error": str(e)}
     
     return {
         "status": "created",
         "account": account,
         "emailId": request.email_id,
         "task": task.to_api_dict(),
+        "syncResult": sync_result,
     }
 
 
@@ -5183,13 +5544,118 @@ def list_firestore_tasks(
     }
 
 
+class TaskCreateRequest(BaseModel):
+    """Request body for creating a new task (Phase 1d - direct API, no LLM)."""
+    title: str
+    domain: str = "personal"  # "personal", "church", or "work"
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    project: Optional[str] = None
+    planned_date: Optional[str] = None  # ISO date string
+    target_date: Optional[str] = None
+    hard_deadline: Optional[str] = None
+    notes: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    # Recurring task fields
+    recurring_type: Optional[str] = None  # weekly, monthly, biweekly, custom
+    recurring_days: Optional[List[str]] = None  # M, T, W, H, F, Sa, Su
+    recurring_monthly: Optional[str] = None  # 1, 15, last, first_monday, etc.
+    recurring_interval: Optional[int] = None  # For custom interval (days)
+    # Auto-sync to Smartsheet after creation
+    auto_sync: bool = True  # Default to auto-sync
+
+
+@app.post("/tasks/firestore")
+def create_firestore_task_direct(
+    request: TaskCreateRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Create a new task directly in Firestore.
+    
+    This is a direct task creation endpoint (no LLM involvement).
+    Part of Phase 1d of the Internal Task System Migration.
+    """
+    from daily_task_assistant.task_store import create_task, TaskStatus, TaskPriority, TaskSource
+    from datetime import date
+    
+    # Parse dates
+    planned_date = None
+    target_date = None
+    hard_deadline = None
+    
+    if request.planned_date:
+        try:
+            planned_date = date.fromisoformat(request.planned_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid planned_date format: {request.planned_date}")
+    
+    if request.target_date:
+        try:
+            target_date = date.fromisoformat(request.target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid target_date format: {request.target_date}")
+    
+    if request.hard_deadline:
+        try:
+            hard_deadline = date.fromisoformat(request.hard_deadline)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid hard_deadline format: {request.hard_deadline}")
+    
+    # Map status string to enum value
+    status = request.status or TaskStatus.SCHEDULED.value
+    priority = request.priority or TaskPriority.STANDARD.value
+    
+    # Create the task
+    task = create_task(
+        user_id=user,
+        title=request.title,
+        domain=request.domain,
+        status=status,
+        priority=priority,
+        project=request.project,
+        planned_date=planned_date,
+        target_date=target_date,
+        hard_deadline=hard_deadline,
+        notes=request.notes,
+        estimated_hours=request.estimated_hours,
+        source=TaskSource.MANUAL.value,
+        recurring_type=request.recurring_type,
+        recurring_days=request.recurring_days,
+        recurring_monthly=request.recurring_monthly,
+        recurring_interval=request.recurring_interval,
+    )
+    
+    # Auto-sync to Smartsheet if requested
+    sync_result = None
+    if request.auto_sync:
+        try:
+            from daily_task_assistant.sync.service import SyncService
+            from daily_task_assistant.config import Settings
+            import os
+            
+            api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+            sync_service = SyncService(api_settings, user_email=user)
+            
+            # Sync just this task to Smartsheet
+            result = sync_service.sync_to_smartsheet(task_ids=[task.id])
+            sync_result = {
+                "synced": result.success,
+                "created": result.created,
+                "errors": result.errors if result.errors else None,
+            }
+        except Exception as e:
+            sync_result = {"synced": False, "error": str(e)}
+    
+    return {"task": task.to_api_dict(), "sync": sync_result}
+
+
 @app.get("/tasks/firestore/{task_id}")
 def get_firestore_task(
     task_id: str,
     user: str = Depends(get_current_user),
 ) -> dict:
     """Get a single task from Firestore."""
-    from daily_task_assistant.tasks import get_task
+    from daily_task_assistant.task_store import get_task
     
     task = get_task(user, task_id)
     if not task:
@@ -5218,15 +5684,506 @@ def update_firestore_task(
 def delete_firestore_task(
     task_id: str,
     user: str = Depends(get_current_user),
+    cascade_to_smartsheet: bool = Query(True, description="Also delete from Smartsheet if synced"),
 ) -> dict:
-    """Delete a task from Firestore."""
-    from daily_task_assistant.task_store import delete_task
+    """Delete a task from Firestore.
     
+    If the task is synced with Smartsheet (has smartsheet_row_id),
+    also deletes the corresponding row from Smartsheet.
+    """
+    from daily_task_assistant.task_store import get_task, delete_task
+    from daily_task_assistant.smartsheet_client import SmartsheetClient
+    from daily_task_assistant.config import Settings
+    
+    # First get the task to check if it's synced with Smartsheet
+    task = get_task(user, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Store Smartsheet info before deleting
+    ss_row_id = task.smartsheet_row_id
+    ss_sheet = task.smartsheet_sheet or task.domain
+    
+    # Delete from Firestore
     deleted = delete_task(user, task_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    return {"status": "deleted", "taskId": task_id}
+    # Mark as Cancelled + Done in Smartsheet (instead of deleting - preserves history)
+    ss_updated = False
+    if cascade_to_smartsheet and ss_row_id:
+        try:
+            settings = _get_settings()
+            client = SmartsheetClient(settings)
+            # Mark as Cancelled and Done instead of deleting
+            client.update_row(ss_row_id, {
+                "status": "Cancelled",
+                "done": True,
+            }, source=ss_sheet)
+            ss_updated = True
+        except Exception as e:
+            # Log error but don't fail - Firestore delete succeeded
+            print(f"[API] Warning: Failed to update Smartsheet row {ss_row_id}: {e}")
+    
+    return {
+        "status": "deleted",
+        "taskId": task_id,
+        "smartsheetUpdated": ss_updated,
+    }
+
+
+# --- Task Sync Endpoints (Phase 1c - Internal Task System Migration) ---
+
+class SyncRequest(BaseModel):
+    """Request body for sync operations."""
+    sources: Optional[List[str]] = Field(
+        None,
+        description="Specific source keys to sync (e.g., ['personal', 'work']). If None, syncs all."
+    )
+    include_work: bool = Field(
+        False,
+        description="Include work tasks when sources is None"
+    )
+    direction: str = Field(
+        "bidirectional",
+        description="Sync direction: 'smartsheet_to_firestore', 'firestore_to_smartsheet', or 'bidirectional'"
+    )
+
+
+@app.post("/sync/now")
+def sync_now(
+    request: SyncRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Trigger a sync between Smartsheet and Firestore.
+    
+    This is the primary sync endpoint for the Internal Task System Migration.
+    It supports bidirectional sync or one-way sync in either direction.
+    
+    Returns:
+        Sync results including counts of created, updated, unchanged, conflicts, and errors.
+    """
+    from daily_task_assistant.sync import SyncService, SyncDirection
+    from daily_task_assistant.config import Settings
+    
+    try:
+        settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
+    
+    sync_service = SyncService(settings, user_email=user)
+    
+    # Map direction string to enum
+    direction_map = {
+        "smartsheet_to_firestore": SyncDirection.SMARTSHEET_TO_FIRESTORE,
+        "firestore_to_smartsheet": SyncDirection.FIRESTORE_TO_SMARTSHEET,
+        "bidirectional": SyncDirection.BIDIRECTIONAL,
+    }
+    direction = direction_map.get(request.direction, SyncDirection.BIDIRECTIONAL)
+    
+    try:
+        if direction == SyncDirection.SMARTSHEET_TO_FIRESTORE:
+            result = sync_service.sync_from_smartsheet(
+                sources=request.sources,
+                include_work=request.include_work,
+            )
+        elif direction == SyncDirection.FIRESTORE_TO_SMARTSHEET:
+            result = sync_service.sync_to_smartsheet()
+        else:
+            result = sync_service.sync_bidirectional(
+                sources=request.sources,
+                include_work=request.include_work,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
+    
+    return {
+        "success": result.success,
+        "direction": result.direction.value,
+        "created": result.created,
+        "updated": result.updated,
+        "unchanged": result.unchanged,
+        "conflicts": result.conflicts,
+        "errors": result.errors,
+        "totalProcessed": result.total_processed,
+        "syncedAt": result.synced_at.isoformat(),
+    }
+
+
+@app.get("/sync/status")
+def get_sync_status(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Get current sync status summary.
+    
+    Returns counts of tasks by sync status:
+    - synced: In sync with Smartsheet
+    - pending: Local changes waiting to sync
+    - local_only: Only in Firestore, never synced
+    - conflicts: Need manual resolution
+    """
+    from daily_task_assistant.sync import SyncService
+    from daily_task_assistant.config import Settings
+    
+    try:
+        settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
+    
+    sync_service = SyncService(settings, user_email=user)
+    status = sync_service.get_sync_status()
+    
+    return {
+        "totalTasks": status["total_tasks"],
+        "synced": status["synced"],
+        "pending": status["pending"],
+        "localOnly": status["local_only"],
+        "conflicts": status["conflicts"],
+        "orphaned": status.get("orphaned", 0),
+    }
+
+
+# =============================================================================
+# RECURRING TASK MANAGEMENT
+# =============================================================================
+
+@app.post("/tasks/recurring/reset")
+def reset_recurring_tasks(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Reset recurring tasks that should activate today.
+    
+    This endpoint is called by Cloud Scheduler daily at 4:00 AM ET.
+    It finds all recurring tasks where:
+    - Task has a recurring_type set (FS-managed recurring)
+    - Task is marked done=True
+    - Today matches the recurring pattern
+    
+    For each matching task, it:
+    - Sets done=False
+    - Advances planned_date to next occurrence
+    - Clears completed_on
+    
+    Returns:
+        Count of tasks reset and list of task IDs
+    """
+    from datetime import date
+    from daily_task_assistant.task_store import list_tasks, FirestoreTask
+    from daily_task_assistant.task_store.recurring import (
+        should_reset_today,
+        reset_recurring_task,
+    )
+    
+    today = date.today()
+    reset_count = 0
+    reset_task_ids = []
+    errors = []
+    
+    # Get all tasks for this user
+    try:
+        all_tasks = list_tasks(user, limit=10000)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tasks: {e}")
+    
+    # Find and reset tasks that should reset today
+    for task in all_tasks:
+        try:
+            if should_reset_today(task, today):
+                updated = reset_recurring_task(user, task)
+                if updated:
+                    reset_count += 1
+                    reset_task_ids.append(task.id)
+        except Exception as e:
+            errors.append(f"Error resetting task {task.id}: {e}")
+    
+    return {
+        "date": today.isoformat(),
+        "resetCount": reset_count,
+        "resetTaskIds": reset_task_ids,
+        "errors": errors,
+    }
+
+
+@app.get("/tasks/recurring/preview")
+def preview_recurring_resets(
+    target_date: Optional[str] = Query(None, description="Date to preview (YYYY-MM-DD), defaults to today"),
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Preview which recurring tasks would reset on a given date.
+    
+    Useful for testing and debugging recurring patterns without
+    actually resetting the tasks.
+    
+    Args:
+        target_date: Date to check (defaults to today)
+        
+    Returns:
+        List of tasks that would reset on that date
+    """
+    from datetime import date
+    from daily_task_assistant.task_store import list_tasks
+    from daily_task_assistant.task_store.recurring import (
+        should_reset_today,
+        get_recurring_display,
+        get_next_occurrence,
+    )
+    
+    # Parse target date
+    if target_date:
+        try:
+            check_date = date.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    else:
+        check_date = date.today()
+    
+    # Get all tasks
+    try:
+        all_tasks = list_tasks(user, limit=10000)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tasks: {e}")
+    
+    # Find tasks with recurring patterns
+    would_reset = []
+    recurring_tasks = []
+    
+    for task in all_tasks:
+        if task.recurring_type:
+            recurring_info = {
+                "id": task.id,
+                "title": task.title,
+                "recurringType": task.recurring_type,
+                "recurringDays": task.recurring_days,
+                "recurringMonthly": task.recurring_monthly,
+                "recurringInterval": task.recurring_interval,
+                "pattern": get_recurring_display(task),
+                "plannedDate": task.planned_date.isoformat() if task.planned_date else None,
+                "done": task.done,
+                "nextOccurrence": None,
+            }
+            
+            # Calculate next occurrence
+            next_occ = get_next_occurrence(task)
+            if next_occ:
+                recurring_info["nextOccurrence"] = next_occ.isoformat()
+            
+            recurring_tasks.append(recurring_info)
+            
+            # Check if would reset on target date
+            if should_reset_today(task, check_date):
+                would_reset.append(recurring_info)
+    
+    return {
+        "targetDate": check_date.isoformat(),
+        "totalRecurringTasks": len(recurring_tasks),
+        "wouldResetCount": len(would_reset),
+        "wouldReset": would_reset,
+        "allRecurringTasks": recurring_tasks,
+    }
+
+
+# =============================================================================
+# GLOBAL SETTINGS
+# =============================================================================
+
+class UpdateSettingsRequest(BaseModel):
+    """Request body for updating global settings."""
+    inactivity_timeout_minutes: Optional[int] = Field(
+        None,
+        description="Inactivity timeout in minutes (0=disabled, 5, 10, 15, 30)"
+    )
+    sync: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Sync settings: enabled (bool), interval_minutes (5, 15, 30, 60)"
+    )
+    attention_signals: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Attention signal thresholds: slippage_threshold (1-5), hard_deadline_days (1-7), stale_days (3-14)"
+    )
+
+
+@app.get("/settings")
+def get_settings_endpoint(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Fetch global application settings.
+    
+    Returns all user preferences stored in Firestore, including:
+    - inactivityTimeoutMinutes: Auto-logout timeout
+    - sync: Bidirectional sync configuration
+    - attentionSignals: Needs Attention filter thresholds
+    
+    Settings are shared across all email accounts (work/church).
+    """
+    from daily_task_assistant.settings import get_settings
+    
+    settings = get_settings()
+    return settings.to_api_dict()
+
+
+@app.put("/settings")
+def update_settings_endpoint(
+    request: UpdateSettingsRequest,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Update global application settings.
+    
+    Supports partial updates - only provided fields are changed.
+    Settings are shared across all email accounts (work/church).
+    """
+    from daily_task_assistant.settings import update_settings
+    
+    updates = {}
+    
+    if request.inactivity_timeout_minutes is not None:
+        # Validate timeout value
+        valid_timeouts = [0, 5, 10, 15, 30]
+        if request.inactivity_timeout_minutes not in valid_timeouts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timeout. Must be one of: {valid_timeouts}"
+            )
+        updates["inactivity_timeout_minutes"] = request.inactivity_timeout_minutes
+    
+    if request.sync is not None:
+        sync_updates = {}
+        
+        if "enabled" in request.sync:
+            sync_updates["enabled"] = bool(request.sync["enabled"])
+        
+        if "interval_minutes" in request.sync:
+            valid_intervals = [5, 15, 30, 60]
+            interval = request.sync["interval_minutes"]
+            if interval not in valid_intervals:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid sync interval. Must be one of: {valid_intervals}"
+                )
+            sync_updates["interval_minutes"] = interval
+        
+        if sync_updates:
+            updates["sync"] = sync_updates
+    
+    if request.attention_signals is not None:
+        attention_updates = {}
+        
+        if "slippage_threshold" in request.attention_signals:
+            threshold = request.attention_signals["slippage_threshold"]
+            if not (1 <= threshold <= 5):
+                raise HTTPException(
+                    status_code=400,
+                    detail="slippage_threshold must be between 1 and 5"
+                )
+            attention_updates["slippage_threshold"] = threshold
+        
+        if "hard_deadline_days" in request.attention_signals:
+            days = request.attention_signals["hard_deadline_days"]
+            if not (1 <= days <= 7):
+                raise HTTPException(
+                    status_code=400,
+                    detail="hard_deadline_days must be between 1 and 7"
+                )
+            attention_updates["hard_deadline_days"] = days
+        
+        if "stale_days" in request.attention_signals:
+            days = request.attention_signals["stale_days"]
+            if not (3 <= days <= 14):
+                raise HTTPException(
+                    status_code=400,
+                    detail="stale_days must be between 3 and 14"
+                )
+            attention_updates["stale_days"] = days
+        
+        if attention_updates:
+            updates["attention_signals"] = attention_updates
+    
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid settings to update")
+    
+    settings = update_settings(updates)
+    return settings.to_api_dict()
+
+
+@app.post("/sync/scheduled")
+def sync_scheduled(
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Scheduled sync endpoint for Cloud Scheduler.
+    
+    This endpoint is called by Cloud Scheduler every 5 minutes.
+    It checks the user's sync settings to determine if a sync should run:
+    - Sync must be enabled
+    - Enough time must have passed since last_sync_at based on interval_minutes
+    
+    If conditions are met, runs bidirectional sync and records the result.
+    """
+    from daily_task_assistant.settings import (
+        get_settings,
+        should_run_scheduled_sync,
+        record_sync_result,
+    )
+    from daily_task_assistant.sync import SyncService
+    from daily_task_assistant.config import Settings
+    
+    # Check if sync should run
+    if not should_run_scheduled_sync():
+        settings = get_settings()
+        return {
+            "ran": False,
+            "reason": "skipped" if settings.sync.enabled else "disabled",
+            "syncEnabled": settings.sync.enabled,
+            "intervalMinutes": settings.sync.interval_minutes,
+            "lastSyncAt": settings.sync.last_sync_at,
+        }
+    
+    # Run bidirectional sync
+    try:
+        api_settings = Settings(smartsheet_token=os.getenv("SMARTSHEET_API_TOKEN", ""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load settings: {e}")
+    
+    sync_service = SyncService(api_settings, user_email=user)
+    
+    try:
+        result = sync_service.sync_bidirectional(
+            sources=None,
+            include_work=True,
+        )
+    except Exception as e:
+        # Record failed sync
+        record_sync_result({
+            "success": False,
+            "errors": 1,
+            "created": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "conflicts": 0,
+            "total_processed": 0,
+        })
+        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
+    
+    # Record successful sync result
+    record_sync_result({
+        "success": result.success,
+        "created": result.created,
+        "updated": result.updated,
+        "unchanged": result.unchanged,
+        "conflicts": result.conflicts,
+        "errors": result.errors,
+        "total_processed": result.total_processed,
+    })
+    
+    return {
+        "ran": True,
+        "success": result.success,
+        "created": result.created,
+        "updated": result.updated,
+        "unchanged": result.unchanged,
+        "conflicts": result.conflicts,
+        "errors": result.errors,
+        "totalProcessed": result.total_processed,
+        "syncedAt": result.synced_at.isoformat(),
+    }
 
 
 # --- Email Memory Endpoints (Phase C) ---

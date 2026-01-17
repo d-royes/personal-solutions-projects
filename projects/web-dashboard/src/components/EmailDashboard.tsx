@@ -108,6 +108,8 @@ interface EmailDashboardProps {
   setCache?: React.Dispatch<React.SetStateAction<EmailCacheState>>
   selectedAccount?: EmailAccount
   setSelectedAccount?: React.Dispatch<React.SetStateAction<EmailAccount>>
+  // Callback when a task is created from email (to refresh task list in App)
+  onTaskCreated?: () => void
 }
 
 type TabView = 'dashboard' | 'rules' | 'newRules' | 'suggestions' | 'attention' | 'pinned' | 'settings'
@@ -216,6 +218,7 @@ export function EmailDashboard({
   setCache: externalSetCache,
   selectedAccount: externalSelectedAccount,
   setSelectedAccount: externalSetSelectedAccount,
+  onTaskCreated,
 }: EmailDashboardProps) {
   // Account selection - use external state if provided, otherwise local
   const [localSelectedAccount, localSetSelectedAccount] = useState<EmailAccount>('personal')
@@ -1034,11 +1037,15 @@ export function EmailDashboard({
       const domain = response.preview.domain || (selectedAccount === 'church' ? 'church' : 'personal')
       setTaskFormData({
         title: response.preview.title || '',
-        dueDate: response.preview.dueDate || '',
+        plannedDate: response.preview.dueDate || '',  // Map dueDate to plannedDate
+        targetDate: '',
+        hardDeadline: '',
+        status: 'scheduled',
         priority: response.preview.priority || 'Standard',
         domain: domain,
         project: response.preview.project || '',
         notes: response.preview.notes || '',
+        estimatedHours: '',
       })
     } catch (err) {
       // Fallback to email subject
@@ -1046,11 +1053,15 @@ export function EmailDashboard({
       const domain = selectedAccount === 'church' ? 'church' : 'personal'
       setTaskFormData({
         title: email?.subject.replace(/^(Re:|Fwd:|FW:)\s*/gi, '').trim() || '',
-        dueDate: '',
+        plannedDate: '',
+        targetDate: '',
+        hardDeadline: '',
+        status: 'scheduled',
         priority: 'Standard',
         domain: domain,
         project: domain === 'church' ? 'Church Tasks' : 'Sm. Projects & Tasks',
-        notes: `From: ${email?.fromName || email?.fromAddress || ''}`,
+        notes: '',  // Notes will be enhanced with email source in backend
+        estimatedHours: '',
       })
     } finally {
       setCreatingTask(false)
@@ -1069,12 +1080,19 @@ export function EmailDashboard({
         selectedAccount,
         {
           emailId: selectedEmailId,
+          threadId: selectedEmail?.threadId,  // Link task to email thread
           title: taskFormData.title.trim(),
-          dueDate: taskFormData.dueDate || undefined,
+          // Three-date model
+          plannedDate: taskFormData.plannedDate || undefined,
+          targetDate: taskFormData.targetDate || undefined,
+          hardDeadline: taskFormData.hardDeadline || undefined,
+          // Core fields
+          status: taskFormData.status || undefined,
           priority: taskFormData.priority,
           domain: taskFormData.domain,
           project: taskFormData.project || undefined,
           notes: taskFormData.notes || undefined,
+          estimatedHours: taskFormData.estimatedHours ? parseFloat(taskFormData.estimatedHours) : undefined,
         },
         authConfig,
         apiBase
@@ -1095,19 +1113,27 @@ export function EmailDashboard({
       
       // Success - close form and show confirmation in chat
       setShowTaskForm(false)
+      const syncInfo = response.syncResult?.success ? ` (synced to Smartsheet)` : ''
       setChatHistory(prev => [...prev, { 
         role: 'assistant', 
-        content: `✓ Task created: "${taskFormData.title}"` 
+        content: `✓ Task created: "${taskFormData.title}"${syncInfo}` 
       }])
+      
+      // Notify parent to refresh task list
+      onTaskCreated?.()
       
       // Reset form
       setTaskFormData({
         title: '',
-        dueDate: '',
+        plannedDate: '',
+        targetDate: '',
+        hardDeadline: '',
+        status: 'scheduled',
         priority: 'Standard',
         domain: 'personal',
         project: '',
         notes: '',
+        estimatedHours: '',
       })
       setTaskPreview(null)
     } catch (err) {
@@ -1123,11 +1149,15 @@ export function EmailDashboard({
     setTaskPreview(null)
     setTaskFormData({
       title: '',
-      dueDate: '',
+      plannedDate: '',
+      targetDate: '',
+      hardDeadline: '',
+      status: 'scheduled',
       priority: 'Standard',
       domain: 'personal',
       project: '',
       notes: '',
+      estimatedHours: '',
     })
   }
 
@@ -1196,7 +1226,8 @@ export function EmailDashboard({
     setShowDismissMenu(false)
 
     // Fetch full email body in the background
-    fetchFullEmailBody(emailId)
+    // Pass whether we already have threadId so fallback can load conversation if needed
+    fetchFullEmailBody(emailId, !!threadId)
 
     // Always fetch privacy status (for badge display)
     loadPrivacyStatus(emailId)
@@ -1267,7 +1298,8 @@ export function EmailDashboard({
   }
 
   // Fetch full email body when email is selected
-  async function fetchFullEmailBody(emailId: string) {
+  // hasThreadId indicates if caller already has threadId (so we can skip fallback conversation load)
+  async function fetchFullEmailBody(emailId: string, hasThreadId: boolean = false) {
     setLoadingFullBody(true)
     try {
       const response = await getEmailFull(selectedAccount, emailId, authConfig, apiBase, true)
@@ -1311,6 +1343,13 @@ export function EmailDashboard({
         bodyHtml: response.message.bodyHtml ?? null,
         attachmentCount: response.message.attachmentCount ?? 0,
       })
+      
+      // Fallback: If caller didn't have threadId but email has one, load conversation
+      // This handles older attention items that don't have threadId stored
+      if (response.message.threadId && !hasThreadId) {
+        setCurrentThreadId(response.message.threadId)
+        loadConversationHistory(response.message.threadId)
+      }
     } catch (err) {
       console.error('Failed to load full email body:', err)
       // Don't show error to user - they can still work with snippet
@@ -1672,11 +1711,17 @@ export function EmailDashboard({
   void _taskPreview // Reserved for future use
   const [taskFormData, setTaskFormData] = useState({
     title: '',
-    dueDate: '',
+    // Three-date model
+    plannedDate: '',
+    targetDate: '',
+    hardDeadline: '',
+    // Core fields
+    status: 'scheduled',
     priority: 'Standard',
     domain: 'personal',
     project: '',
     notes: '',
+    estimatedHours: '',
   })
   
   // Project options based on domain
@@ -2648,7 +2693,7 @@ export function EmailDashboard({
                   <li 
                     key={item.emailId} 
                     className={`attention-card ${item.urgency} ${selectedEmailId === item.emailId ? 'selected' : ''}`}
-                    onClick={() => handleSelectEmail(item.emailId)}
+                    onClick={() => handleSelectEmail(item.emailId, item.threadId)}
                   >
                     <div className="attention-header">
                       <span className={`urgency-badge ${item.urgency}`}>
@@ -3268,14 +3313,21 @@ export function EmailDashboard({
                         />
                       </div>
                       
+                      {/* Status and Priority row */}
                       <div className="task-form-row">
                         <div className="task-form-field">
-                          <label>Due Date</label>
-                          <input
-                            type="date"
-                            value={taskFormData.dueDate}
-                            onChange={(e) => setTaskFormData(prev => ({ ...prev, dueDate: e.target.value }))}
-                          />
+                          <label>Status</label>
+                          <select
+                            value={taskFormData.status}
+                            onChange={(e) => setTaskFormData(prev => ({ ...prev, status: e.target.value }))}
+                          >
+                            <option value="scheduled">Scheduled</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="on_hold">On Hold</option>
+                            <option value="blocked">Blocked</option>
+                            <option value="awaiting_reply">Awaiting Reply</option>
+                            <option value="follow_up">Follow-up</option>
+                          </select>
                         </div>
                         
                         <div className="task-form-field">
@@ -3293,6 +3345,40 @@ export function EmailDashboard({
                         </div>
                       </div>
                       
+                      {/* Three-date model row */}
+                      <div className="task-form-row task-form-dates">
+                        <div className="task-form-field">
+                          <label>Planned Date</label>
+                          <input
+                            type="date"
+                            value={taskFormData.plannedDate}
+                            onChange={(e) => setTaskFormData(prev => ({ ...prev, plannedDate: e.target.value }))}
+                            title="When to work on it"
+                          />
+                        </div>
+                        
+                        <div className="task-form-field">
+                          <label>Target Date</label>
+                          <input
+                            type="date"
+                            value={taskFormData.targetDate}
+                            onChange={(e) => setTaskFormData(prev => ({ ...prev, targetDate: e.target.value }))}
+                            title="Original goal date"
+                          />
+                        </div>
+                        
+                        <div className="task-form-field">
+                          <label>Hard Deadline</label>
+                          <input
+                            type="date"
+                            value={taskFormData.hardDeadline}
+                            onChange={(e) => setTaskFormData(prev => ({ ...prev, hardDeadline: e.target.value }))}
+                            title="External commitment date"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Domain and Project row */}
                       <div className="task-form-row">
                         <div className="task-form-field">
                           <label>Domain</label>
@@ -3322,6 +3408,22 @@ export function EmailDashboard({
                             ))}
                           </select>
                         </div>
+                        
+                        <div className="task-form-field task-form-field-small">
+                          <label>Est. Hours</label>
+                          <select
+                            value={taskFormData.estimatedHours}
+                            onChange={(e) => setTaskFormData(prev => ({ ...prev, estimatedHours: e.target.value }))}
+                          >
+                            <option value="">-</option>
+                            <option value="0.25">0.25</option>
+                            <option value="0.5">0.5</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="4">4</option>
+                            <option value="8">8</option>
+                          </select>
+                        </div>
                       </div>
                       
                       <div className="task-form-field">
@@ -3329,7 +3431,7 @@ export function EmailDashboard({
                         <textarea
                           value={taskFormData.notes}
                           onChange={(e) => setTaskFormData(prev => ({ ...prev, notes: e.target.value }))}
-                          placeholder="Optional notes..."
+                          placeholder="Optional notes (email source details will be added automatically)"
                           rows={2}
                         />
                       </div>
