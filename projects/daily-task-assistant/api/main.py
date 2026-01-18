@@ -9,8 +9,16 @@ load_dotenv(env_path)
 
 import logging
 import os
+import sys
 
+# Configure logging to ensure INFO level messages appear in Cloud Run
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    stream=sys.stdout
+)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 from dataclasses import asdict
 from functools import lru_cache
 from typing import Any, Dict, List, Literal, Optional
@@ -6139,12 +6147,12 @@ def sync_scheduled(
     from daily_task_assistant.sync import SyncService
     from daily_task_assistant.config import Settings
     
-    logger.info(f"[SYNC] Scheduled sync triggered for user: {user}")
+    print(f"[SYNC] Scheduled sync triggered for user: {user}", flush=True)
     
     # Check if sync should run
     if not should_run_scheduled_sync():
         settings = get_settings()
-        logger.info(f"[SYNC] Skipped - enabled={settings.sync.enabled}, interval={settings.sync.interval_minutes}min, lastSync={settings.sync.last_sync_at}")
+        print(f"[SYNC] Skipped - enabled={settings.sync.enabled}, interval={settings.sync.interval_minutes}min, lastSync={settings.sync.last_sync_at}", flush=True)
         return {
             "ran": False,
             "reason": "skipped" if settings.sync.enabled else "disabled",
@@ -6154,7 +6162,7 @@ def sync_scheduled(
         }
     
     # Run bidirectional sync
-    logger.info("[SYNC] Running bidirectional sync...")
+    print("[SYNC] Running bidirectional sync...", flush=True)
     try:
         api_settings = Settings(smartsheet_token=(os.getenv("SMARTSHEET_API_TOKEN", "") or "").strip())
     except Exception as e:
