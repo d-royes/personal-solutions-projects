@@ -238,6 +238,8 @@ class SmartsheetClient:
         else:
             target_sources = self.multi_config.get_sources_for_all_filter()
 
+        print(f"[SS] list_tasks: target_sources={target_sources}, include_work_in_all={include_work_in_all}", flush=True)
+
         all_tasks: List[TaskDetail] = []
         all_errors: List[str] = []
         any_live = False
@@ -245,12 +247,16 @@ class SmartsheetClient:
         for source_key in target_sources:
             schema = self.multi_config.sheets.get(source_key)
             if not schema:
+                print(f"[SS] Skipping {source_key}: no schema found", flush=True)
                 continue
 
             if not schema.ready_for_live:
+                print(f"[SS] Skipping {source_key}: not ready_for_live", flush=True)
                 if fallback_to_stub and source_key == "personal":
                     all_tasks.extend(fetch_stubbed_tasks(limit=limit))
                 continue
+            
+            print(f"[SS] Fetching from {source_key} (sheet_id={schema.sheet_id})", flush=True)
 
             try:
                 payload = self._request(
