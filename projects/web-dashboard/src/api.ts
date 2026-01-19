@@ -212,11 +212,19 @@ export interface EmailDraftUpdate {
   reason: string
 }
 
+export interface PendingEmailDraft {
+  recipient: string
+  subject: string
+  body: string
+  reason: string
+}
+
 export interface ChatResponse {
   response: string
   history: ConversationMessage[]
   pendingAction?: PendingAction
   emailDraftUpdate?: EmailDraftUpdate
+  pendingEmailDraft?: PendingEmailDraft
 }
 
 export interface ChatMessageOptions {

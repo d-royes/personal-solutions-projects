@@ -192,6 +192,13 @@ def serialize_plan(result: AssistExecutionResult) -> dict:
         "messageId": result.message_id,
         "commentPosted": result.comment_posted,
         "warnings": result.warnings,
+        # New fields from Task Planning Skill
+        "complexity": plan.complexity,
+        "crux": plan.crux,
+        "approachOptions": plan.approach_options,
+        "recommendedPath": plan.recommended_path,
+        "openQuestions": plan.open_questions,
+        "doneWhen": plan.done_when,
     }
 
 
@@ -1220,6 +1227,13 @@ def assist_firestore_task(
             "generator": "history",
             "generatorNotes": [],
             "generatedAt": latest_plan.get("generatedAt"),
+            # New fields from Task Planning Skill
+            "complexity": latest_plan.get("complexity", "simple"),
+            "crux": latest_plan.get("crux"),
+            "approachOptions": latest_plan.get("approach_options"),
+            "recommendedPath": latest_plan.get("recommended_path"),
+            "openQuestions": latest_plan.get("open_questions"),
+            "doneWhen": latest_plan.get("done_when"),
         }
     
     response = {
@@ -1375,6 +1389,16 @@ def chat_with_firestore_task(
             "reason": update.reason,
         }
     
+    # Include pending email draft if DATA created a new draft from conversation
+    if chat_response.pending_email_draft:
+        draft = chat_response.pending_email_draft
+        response_data["pendingEmailDraft"] = {
+            "recipient": draft.recipient,
+            "subject": draft.subject,
+            "body": draft.body,
+            "reason": draft.reason,
+        }
+    
     return response_data
 
 
@@ -1423,6 +1447,13 @@ def assist_task(
             "generator": "history",
             "generatorNotes": [],
             "generatedAt": latest_plan.get("generatedAt"),
+            # New fields from Task Planning Skill
+            "complexity": latest_plan.get("complexity", "simple"),
+            "crux": latest_plan.get("crux"),
+            "approachOptions": latest_plan.get("approach_options"),
+            "recommendedPath": latest_plan.get("recommended_path"),
+            "openQuestions": latest_plan.get("open_questions"),
+            "doneWhen": latest_plan.get("done_when"),
         }
 
     response = {
@@ -1794,6 +1825,16 @@ def chat_with_task(
             "subject": update.subject,
             "body": update.body,
             "reason": update.reason,
+        }
+    
+    # Include pending email draft if DATA created a new draft from conversation
+    if chat_response.pending_email_draft:
+        draft = chat_response.pending_email_draft
+        response_data["pendingEmailDraft"] = {
+            "recipient": draft.recipient,
+            "subject": draft.subject,
+            "body": draft.body,
+            "reason": draft.reason,
         }
 
     return response_data

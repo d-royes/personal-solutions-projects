@@ -188,6 +188,9 @@ def _extract_planning_preferences(full_preferences: str) -> str:
 
     Looks for sections about Plan Generation to include in planning prompts.
     This keeps planning guidance maintainable in one place (the preferences file).
+    
+    IMPORTANT: Only extracts GOOD examples - BAD examples are filtered out to prevent
+    the LLM from accidentally using them as templates.
     """
     import re
 
@@ -203,7 +206,17 @@ def _extract_planning_preferences(full_preferences: str) -> str:
     matches = re.findall(pattern, full_preferences, re.DOTALL)
 
     for match in matches:
-        planning_sections.append(match.strip())
+        # Filter out BAD examples - only keep content up to "❌ BAD"
+        # This prevents the LLM from using bad examples as templates
+        if '❌ BAD' in match:
+            # Only keep the part before the BAD examples
+            good_part = match.split('❌ BAD')[0].strip()
+            # Remove trailing ``` if the code block is cut off
+            good_part = re.sub(r'\n```\s*$', '', good_part)
+            if good_part:
+                planning_sections.append(good_part)
+        else:
+            planning_sections.append(match.strip())
 
     if not planning_sections:
         return ""
@@ -211,9 +224,33 @@ def _extract_planning_preferences(full_preferences: str) -> str:
     return "\n\n".join(planning_sections)
 
 
-# Cache the preferences at module load
+# Load Task Planning Skill from SKILL.md
+def _load_planning_skill() -> str:
+    """Load the Task Planning Skill from SKILL.md.
+    
+    The skill provides structured guidance for task classification,
+    crux identification, and complexity-appropriate planning.
+    """
+    skill_path = Path(__file__).parent.parent.parent / "skills" / "task_planning" / "SKILL.md"
+    if not skill_path.exists():
+        return ""
+    
+    try:
+        content = skill_path.read_text(encoding="utf-8")
+        # Strip YAML frontmatter if present
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                content = parts[2].strip()
+        return content
+    except Exception:
+        return ""
+
+
+# Cache the preferences and skill at module load
 _DATA_PREFERENCES = _load_data_preferences()
 _PLANNING_PREFERENCES = _extract_planning_preferences(_DATA_PREFERENCES)
+_PLANNING_SKILL = _load_planning_skill()
 
 DEFAULT_MODEL = "claude-opus-4-5-20251101"
 SYSTEM_PROMPT = """You are the Daily Task Assistant, a diligent chief of staff.
@@ -234,29 +271,59 @@ Next Step: {next_step}
 Notes: {notes}
 Automation Hints: {automation_hint}
 
-Outputs:
-1. summary: single sentence describing urgency + outcome.
-2. next_steps: array of 2-4 SPECIFIC, ACTIONABLE steps to complete THIS task. Think about what David actually needs to DO.
-3. efficiency_tips: array of 1-3 tips SPECIFIC to this task (not generic productivity advice).
-4. suggested_actions: array of 1-3 action types relevant to THIS task (e.g., "research", "draft_email", "schedule", "follow_up", "delegate"). Only suggest "draft_email" if there's a clear external recipient mentioned in the task or notes.
+STEP 1 - CLASSIFY (silently, do not output):
+- Task Type: Problem-solving / Strategic / Research / Execution
+- Complexity: "simple" (clear path, just sequencing) | "medium" (some unknowns) | "complex" (significant tradeoffs/dependencies)
+
+STEP 2 - IDENTIFY CRUX (for medium/complex only, silently):
+- What's the real goal? (often broader than task title)
+- What's the crux? (the hard part, key decision, likely blocker)
+- What do the notes tell me? (clues, constraints, prior attempts)
+
+STEP 3 - GENERATE OUTPUT based on complexity:
+
+Required outputs (all tasks):
+1. complexity: "simple" | "medium" | "complex"
+2. summary: single sentence describing urgency + outcome
+3. next_steps: array of 2-4 SPECIFIC, ACTIONABLE steps. First step must be immediately actionable.
+4. efficiency_tips: array of 1-3 tips SPECIFIC to this task (not generic productivity advice)
+5. suggested_actions: array of 1-3 action types (e.g., "research", "draft_email", "schedule", "follow_up")
+
+Additional outputs (medium/complex tasks only):
+6. crux: 1-2 sentences identifying the hard part or key decision
+7. done_when: clear success criteria
+
+Additional outputs (complex tasks only):
+8. approach_options: array of objects with {{option, pro, con, best_if}} - 2-3 valid approaches
+9. recommended_path: which option you recommend and why (take a position!)
+10. open_questions: array of unknowns that need clarification (don't invent - flag gaps)
 
 CRITICAL - Be a Problem Solver:
 - READ the task title and notes carefully. What is David trying to accomplish?
 - THINK about the concrete steps needed. Where does he need to go? Who does he need to contact? What tools/resources does he need?
 - AVOID generic steps like "Confirm blockers/status" or "Capture updates in Smartsheet" - these apply to ANY task and aren't helpful.
 - Each next_step should be something David can actually DO to move this specific task forward.
+- SYNTHESIZE notes into insight, don't just echo them back.
 
 {planning_guidance}
 
 Rules:
 - RESPOND WITH JSON ONLY. No markdown. No explanations. Just the JSON object.
-- Keys required: summary, next_steps, efficiency_tips, suggested_actions.
+- Always include: complexity, summary, next_steps, efficiency_tips, suggested_actions
+- Include crux, done_when for medium/complex tasks
+- Include approach_options, recommended_path, open_questions for complex tasks only
 - Steps and tips must be strings without numbering prefixes.
 - Reference provided context; do not invent data.
 - The assignee (david.a.royes@gmail.com or davidroyes@southpointsda.org) is the OWNER, not a recipient. Never suggest emailing the owner.
 
-Example response format:
-{{"summary": "...", "next_steps": ["...", "..."], "efficiency_tips": ["..."], "suggested_actions": ["..."]}}
+Example (simple task):
+{{"complexity": "simple", "summary": "...", "next_steps": ["...", "..."], "efficiency_tips": ["..."], "suggested_actions": ["..."]}}
+
+Example (medium task):
+{{"complexity": "medium", "summary": "...", "crux": "...", "next_steps": ["...", "..."], "efficiency_tips": ["..."], "suggested_actions": ["..."], "done_when": "..."}}
+
+Example (complex task):
+{{"complexity": "complex", "summary": "...", "crux": "...", "next_steps": ["...", "..."], "efficiency_tips": ["..."], "suggested_actions": ["..."], "approach_options": [{{"option": "...", "pro": "...", "con": "...", "best_if": "..."}}], "recommended_path": "...", "open_questions": ["..."], "done_when": "..."}}
 """
 
 EMAIL_DRAFT_PROMPT = """Draft a professional email based on the provided content and task context.
@@ -293,7 +360,7 @@ class AnthropicNotConfigured(AnthropicError):
 @dataclass(slots=True)
 class AnthropicConfig:
     model: str = DEFAULT_MODEL
-    max_output_tokens: int = 800
+    max_output_tokens: int = 1500  # Increased for complex task plans with approach options
     temperature: float = 0.3
 
 
@@ -304,6 +371,13 @@ class AnthropicSuggestion:
     efficiency_tips: List[str]
     suggested_actions: List[str]
     raw: str
+    # New fields from Task Planning Skill
+    complexity: str = "simple"  # simple | medium | complex
+    crux: Optional[str] = None
+    approach_options: Optional[List[Dict[str, str]]] = None
+    recommended_path: Optional[str] = None
+    open_questions: Optional[List[str]] = None
+    done_when: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -355,10 +429,12 @@ def generate_assist_suggestion(
     client = client or build_anthropic_client()
     config = config or resolve_config(model_override)
 
-    # Build planning guidance from preferences (examples of good vs bad plans)
+    # Build planning guidance from preferences and skill
     planning_guidance = ""
     if _PLANNING_PREFERENCES:
         planning_guidance = f"EXAMPLES FROM PREFERENCES:\n{_PLANNING_PREFERENCES}"
+    if _PLANNING_SKILL:
+        planning_guidance += f"\n\nTASK PLANNING SKILL:\n{_PLANNING_SKILL}"
 
     prompt = USER_PROMPT_TEMPLATE.format(
         title=task.title,
@@ -426,6 +502,13 @@ Consider this context when generating your plan, but REMEMBER: respond with JSON
         efficiency_tips=_coerce_list(data.get("efficiency_tips")),
         suggested_actions=_coerce_list(data.get("suggested_actions")),
         raw=text,
+        # New fields from Task Planning Skill
+        complexity=_coerce_string(data.get("complexity")) or "simple",
+        crux=data.get("crux"),
+        approach_options=data.get("approach_options"),
+        recommended_path=data.get("recommended_path"),
+        open_questions=data.get("open_questions"),
+        done_when=data.get("done_when"),
     )
 
 
@@ -819,6 +902,34 @@ EMAIL_DRAFT_UPDATE_TOOL = {
     }
 }
 
+# Tool definition for creating new email drafts from chat
+CREATE_EMAIL_DRAFT_TOOL = {
+    "name": "create_email_draft",
+    "description": "Create a new email draft from conversation context. Use when the user asks to draft, write, or compose an email to someone. Gather recipient, purpose, and key points from the conversation before calling.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "recipient": {
+                "type": "string",
+                "description": "Email address of the recipient"
+            },
+            "subject": {
+                "type": "string",
+                "description": "Subject line for the email"
+            },
+            "body": {
+                "type": "string",
+                "description": "Body content for the email (plain text, professional tone)"
+            },
+            "reason": {
+                "type": "string",
+                "description": "Brief explanation of what this email accomplishes"
+            }
+        },
+        "required": ["recipient", "subject", "body", "reason"]
+    }
+}
+
 def _build_chat_system_prompt() -> str:
     """Build the chat system prompt, incorporating DATA preferences if available."""
     base_prompt = """You are DATA (Daily Autonomous Task Assistant), David's proactive AI chief of staff.
@@ -933,11 +1044,21 @@ class EmailDraftUpdate:
 
 
 @dataclass(slots=True)
+class PendingEmailDraft:
+    """New email draft created from chat conversation."""
+    recipient: str
+    subject: str
+    body: str
+    reason: str
+
+
+@dataclass(slots=True)
 class ChatResponse:
-    """Response from chat_with_tools, may include a pending action or email update."""
+    """Response from chat_with_tools, may include a pending action, email update, or new draft."""
     message: str
     pending_action: Optional[TaskUpdateAction] = None
     email_draft_update: Optional[EmailDraftUpdate] = None
+    pending_email_draft: Optional[PendingEmailDraft] = None
 
 
 @dataclass(slots=True)
@@ -1092,7 +1213,7 @@ Reference this context in your response when relevant."""
             temperature=0.5,
             system=CHAT_WITH_TOOLS_SYSTEM_PROMPT,
             messages=messages,
-            tools=[TASK_UPDATE_TOOL, WEB_SEARCH_TOOL, EMAIL_DRAFT_UPDATE_TOOL],
+            tools=[TASK_UPDATE_TOOL, WEB_SEARCH_TOOL, EMAIL_DRAFT_UPDATE_TOOL, CREATE_EMAIL_DRAFT_TOOL],
         )
     except APIStatusError as exc:
         raise AnthropicError(f"Anthropic API error: {exc}") from exc
@@ -1103,6 +1224,7 @@ Reference this context in your response when relevant."""
     text_content = []
     pending_action = None
     email_draft_update = None
+    pending_email_draft = None
     
     for block in getattr(response, "content", []):
         block_type = getattr(block, "type", None)
@@ -1135,6 +1257,14 @@ Reference this context in your response when relevant."""
                     body=tool_input.get("body"),
                     reason=tool_input.get("reason", ""),
                 )
+            elif tool_name == "create_email_draft":
+                tool_input = getattr(block, "input", {})
+                pending_email_draft = PendingEmailDraft(
+                    recipient=tool_input.get("recipient", ""),
+                    subject=tool_input.get("subject", ""),
+                    body=tool_input.get("body", ""),
+                    reason=tool_input.get("reason", ""),
+                )
 
     message = "\n".join(text_content).strip()
     
@@ -1151,8 +1281,17 @@ Reference this context in your response when relevant."""
         if email_draft_update.body:
             changes.append("body")
         message = f"I've updated the email {' and '.join(changes)}. {email_draft_update.reason}"
+    
+    # If there's a pending email draft but no message, generate a confirmation message
+    if pending_email_draft and not message:
+        message = f"I've drafted an email to {pending_email_draft.recipient}. {pending_email_draft.reason}"
 
-    return ChatResponse(message=message, pending_action=pending_action, email_draft_update=email_draft_update)
+    return ChatResponse(
+        message=message,
+        pending_action=pending_action,
+        email_draft_update=email_draft_update,
+        pending_email_draft=pending_email_draft,
+    )
 
 
 def _describe_action(action: TaskUpdateAction) -> str:
