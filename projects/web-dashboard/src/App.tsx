@@ -316,8 +316,10 @@ function App() {
     if (authConfig) {
       refreshTasks()
       refreshActivity()
+      loadEmailTasks()  // Load Firestore tasks (DATA Tasks) on mount
     } else {
       setTasks([])
+      setEmailTasks([])
       setAssistPlan(null)
       setConversation([])
     }
