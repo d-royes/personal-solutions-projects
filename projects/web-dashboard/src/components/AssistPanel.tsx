@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssistPlan, ConversationMessage, Task, FirestoreTask } from '../types'
-import type { AttachmentInfo, ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction } from '../api'
+import type { AttachmentInfo, ContactCard, ContactSearchResponse, FeedbackContext, FeedbackType, PendingAction, PendingEmailDraft } from '../api'
 import { EmailDraftPanel, type EmailDraft } from './EmailDraftPanel'
 import { AttachmentsGallery } from './AttachmentsGallery'
 
@@ -268,6 +268,10 @@ interface AssistPanelProps {
   updateExecuting?: boolean
   onConfirmUpdate?: () => void
   onCancelUpdate?: () => void
+  // Email draft creation from chat
+  pendingEmailDraft?: PendingEmailDraft | null
+  onConfirmEmailDraft?: () => void
+  onCancelEmailDraft?: () => void
   // Feedback callback
   onFeedbackSubmit?: OnFeedbackSubmit
   // Workspace persistence
@@ -440,6 +444,9 @@ export function AssistPanel({
   updateExecuting,
   onConfirmUpdate,
   onCancelUpdate,
+  pendingEmailDraft,
+  onConfirmEmailDraft,
+  onCancelEmailDraft,
   onFeedbackSubmit,
   initialWorkspaceItems,
   onWorkspaceChange,
@@ -486,6 +493,19 @@ export function AssistPanel({
   const emailDraftOpen = emailDraftOpenProp ?? localEmailDraftOpen
   const setEmailDraftOpen = setEmailDraftOpenProp ?? setLocalEmailDraftOpen
   const [emailDraft, setEmailDraft] = useState<Partial<EmailDraft> | null>(null)
+  
+  // Sync emailDraft from savedDraft when panel opens (e.g., from chat-created draft)
+  useEffect(() => {
+    if (emailDraftOpen && savedDraft && (savedDraft.subject || savedDraft.body || savedDraft.to?.length > 0)) {
+      setEmailDraft({
+        subject: savedDraft.subject,
+        body: savedDraft.body,
+        to: savedDraft.to,
+        cc: savedDraft.cc,
+        fromAccount: savedDraft.fromAccount,
+      })
+    }
+  }, [emailDraftOpen, savedDraft])
   
   // Three-zone layout state
   const [verticalSplit, setVerticalSplit] = useState(50) // % for planning zone width
@@ -798,6 +818,24 @@ export function AssistPanel({
       planParts.push(`## Current Plan\n${latestPlan.summary}`)
     }
     
+    // The Crux (medium/complex)
+    if (latestPlan.crux && (latestPlan.complexity === 'medium' || latestPlan.complexity === 'complex')) {
+      planParts.push(`## The Crux\n${latestPlan.crux}`)
+    }
+    
+    // Approach Options (complex only)
+    if (latestPlan.complexity === 'complex' && latestPlan.approachOptions && latestPlan.approachOptions.length > 0) {
+      const options = latestPlan.approachOptions.map(opt => 
+        `### ${opt.option}\n- Pro: ${opt.pro}\n- Con: ${opt.con}\n- Best if: ${opt.best_if}`
+      ).join('\n\n')
+      planParts.push(`## Approach Options\n${options}`)
+    }
+    
+    // Recommended Path (complex only)
+    if (latestPlan.complexity === 'complex' && latestPlan.recommendedPath) {
+      planParts.push(`## Recommended Path\n${latestPlan.recommendedPath}`)
+    }
+    
     // Next Steps
     if (latestPlan.nextSteps && latestPlan.nextSteps.length > 0) {
       const steps = latestPlan.nextSteps.map(step => `- ${step}`).join('\n')
@@ -808,6 +846,17 @@ export function AssistPanel({
     if (latestPlan.efficiencyTips && latestPlan.efficiencyTips.length > 0) {
       const tips = latestPlan.efficiencyTips.map(tip => `- ${tip}`).join('\n')
       planParts.push(`## Efficiency Tips\n${tips}`)
+    }
+    
+    // Open Questions (complex only)
+    if (latestPlan.complexity === 'complex' && latestPlan.openQuestions && latestPlan.openQuestions.length > 0) {
+      const questions = latestPlan.openQuestions.map(q => `- ${q}`).join('\n')
+      planParts.push(`## Open Questions\n${questions}`)
+    }
+    
+    // Done When (medium/complex)
+    if (latestPlan.doneWhen && (latestPlan.complexity === 'medium' || latestPlan.complexity === 'complex')) {
+      planParts.push(`## Done When\n${latestPlan.doneWhen}`)
     }
     
     const fullPlanContent = planParts.join('\n\n')
@@ -1652,6 +1701,11 @@ export function AssistPanel({
                   <div className="plan-section">
                     <h5>
                       Current Plan
+                      {latestPlan.complexity && (
+                        <span className={`complexity-badge complexity-${latestPlan.complexity}`}>
+                          {latestPlan.complexity}
+                        </span>
+                      )}
                       {latestPlan.generatedAt && (
                         <span className="plan-date">
                           {new Date(latestPlan.generatedAt).toLocaleDateString()}
@@ -1677,25 +1731,80 @@ export function AssistPanel({
                     )}
                   </div>
 
+                  {/* The Crux - shown for medium/complex tasks */}
+                  {latestPlan.crux && (latestPlan.complexity === 'medium' || latestPlan.complexity === 'complex') && (
+                    <div className="plan-section crux-section">
+                      <h5>🎯 The Crux</h5>
+                      <p className="crux-text">{latestPlan.crux}</p>
+                    </div>
+                  )}
+
+                  {/* Approach Options - shown for complex tasks only */}
+                  {latestPlan.complexity === 'complex' && latestPlan.approachOptions && latestPlan.approachOptions.length > 0 && (
+                    <div className="plan-section approach-section">
+                      <h5>Approach Options</h5>
+                      <div className="approach-options">
+                        {latestPlan.approachOptions.map((opt, i) => (
+                          <div key={i} className="approach-option">
+                            <div className="option-header">{opt.option}</div>
+                            <div className="option-details">
+                              <span className="pro">✓ {opt.pro}</span>
+                              <span className="con">✗ {opt.con}</span>
+                              <span className="best-if">Best if: {opt.best_if}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommended Path - shown for complex tasks only */}
+                  {latestPlan.complexity === 'complex' && latestPlan.recommendedPath && (
+                    <div className="plan-section recommended-section">
+                      <h5>✅ Recommended Path</h5>
+                      <p className="recommended-text">{latestPlan.recommendedPath}</p>
+                    </div>
+                  )}
+
                   {latestPlan.nextSteps?.length > 0 && (
-                    <div className="plan-section">
-                      <h5>Next Steps</h5>
-                      <ul className="compact-list">
+                    <div className="plan-section next-steps-section">
+                      <h5>📋 Next Steps</h5>
+                      <ol className="compact-list numbered-list">
                         {latestPlan.nextSteps.map((step, i) => (
                           <li key={i}>{step}</li>
                         ))}
-                      </ul>
+                      </ol>
                     </div>
                   )}
 
                   {latestPlan.efficiencyTips?.length > 0 && (
-                    <div className="plan-section">
-                      <h5>Efficiency Tips</h5>
+                    <div className="plan-section tips-section">
+                      <h5>💡 Efficiency Tips</h5>
                       <ul className="compact-list">
                         {latestPlan.efficiencyTips.map((tip, i) => (
                           <li key={i}>{tip}</li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {/* Open Questions - shown for complex tasks only */}
+                  {latestPlan.complexity === 'complex' && latestPlan.openQuestions && latestPlan.openQuestions.length > 0 && (
+                    <div className="plan-section questions-section">
+                      <h5>❓ Open Questions</h5>
+                      <ul className="compact-list">
+                        {latestPlan.openQuestions.map((q, i) => (
+                          <li key={i}>{q}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Done When - shown for medium/complex tasks */}
+                  {latestPlan.doneWhen && (latestPlan.complexity === 'medium' || latestPlan.complexity === 'complex') && (
+                    <div className="plan-section done-when-section">
+                      <h5>🏁 Done When</h5>
+                      <p className="done-when-text">{latestPlan.doneWhen}</p>
                     </div>
                   )}
 
@@ -2013,6 +2122,41 @@ export function AssistPanel({
         </div>
       )}
 
+      {/* Pending email draft confirmation card */}
+      {pendingEmailDraft && (
+        <div className="pending-action-card email-draft-card">
+          <div className="pending-action-header">
+            <span className="pending-icon">✉️</span>
+            <strong>Email Draft Ready</strong>
+          </div>
+          <div className="pending-action-content">
+            <p className="email-draft-detail">
+              <strong>To:</strong> {pendingEmailDraft.recipient}
+            </p>
+            <p className="email-draft-detail">
+              <strong>Subject:</strong> {pendingEmailDraft.subject}
+            </p>
+            <p className="pending-action-reason">
+              {pendingEmailDraft.reason}
+            </p>
+          </div>
+          <div className="pending-action-buttons">
+            <button
+              className="confirm-btn"
+              onClick={onConfirmEmailDraft}
+            >
+              Open Draft
+            </button>
+            <button
+              className="cancel-btn"
+              onClick={onCancelEmailDraft}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Chat input - pinned at bottom */}
       <form
         className="chat-input-bottom"
@@ -2034,9 +2178,9 @@ export function AssistPanel({
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Message DATA..."
           rows={2}
-          disabled={!!pendingAction}
+          disabled={!!pendingAction || !!pendingEmailDraft}
         />
-        <button type="submit" disabled={disableSend || !!pendingAction} className="send-btn">
+        <button type="submit" disabled={disableSend || !!pendingAction || !!pendingEmailDraft} className="send-btn">
           {sendingMessage ? '...' : 'Send'}
         </button>
       </form>

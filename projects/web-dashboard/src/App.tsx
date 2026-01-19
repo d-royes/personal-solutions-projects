@@ -56,6 +56,7 @@ import type {
   FeedbackContext,
   FeedbackType,
   PendingAction,
+  PendingEmailDraft,
 } from './api'
 import type {
   ActivityEntry,
@@ -108,6 +109,9 @@ function App() {
   // Task update state
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [updateExecuting, setUpdateExecuting] = useState(false)
+  
+  // Pending email draft from chat (new draft creation)
+  const [pendingEmailDraft, setPendingEmailDraft] = useState<PendingEmailDraft | null>(null)
 
   // Email draft state
   const [emailDraftLoading, setEmailDraftLoading] = useState(false)
@@ -1007,6 +1011,11 @@ function App() {
           }, authConfig, apiBase)
         }
       }
+      
+      // Check if DATA created a new email draft from conversation
+      if (result.pendingEmailDraft) {
+        setPendingEmailDraft(result.pendingEmailDraft)
+      }
     } catch (err) {
       console.error('Chat error:', err)
       setAssistError(err instanceof Error ? err.message : 'Chat failed')
@@ -1137,6 +1146,38 @@ function App() {
 
   function handleCancelUpdate() {
     setPendingAction(null)
+  }
+  
+  // Handle confirming a new email draft created from chat
+  function handleConfirmEmailDraft() {
+    if (!pendingEmailDraft) return
+    
+    // Get the task ID - works with both Smartsheet and Firestore tasks
+    const taskId = selectedTaskId || (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+    if (!taskId) return
+    
+    // Populate the saved draft with the pending draft content
+    setSavedDraft({
+      taskId: taskId,
+      to: [pendingEmailDraft.recipient],
+      cc: [],
+      subject: pendingEmailDraft.subject,
+      body: pendingEmailDraft.body,
+      fromAccount: '',
+      sourceContent: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    
+    // Open the email draft panel
+    setEmailDraftOpen(true)
+    
+    // Clear the pending draft
+    setPendingEmailDraft(null)
+  }
+  
+  function handleCancelEmailDraft() {
+    setPendingEmailDraft(null)
   }
 
   // Feedback submission handler - supports both Smartsheet and Firestore tasks
@@ -1648,6 +1689,9 @@ function App() {
                   updateExecuting={updateExecuting}
                   onConfirmUpdate={handleConfirmUpdate}
                   onCancelUpdate={handleCancelUpdate}
+                  pendingEmailDraft={pendingEmailDraft}
+                  onConfirmEmailDraft={handleConfirmEmailDraft}
+                  onCancelEmailDraft={handleCancelEmailDraft}
                   onFeedbackSubmit={handleFeedbackSubmit}
                   initialWorkspaceItems={workspaceItems}
                   onWorkspaceChange={handleWorkspaceChange}
