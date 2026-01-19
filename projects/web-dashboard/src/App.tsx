@@ -622,9 +622,10 @@ function App() {
       if (response.research) {
         setWorkspaceItems(prev => {
           const newItems = [...prev, response.research]
-          // Trigger save after state update
-          if (selectedTask?.rowId && authConfig) {
-            void saveWorkspace(selectedTask.rowId, newItems, authConfig, apiBase)
+          // Trigger save after state update - support both Smartsheet and Firestore tasks
+          const saveTaskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+          if (saveTaskId && authConfig) {
+            void saveWorkspace(saveTaskId, newItems, authConfig, apiBase)
           }
           return newItems
         })
@@ -663,9 +664,10 @@ function App() {
       if (response.summary) {
         setWorkspaceItems(prev => {
           const newItems = [...prev, response.summary]
-          // Trigger save after state update
-          if (selectedTask?.rowId && authConfig) {
-            void saveWorkspace(selectedTask.rowId, newItems, authConfig, apiBase)
+          // Trigger save after state update - support both Smartsheet and Firestore tasks
+          const saveTaskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+          if (saveTaskId && authConfig) {
+            void saveWorkspace(saveTaskId, newItems, authConfig, apiBase)
           }
           return newItems
         })
@@ -718,9 +720,10 @@ function App() {
           // Add each contact as a separate workspace item
           setWorkspaceItems(prev => {
             const newItems = [...prev, ...contactCards]
-            // Trigger save after state update
-            if (selectedTask?.rowId && authConfig) {
-              void saveWorkspace(selectedTask.rowId, newItems, authConfig, apiBase)
+            // Trigger save after state update - support both Smartsheet and Firestore tasks
+            const saveTaskId = selectedTask?.rowId ?? (selectedFirestoreTask ? `fs:${selectedFirestoreTask.id}` : null)
+            if (saveTaskId && authConfig) {
+              void saveWorkspace(saveTaskId, newItems, authConfig, apiBase)
             }
             return newItems
           })

@@ -2195,15 +2195,14 @@ def send_email_endpoint(
     
     Sends the email using the specified Gmail account, then logs the action
     to the conversation history and posts a comment to Smartsheet.
+    Supports both Smartsheet tasks and Firestore tasks (prefixed with 'fs:').
     """
     from daily_task_assistant.mailer import GmailError, load_account_from_env, send_email
 
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=None, source=request.source, include_work_in_all=True
+    # Use get_task_by_id to handle both Smartsheet and Firestore tasks
+    target, is_firestore, settings, live_tasks, warning = get_task_by_id(
+        task_id, user, request.source
     )
-    target = next((task for task in tasks if task.row_id == task_id), None)
-    if not target:
-        raise HTTPException(status_code=404, detail="Task not found.")
 
     # Load Gmail account configuration
     try:
