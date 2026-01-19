@@ -128,22 +128,65 @@ def clear_conversation(task_id: str) -> None:
 
 
 def build_plan_summary(plan: AssistPlan) -> str:
-    """Render a human-readable summary suitable for chat bubbles."""
-
+    """Render a human-readable summary suitable for chat bubbles.
+    
+    Includes new fields from Task Planning Skill when present.
+    """
+    sections = [plan.summary, ""]
+    
+    # Add complexity indicator
+    if hasattr(plan, 'complexity') and plan.complexity and plan.complexity != "simple":
+        sections.append(f"**Complexity:** {plan.complexity}")
+        sections.append("")
+    
+    # Add crux for medium/complex tasks
+    if hasattr(plan, 'crux') and plan.crux:
+        sections.append("**The Crux:**")
+        sections.append(plan.crux)
+        sections.append("")
+    
+    # Add approach options for complex tasks
+    if hasattr(plan, 'approach_options') and plan.approach_options:
+        sections.append("**Approach Options:**")
+        for opt in plan.approach_options:
+            opt_name = opt.get('option', 'Option')
+            sections.append(f"- {opt_name}")
+        sections.append("")
+    
+    # Add recommended path for complex tasks
+    if hasattr(plan, 'recommended_path') and plan.recommended_path:
+        sections.append("**Recommended Path:**")
+        sections.append(plan.recommended_path)
+        sections.append("")
+    
+    # Next steps (always present)
     next_steps = "\n".join(f"- {step}" for step in plan.next_steps)
+    sections.append("**Next steps:**")
+    sections.append(next_steps or "- No specific steps provided.")
+    sections.append("")
+    
+    # Efficiency tips
     efficiency = "\n".join(f"- {tip}" for tip in plan.efficiency_tips)
+    sections.append("**Efficiency tips:**")
+    sections.append(efficiency or "- No efficiency tips right now.")
+    sections.append("")
+    
+    # Open questions for complex tasks
+    if hasattr(plan, 'open_questions') and plan.open_questions:
+        questions = "\n".join(f"- {q}" for q in plan.open_questions)
+        sections.append("**Open Questions:**")
+        sections.append(questions)
+        sections.append("")
+    
+    # Done when for medium/complex tasks
+    if hasattr(plan, 'done_when') and plan.done_when:
+        sections.append("**Done When:**")
+        sections.append(plan.done_when)
+        sections.append("")
+    
     actions = ", ".join(plan.suggested_actions) if plan.suggested_actions else "none"
-    sections = [
-        plan.summary,
-        "",
-        "Next steps:",
-        next_steps or "- No specific steps provided.",
-        "",
-        "Efficiency tips:",
-        efficiency or "- No efficiency tips right now.",
-        "",
-        f"Available actions: {actions}",
-    ]
+    sections.append(f"**Available actions:** {actions}")
+    
     return "\n".join(section for section in sections if section is not None).strip()
 
 
@@ -305,13 +348,31 @@ def _append_message(task_id: str, message: ConversationMessage) -> None:
 
 
 def _plan_snapshot(plan: AssistPlan) -> Dict[str, Any]:
-    return {
+    """Serialize plan for Firestore storage.
+    
+    Includes all fields from Task Planning Skill integration.
+    """
+    snapshot = {
         "summary": plan.summary,
         "next_steps": plan.next_steps,
         "efficiency_tips": plan.efficiency_tips,
         "suggested_actions": plan.suggested_actions,
         "labels": plan.labels,
+        # New fields from Task Planning Skill
+        "complexity": plan.complexity,
     }
+    # Only include optional fields if they have values (keeps Firestore docs lean)
+    if plan.crux:
+        snapshot["crux"] = plan.crux
+    if plan.approach_options:
+        snapshot["approach_options"] = plan.approach_options
+    if plan.recommended_path:
+        snapshot["recommended_path"] = plan.recommended_path
+    if plan.open_questions:
+        snapshot["open_questions"] = plan.open_questions
+    if plan.done_when:
+        snapshot["done_when"] = plan.done_when
+    return snapshot
 
 
 def _now() -> str:

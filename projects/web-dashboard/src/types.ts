@@ -38,6 +38,18 @@ export interface AssistPlan {
   commentPosted?: boolean
   warnings?: string[]
   generatedAt?: string | null  // ISO timestamp when plan was generated
+  // New fields from Task Planning Skill
+  complexity?: 'simple' | 'medium' | 'complex'
+  crux?: string | null
+  approachOptions?: Array<{
+    option: string
+    pro: string
+    con: string
+    best_if: string
+  }> | null
+  recommendedPath?: string | null
+  openQuestions?: string[] | null
+  doneWhen?: string | null
 }
 
 export interface ConversationMessage {
@@ -51,6 +63,18 @@ export interface ConversationMessage {
     efficiency_tips: string[]
     suggested_actions: string[]
     labels?: string[]
+    // New fields from Task Planning Skill
+    complexity?: 'simple' | 'medium' | 'complex'
+    crux?: string | null
+    approach_options?: Array<{
+      option: string
+      pro: string
+      con: string
+      best_if: string
+    }> | null
+    recommended_path?: string | null
+    open_questions?: string[] | null
+    done_when?: string | null
   }
   struck?: boolean
   struckAt?: string
