@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from ..analysis.prioritizer import detect_automation_triggers, score_task
 from ..llm import (
@@ -32,6 +32,13 @@ class AssistPlan:
     suggested_actions: List[str]
     generator: str = "templates"
     generator_notes: List[str] = field(default_factory=list)
+    # New fields from Task Planning Skill
+    complexity: str = "simple"  # simple | medium | complex
+    crux: Optional[str] = None
+    approach_options: Optional[List[Dict[str, Any]]] = None
+    recommended_path: Optional[str] = None
+    open_questions: Optional[List[str]] = None
+    done_when: Optional[str] = None
 
 
 def plan_assist(
@@ -56,6 +63,14 @@ def plan_assist(
     generator = "templates"
     generator_notes: List[str] = []
 
+    # Initialize new fields with defaults
+    complexity = "simple"
+    crux: Optional[str] = None
+    approach_options: Optional[List[Dict[str, Any]]] = None
+    recommended_path: Optional[str] = None
+    open_questions: Optional[List[str]] = None
+    done_when: Optional[str] = None
+
     llm_suggestion = _maybe_call_llm(
         task,
         generator_notes,
@@ -72,6 +87,13 @@ def plan_assist(
             efficiency = llm_suggestion.efficiency_tips
         if llm_suggestion.suggested_actions:
             suggested_actions = llm_suggestion.suggested_actions
+        # Copy new fields from Task Planning Skill
+        complexity = llm_suggestion.complexity or "simple"
+        crux = llm_suggestion.crux
+        approach_options = llm_suggestion.approach_options
+        recommended_path = llm_suggestion.recommended_path
+        open_questions = llm_suggestion.open_questions
+        done_when = llm_suggestion.done_when
 
     return AssistPlan(
         task=task,
@@ -85,6 +107,13 @@ def plan_assist(
         suggested_actions=suggested_actions,
         generator=generator,
         generator_notes=generator_notes,
+        # New fields from Task Planning Skill
+        complexity=complexity,
+        crux=crux,
+        approach_options=approach_options,
+        recommended_path=recommended_path,
+        open_questions=open_questions,
+        done_when=done_when,
     )
 
 
