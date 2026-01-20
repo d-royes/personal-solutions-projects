@@ -31,8 +31,8 @@ const FS_BLOCKED_STATUSES = ['on_hold', 'awaiting_reply', 'needs_approval', 'blo
  * Returns true if any attention signal is triggered.
  */
 function needsAttention(task: FirestoreTask, signals: AttentionSignals): boolean {
-  // Skip completed tasks
-  if (task.done || task.status === 'completed') return false
+  // Skip completed/cancelled tasks
+  if (task.done || task.status === 'completed' || task.status === 'cancelled') return false
   
   // Always-on signals (not configurable)
   
@@ -418,8 +418,8 @@ export function TaskList({
           {emailTasksLoading ? (
             <p>Loading DATA tasks…</p>
           ) : emailTasks.filter(t => {
-            // Filter out completed tasks
-            if (t.done || t.status === 'completed') return false
+            // Filter out completed/cancelled tasks
+            if (t.done || t.status === 'completed' || t.status === 'cancelled') return false
             // Apply domain filter
             if (dataTasksDomain !== 'all' && t.domain?.toLowerCase() !== dataTasksDomain) return false
             // Apply search filter if there's a search term
@@ -439,8 +439,8 @@ export function TaskList({
           ) : (
             <ul className="task-list">
             {emailTasks.filter(t => {
-              // Filter out completed tasks
-              if (t.done || t.status === 'completed') return false
+              // Filter out completed/cancelled tasks
+              if (t.done || t.status === 'completed' || t.status === 'cancelled') return false
               // Apply domain filter
               if (dataTasksDomain !== 'all' && t.domain?.toLowerCase() !== dataTasksDomain) return false
               // Apply search filter if there's a search term
@@ -584,28 +584,22 @@ export function TaskList({
             return (
               <ul className="task-list needs-attention-list">
                 {attentionTasks.sort((a, b) => {
-                  // Sort: Orphaned first, then by urgency (deadline, slippage)
-                  // 1. Orphaned tasks first
-                  if (a.syncStatus === 'orphaned' && b.syncStatus !== 'orphaned') return -1
-                  if (b.syncStatus === 'orphaned' && a.syncStatus !== 'orphaned') return 1
-                  
-                  // 2. Hard deadline (closest first)
-                  const deadlineA = a.daysUntilDeadline ?? 999
-                  const deadlineB = b.daysUntilDeadline ?? 999
-                  if (deadlineA !== deadlineB) return deadlineA - deadlineB
-                  
-                  // 3. Slippage (highest first)
-                  if (a.timesRescheduled !== b.timesRescheduled) {
-                    return b.timesRescheduled - a.timesRescheduled
-                  }
-                  
-                  // 4. Blocked status
-                  const aBlocked = FS_BLOCKED_STATUSES.includes(a.status?.toLowerCase() || '')
-                  const bBlocked = FS_BLOCKED_STATUSES.includes(b.status?.toLowerCase() || '')
-                  if (aBlocked && !bBlocked) return -1
-                  if (bBlocked && !aBlocked) return 1
-                  
-                  return 0
+                  // Sort: Due Date → Priority → Status Category (same as DATA Tasks view)
+                  // 1. Due Date (earliest first)
+                  const dateA = a.plannedDate || a.dueDate || '9999-12-31'
+                  const dateB = b.plannedDate || b.dueDate || '9999-12-31'
+                  const dueDiff = new Date(dateA).getTime() - new Date(dateB).getTime()
+                  if (dueDiff !== 0) return dueDiff
+
+                  // 2. Priority (highest first: Critical > Urgent > Important > Standard > Low)
+                  const priorityA = PRIORITY_ORDER[a.priority ?? ''] ?? 99
+                  const priorityB = PRIORITY_ORDER[b.priority ?? ''] ?? 99
+                  if (priorityA !== priorityB) return priorityA - priorityB
+
+                  // 3. Status category (Active > Blocked > Scheduled)
+                  const statusA = FS_STATUS_CATEGORY[a.status ?? ''] ?? 99
+                  const statusB = FS_STATUS_CATEGORY[b.status ?? ''] ?? 99
+                  return statusA - statusB
                 }).map((task) => {
                   const domain = task.domain.charAt(0).toUpperCase() + task.domain.slice(1)
                   const reason = getAttentionReason(task, settings.attentionSignals)

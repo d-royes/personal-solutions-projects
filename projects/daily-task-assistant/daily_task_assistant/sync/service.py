@@ -741,23 +741,24 @@ class SyncService:
             ss_task: TaskDetail from Smartsheet
             result: SyncResult to update with counts
         """
-        # Skip Cancelled tasks - don't sync or recreate them in Firestore
-        # This handles tasks that were deleted from Firestore and marked Cancelled in SS
-        if ss_task.status == "Cancelled":
-            result.unchanged += 1
-            return
-        
         # Check if task already exists in Firestore (by smartsheet_row_id)
         existing = self._find_firestore_task_by_row_id(ss_task.row_id, ss_task.source)
 
         if existing:
-            # Check if update needed
+            # Task exists in Firestore - sync updates (including cancelled status)
             if self._needs_update(existing, ss_task):
                 self._update_firestore_from_smartsheet(existing, ss_task)
                 result.updated += 1
             else:
                 result.unchanged += 1
         else:
+            # Task doesn't exist in Firestore
+            # Skip creating new tasks from Cancelled SS rows (ghost task prevention)
+            # This handles tasks that were deleted from Firestore - we don't want to recreate them
+            if ss_task.status == "Cancelled":
+                result.unchanged += 1
+                return
+            
             # Create new Firestore task
             self._create_firestore_from_smartsheet(ss_task)
             result.created += 1
