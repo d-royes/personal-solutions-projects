@@ -524,6 +524,7 @@ export function AssistPanel({
   const [editTargetDate, setEditTargetDate] = useState('')
   const [editHardDeadline, setEditHardDeadline] = useState('')
   const [editNotes, setEditNotes] = useState('')
+  const [editDone, setEditDone] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   
   // Workspace items (content pushed from chat) - initialized from props
@@ -1042,6 +1043,7 @@ export function AssistPanel({
                 setEditTargetDate(task.targetDate || '')
                 setEditHardDeadline(task.hardDeadline || '')
                 setEditNotes(task.notes || '')
+                setEditDone(task.done || false)
                 setIsEditingFirestore(true)
               }}
             >
@@ -1075,7 +1077,14 @@ export function AssistPanel({
                 <label>Status</label>
                 <select
                   value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value)}
+                  onChange={(e) => {
+                    const newStatus = e.target.value
+                    setEditStatus(newStatus)
+                    // Auto-set done for terminal statuses
+                    if (['completed', 'cancelled', 'delegated'].includes(newStatus)) {
+                      setEditDone(true)
+                    }
+                  }}
                   className="fs-edit-select"
                 >
                   <option value="scheduled">Scheduled</option>
@@ -1085,6 +1094,7 @@ export function AssistPanel({
                   <option value="follow_up">Follow-up</option>
                   <option value="completed">Completed</option>
                   <option value="cancelled">Cancelled</option>
+                  <option value="delegated">Delegated</option>
                 </select>
               </div>
               <div className="fs-edit-field">
@@ -1144,6 +1154,16 @@ export function AssistPanel({
                 rows={3}
               />
             </div>
+            <div className="fs-edit-field fs-edit-checkbox">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={editDone}
+                  onChange={(e) => setEditDone(e.target.checked)}
+                />
+                <span>Done (marks task as complete in Smartsheet)</span>
+              </label>
+            </div>
             <div className="fs-edit-actions">
               <button
                 className="crud-btn save-btn"
@@ -1160,6 +1180,7 @@ export function AssistPanel({
                         targetDate: editTargetDate || null,
                         hardDeadline: editHardDeadline || null,
                         notes: editNotes,
+                        done: editDone,
                       })
                       setIsEditingFirestore(false)
                     } finally {
