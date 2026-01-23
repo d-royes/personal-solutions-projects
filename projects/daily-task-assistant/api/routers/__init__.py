@@ -16,9 +16,9 @@ from .tasks import router as tasks_router
 from .tasks import sync_router
 from .tasks import work_router
 from .calendar import router as calendar_router
+from .assist import router as assist_router
 
 # Future routers (uncomment as they are created)
-# from .assist import router as assist_router
 # from .email import router as email_router
 
 __all__ = [
@@ -26,6 +26,6 @@ __all__ = [
     "sync_router",
     "work_router",
     "calendar_router", 
-    # "assist_router",
+    "assist_router",
     # "email_router",
 ]
