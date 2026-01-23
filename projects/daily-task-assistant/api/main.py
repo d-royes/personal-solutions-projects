@@ -116,6 +116,22 @@ if origins:
     )
 
 
+# =============================================================================
+# MODULAR ROUTERS (Phase 2+ of API Refactoring)
+# =============================================================================
+# These routers are being extracted from main.py incrementally.
+# Original endpoints below will be removed as routers are validated.
+
+from api.routers import tasks_router, sync_router, work_router, calendar_router, assist_router, email_router
+
+app.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
+app.include_router(sync_router, prefix="/sync", tags=["sync"])
+app.include_router(work_router, prefix="/work", tags=["work"])
+app.include_router(calendar_router, prefix="/calendar", tags=["calendar"])
+app.include_router(assist_router, prefix="/assist", tags=["assist"])
+app.include_router(email_router, tags=["email"])  # No prefix - paths include /inbox and /email
+
+
 @lru_cache
 def _get_settings():
     return load_settings()
@@ -325,78 +341,11 @@ def health_check() -> dict:
     }
 
 
-@app.get("/tasks")
-def list_tasks(
-    source: Literal["auto", "live", "stub"] = Query("auto"),
-    limit: Optional[int] = Query(None, ge=1, le=500),
-    include_work: bool = Query(False, alias="includeWork"),
-    user: str = Depends(get_current_user),
-) -> dict:
-    tasks, live_tasks, settings, warning = fetch_task_dataset(
-        limit=limit, source=source, include_work_in_all=include_work
-    )
-    return {
-        "tasks": [serialize_task(task) for task in tasks],
-        "liveTasks": live_tasks,
-        "environment": settings.environment,
-        "warning": warning,
-    }
-
-
-@app.get("/work/badge")
-def get_work_badge(
-    user: str = Depends(get_current_user),
-) -> dict:
-    """Get work task badge/notification counts.
-    
-    Returns counts of work tasks that need attention for the Work filter badge.
-    """
-    from daily_task_assistant.smartsheet_client import SmartsheetClient
-    from datetime import datetime, date
-    
-    settings = _get_settings()
-    
-    try:
-        client = SmartsheetClient(settings)
-        # Fetch work tasks only
-        tasks = client.list_tasks(sources=["work"])
-    except Exception:
-        # If work sheet not available, return zeros
-        return {
-            "needsAttention": 0,
-            "overdue": 0,
-            "dueToday": 0,
-            "total": 0,
-        }
-    
-    today = date.today()
-    overdue = 0
-    due_today = 0
-    
-    for task in tasks:
-        if task.due:
-            try:
-                # Handle both date objects and date strings
-                if isinstance(task.due, date):
-                    due_date = task.due
-                elif isinstance(task.due, str):
-                    due_date = datetime.fromisoformat(task.due.replace("Z", "+00:00")).date()
-                else:
-                    continue
-                    
-                if due_date < today:
-                    overdue += 1
-                elif due_date == today:
-                    due_today += 1
-            except (ValueError, AttributeError, TypeError):
-                pass
-    
-    return {
-        "needsAttention": overdue + due_today,
-        "overdue": overdue,
-        "dueToday": due_today,
-        "total": len(tasks),
-    }
+# =============================================================================
+# MOVED TO api/routers/tasks.py:
+# - GET /tasks (list_tasks)
+# - GET /work/badge (get_work_badge)
+# =============================================================================
 
 
 # --- Global Portfolio Mode Endpoints ---
