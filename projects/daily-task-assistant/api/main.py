@@ -122,13 +122,14 @@ if origins:
 # These routers are being extracted from main.py incrementally.
 # Original endpoints below will be removed as routers are validated.
 
-from api.routers import tasks_router, sync_router, work_router, calendar_router, assist_router
+from api.routers import tasks_router, sync_router, work_router, calendar_router, assist_router, email_router
 
 app.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 app.include_router(sync_router, prefix="/sync", tags=["sync"])
 app.include_router(work_router, prefix="/work", tags=["work"])
 app.include_router(calendar_router, prefix="/calendar", tags=["calendar"])
 app.include_router(assist_router, prefix="/assist", tags=["assist"])
+app.include_router(email_router, tags=["email"])  # No prefix - paths include /inbox and /email
 
 
 @lru_cache
